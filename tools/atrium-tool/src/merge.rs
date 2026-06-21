@@ -116,6 +116,58 @@ pub fn run(base: &Path, overlay: &Path, out: &Path, fill_missing: bool) -> Resul
     Ok(())
 }
 
+/// `atrium set` — upsert a single override record (the CLI way to capture the
+/// data that isn't in LaunchBox: the color/mouse facets, corrections, custom
+/// art/desc). Updates the matching `id` record in the overlay or appends a new
+/// one; comments/order preserved.
+pub fn set(overlay: &Path, id: &str, fields: &Map<String, Value>) -> Result<()> {
+    let text = std::fs::read_to_string(overlay).unwrap_or_default();
+    let mut out = String::new();
+    let mut found = false;
+    let mut changed = 0usize;
+
+    for line in text.lines() {
+        let t = line.trim();
+        if is_blank_or_comment(t) {
+            out.push_str(line);
+            out.push('\n');
+            continue;
+        }
+        let mut obj: Map<String, Value> =
+            serde_json::from_str(t).with_context(|| format!("overlay line: {t}"))?;
+        if id_of(&obj).as_deref() == Some(id) {
+            found = true;
+            for (k, v) in fields {
+                if obj.get(k) != Some(v) {
+                    obj.insert(k.clone(), v.clone());
+                    changed += 1;
+                }
+            }
+        }
+        out.push_str(&serde_json::to_string(&Value::Object(obj))?);
+        out.push('\n');
+    }
+
+    if !found {
+        let mut obj = Map::new();
+        obj.insert("id".into(), Value::from(id));
+        for (k, v) in fields {
+            obj.insert(k.clone(), v.clone());
+        }
+        out.push_str(&serde_json::to_string(&Value::Object(obj))?);
+        out.push('\n');
+        changed = fields.len();
+    }
+
+    std::fs::write(overlay, &out).with_context(|| format!("writing {}", overlay.display()))?;
+    eprintln!(
+        "set: {} \"{id}\" ({changed} field(s)) -> {}",
+        if found { "updated" } else { "added" },
+        overlay.display()
+    );
+    Ok(())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

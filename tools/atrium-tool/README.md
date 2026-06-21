@@ -26,6 +26,7 @@ Every push builds + tests; releases publish on `main` / tag pushes.
 | `harvest` | **done** | Pull apps out of a donor HFS image (the MacPack `.vhd`s) into `/MacAtrium/Apps`, both forks, + dataset stubs |
 | `enrich` | **done** | Fill the dataset (year/vendor/genre + art URLs) from the LaunchBox Games Database |
 | `merge` | **done** | Apply a manual overrides overlay (colour/mouse, corrections, unmatched titles) over the dataset |
+| `set` | **done** | CLI upsert of one override record (the colour/mouse "checkbox" + corrections) |
 | `pict` | **done** | PNG/JPEG → PICT at 1/4/8/16-bit (docs/06 Images) |
 | `image` | **done** | Orchestrate a full bootable build end-to-end (retires the bash `assemble.sh`) |
 
@@ -168,6 +169,21 @@ set are applied, and the overlay **wins** (use `--fill-missing` to only fill
 gaps). Overlay ids not present in the base are appended as new records. So the
 full metadata flow is: `enrich` fills from LaunchBox (gaps only) → `merge` lays
 your manual corrections on top (authoritative).
+
+### `atrium set`
+
+The CLI "checkbox" for capturing the data LaunchBox lacks — upserts one override
+record into the overlay (creates it or updates fields in place):
+
+```sh
+atrium set --id dark-castle --bw --mouse              # B&W, Mouse Required
+atrium set --id prince-of-persia --color --no-mouse   # Color, keyboard
+atrium set --id glider --vendor "Casady & Greene" --genre "Arcade"
+```
+
+`--color`/`--bw` set the colour facet, `--mouse`/`--no-mouse` the mouse facet;
+`--year`/`--vendor`/`--genre`/`--desc`/`--image`/`--name`/`--app` set the rest.
+Writes to `--overlay` (default `data/overrides.jsonl`), which `merge` applies.
 
 ### `atrium image`
 

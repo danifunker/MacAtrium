@@ -91,6 +91,42 @@ enum Cmd {
         curl: String,
     },
 
+    /// Capture manual data into the overrides overlay (the CLI "checkbox" for the
+    /// color/mouse facets LaunchBox lacks, plus corrections). Upserts by id.
+    Set {
+        /// Overrides overlay to write (e.g. data/overrides.jsonl).
+        #[arg(long, default_value = "data/overrides.jsonl")]
+        overlay: PathBuf,
+        /// The item id to set.
+        #[arg(long)]
+        id: String,
+        /// Mark as Color (--color) or B&W (--bw).
+        #[arg(long, conflicts_with = "bw")]
+        color: bool,
+        #[arg(long)]
+        bw: bool,
+        /// Mark Mouse Required (--mouse) or No Mouse (--no-mouse).
+        #[arg(long, conflicts_with = "no_mouse")]
+        mouse: bool,
+        #[arg(long)]
+        no_mouse: bool,
+        #[arg(long)]
+        year: Option<i64>,
+        #[arg(long)]
+        vendor: Option<String>,
+        /// Comma-separated genres, e.g. "Action,Puzzle".
+        #[arg(long)]
+        genre: Option<String>,
+        #[arg(long)]
+        desc: Option<String>,
+        #[arg(long)]
+        image: Option<String>,
+        #[arg(long)]
+        name: Option<String>,
+        #[arg(long)]
+        app: Option<String>,
+    },
+
     /// Apply a manual overrides overlay (partial records by id) onto the dataset:
     /// overlay fields win (manual corrections + color/mouse LaunchBox lacks);
     /// overlay ids not in the base are appended as new records.
@@ -203,6 +239,32 @@ fn main() -> Result<()> {
         }
         Cmd::Enrich { src, metadata, out, platform, overwrite, art_manifest, detect_color, curl } => {
             enrich::run(&src, &metadata, &out, &platform, overwrite, art_manifest.as_deref(), detect_color, &curl)?;
+        }
+
+        Cmd::Set {
+            overlay, id, color, bw, mouse, no_mouse,
+            year, vendor, genre, desc, image, name, app,
+        } => {
+            use serde_json::{Map, Value};
+            let mut f = Map::new();
+            if color { f.insert("color".into(), Value::Bool(true)); }
+            if bw { f.insert("color".into(), Value::Bool(false)); }
+            if mouse { f.insert("mouse".into(), Value::Bool(true)); }
+            if no_mouse { f.insert("mouse".into(), Value::Bool(false)); }
+            if let Some(y) = year { f.insert("year".into(), Value::from(y)); }
+            if let Some(v) = vendor { f.insert("vendor".into(), Value::from(v)); }
+            if let Some(g) = genre {
+                let arr: Vec<Value> = g.split(',').map(|s| Value::from(s.trim())).collect();
+                f.insert("genre".into(), Value::Array(arr));
+            }
+            if let Some(d) = desc { f.insert("desc".into(), Value::from(d)); }
+            if let Some(i) = image { f.insert("image".into(), Value::from(i)); }
+            if let Some(n) = name { f.insert("name".into(), Value::from(n)); }
+            if let Some(a) = app { f.insert("app".into(), Value::from(a)); }
+            if f.is_empty() {
+                anyhow::bail!("nothing to set — pass --color/--bw, --mouse/--no-mouse, or a field");
+            }
+            merge::set(&overlay, &id, &f)?;
         }
 
         Cmd::Merge { base, overlay, out, fill_missing } => {
