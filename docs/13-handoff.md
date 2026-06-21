@@ -131,11 +131,19 @@ directly, organised by year/genre with a full text index).
    *Next:* depth-matched variant selection in the launcher; median-cut palettes; resize.
 4. **Install the launcher** — Startup Items now; add the **boot-block shell-swap**
    option (we proved the swap works, §C″/S3) for a true Finder-replacement build.
-5. **Emit a bootable `.hda`** — `atrium image` (planned): orchestrate 1–4 +
-   launcher install + harness smoke test; retire the bash `assemble.sh`.
+5. **Emit a bootable `.hda`** — `atrium image` (**deferred on purpose**): the
+   one-command orchestrator (catalog + apps + art + launcher install + harness
+   smoke test, retiring `assemble.sh`) is held until the **LaunchBox enrichment**
+   lands, because that step defines the real dataset + art-source shape `image`
+   will consume — building it first avoids rework. `assemble.sh` remains the quick
+   hand-test path meanwhile.
 
-Deliverable: `atrium image …`, reproducible and CI-able. `assemble.sh` stays the
-quick hand-test path until `atrium image` lands.
+**Immediate next step — LaunchBox enrichment.** Wire the **LaunchBox Games
+Database** ("Apple Macintosh") into `data/library.jsonl`: map names/years/genres/
+publishers/box-art onto our facet fields, merging curated overrides (docs/06
+§"Build-time"). *Awaiting a sample of the LaunchBox DB-access code from the user*
+before implementing (likely a new `atrium enrich` verb feeding the dataset that
+`catalog`/`pict` already consume). Then build `atrium image` against that pipeline.
 
 ---
 
