@@ -187,7 +187,17 @@ saved PRAM/`scrn` setting. Depth-matched variants make this non-blocking for
 correctness. Other nice-to-haves: thread long GUI ops + box-art thumbnails;
 bundle `rb-cli` per-platform into the release.
 
-Otherwise → **Priority 2 (the 7.x feature set, §5).**
+**Priority 2 — started:**
+- **Inline box-art pane — done.** Wide screens show the selected title's box art
+  (depth-matched, lazy-loaded) beside the list; verified in Snow
+  ([evidence/inline-art-pane.png](evidence/inline-art-pane.png)).
+- **True full-screen (hide menu bar) — attempted, reverted/deferred.** A naive
+  `LMSetMBarHeight(0)` regressed: a resident sub-launched app's menu bar persists
+  on return (its MenuList isn't cleared). Needs proper MenuList save/restore +
+  bar-region redraw across launches. Reverted to the proven below-menu-bar window.
+- Next candidates (§5): type-ahead jump (needs rebinding the `T`/`P` letter keys),
+  Settings menu (Control Panels via FindFolder + `odoc` AppleEvent), aliases for
+  launch targets, per-item display depth, finish Launch Finder / boot-shell.
 
 ---
 
