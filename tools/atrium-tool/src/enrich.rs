@@ -78,21 +78,65 @@ fn strip_groups(s: &str) -> String {
     out
 }
 
+/// Drop a trailing dotted version token ("Glider 4.0" -> "Glider") but NOT a
+/// bare sequel number ("Prince of Persia 2" stays distinct).
+fn strip_version(s: &str) -> String {
+    let t = s.trim_end();
+    if let Some(pos) = t.rfind(' ') {
+        let last = &t[pos + 1..];
+        if last.contains('.')
+            && last.chars().any(|c| c.is_ascii_digit())
+            && last.chars().all(|c| c.is_ascii_digit() || c == '.')
+        {
+            return t[..pos].to_string();
+        }
+    }
+    s.to_string()
+}
+
+/// Drop a leading or trailing article from an already-normalised key, so
+/// "the hobbit" and "hobbit the" (from "Hobbit, The") both reduce to "hobbit".
+fn strip_articles(k: &str) -> String {
+    let mut s = k;
+    for a in ["the ", "a ", "an "] {
+        if let Some(rest) = s.strip_prefix(a) {
+            s = rest;
+            break;
+        }
+    }
+    for a in [" the", " a", " an"] {
+        if let Some(rest) = s.strip_suffix(a) {
+            s = rest;
+            break;
+        }
+    }
+    s.to_string()
+}
+
 /// Normalised match keys for a title: the full name, with the parenthetical
-/// qualifier removed, and with any ":" subtitle dropped — so our clean titles
-/// match LaunchBox's disambiguated ones ("Deja Vu: A Nightmare Comes True!!").
+/// qualifier removed, with any ":" subtitle dropped, and each of those with
+/// articles stripped — so our clean titles match LaunchBox's disambiguated ones
+/// ("Deja Vu: A Nightmare Comes True!!", "Hobbit, The", "The Ancient Art of War").
 fn candidate_keys(name: &str) -> Vec<String> {
     let stripped = strip_groups(name);
+    let before_colon = name.split(':').next().unwrap_or(name);
+    let stripped_before_colon = stripped.split(':').next().unwrap_or(&stripped);
+    let raw = [
+        name.to_string(),
+        stripped.clone(),
+        before_colon.to_string(),
+        stripped_before_colon.to_string(),
+    ];
     let mut v: Vec<String> = Vec::new();
-    for cand in [
-        name,
-        &stripped,
-        name.split(':').next().unwrap_or(name),
-        stripped.split(':').next().unwrap_or(&stripped),
-    ] {
-        let k = normalize(cand);
-        if !k.is_empty() && !v.contains(&k) {
-            v.push(k);
+    for r in &raw {
+        for cand in [r.clone(), strip_version(r)] {
+            let k = normalize(&cand);
+            let a = strip_articles(&k);
+            for kk in [k, a] {
+                if !kk.is_empty() && !v.contains(&kk) {
+                    v.push(kk);
+                }
+            }
         }
     }
     v
@@ -396,6 +440,25 @@ mod tests {
             .contains(&"deja vu".to_string()));
         // a sequel must NOT reduce to the base title
         assert!(!candidate_keys("Prince of Persia 2").contains(&"prince of persia".to_string()));
+    }
+
+    #[test]
+    fn candidate_keys_handle_articles() {
+        // "The Ancient Art of War" and our "Ancient Art of War" share a key
+        assert!(candidate_keys("The Ancient Art of War").contains(&"ancient art of war".to_string()));
+        assert!(candidate_keys("Ancient Art of War").contains(&"ancient art of war".to_string()));
+        // comma-article: "Hobbit, The" -> "hobbit"
+        assert!(candidate_keys("Hobbit, The").contains(&"hobbit".to_string()));
+        assert!(candidate_keys("The Hobbit").contains(&"hobbit".to_string()));
+    }
+
+    #[test]
+    fn candidate_keys_handle_versions() {
+        // dotted version stripped: "Glider 4.0" matches our "Glider"
+        assert!(candidate_keys("Glider 4.0").contains(&"glider".to_string()));
+        assert_eq!(strip_version("Glider 4.0"), "Glider");
+        // bare sequel number NOT stripped
+        assert_eq!(strip_version("Prince of Persia 2"), "Prince of Persia 2");
     }
 
     #[test]
