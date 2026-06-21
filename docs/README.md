@@ -26,6 +26,8 @@ Read in order for the full picture; jump by topic once oriented.
 | — | [09-roadmap.md](09-roadmap.md) | Milestones & phases, MVP definition |
 | — | [10-open-questions.md](10-open-questions.md) | Deferred decisions and things to verify on real targets |
 | — | [11-derisk-log.md](11-derisk-log.md) | **De-risk findings** — APIs confirmed from Apple headers, emulator choice (Snow), what's left to test |
+| — | [12-mvp-handoff.md](12-mvp-handoff.md) | The original "build the MVP" prompt (done) |
+| — | [13-handoff.md](13-handoff.md) | **Start here to resume** — post-MVP status, environment, and the next two pushes (image tooling, then full 7.x) |
 
 Spikes (focused experiments) live in [`../spikes/`](../spikes/) — currently
 `launch-return/`, the keystone test that proves resident launch returns control.
