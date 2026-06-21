@@ -18,12 +18,13 @@ cargo test                     # unit tests (catalog facets, MacRoman, CR ending
 | `catalog` | **done** | Compile a curated dataset → on-Mac `catalog.jsonl` (faceted categories, CR line endings, MacRoman encoding) |
 | `harvest` | **done** | Pull apps out of a donor HFS image (the MacPack `.vhd`s) into `/MacAtrium/Apps`, both forks, + dataset stubs |
 | `enrich` | **done** | Fill the dataset (year/vendor/genre + art URLs) from the LaunchBox Games Database |
+| `merge` | **done** | Apply a manual overrides overlay (colour/mouse, corrections, unmatched titles) over the dataset |
 | `pict` | **done** | PNG/JPEG → PICT at 1/4/8/16-bit (docs/06 Images) |
 | `image` | planned | Orchestrate a full bootable build end-to-end (retire the bash `assemble.sh`) |
 
 The intended pipeline: **`harvest`** (bare stubs from a donor disk) → **`enrich`**
-(fill metadata from LaunchBox) → curate colour/mouse by hand → **`catalog`** +
-**`pict`** → (eventually) **`image`**.
+(fill metadata from LaunchBox) → **`merge`** (manual `overrides.jsonl`: colour/mouse
++ corrections, which win) → **`catalog`** + **`pict`** → (eventually) **`image`**.
 
 ### `atrium catalog`
 
@@ -136,6 +137,22 @@ hit LaunchBox's disambiguated ones ("Prince of Persia (Brøderbund Software)",
 data. **LaunchBox has no colour or mouse-required data — those two facets stay
 curated.** Unmatched titles are reported for manual fixing. Approach adapted from
 megatron-uk/x68klauncher's `tools/metadata.py`.
+
+### `atrium merge`
+
+Apply a manual overrides overlay onto the dataset — the home for hand-captured
+data: the **colour/mouse** facets LaunchBox lacks, corrections to anything
+`enrich` got wrong, and whole records for titles it couldn't match.
+
+```sh
+atrium merge --base data/library.jsonl --overlay data/overrides.jsonl --out data/library.jsonl
+```
+
+`overrides.jsonl` holds **partial records keyed by `id`** — only the fields you
+set are applied, and the overlay **wins** (use `--fill-missing` to only fill
+gaps). Overlay ids not present in the base are appended as new records. So the
+full metadata flow is: `enrich` fills from LaunchBox (gaps only) → `merge` lays
+your manual corrections on top (authoritative).
 
 The launcher previews the selected item's `image` PICT with the **P** key.
 **Verified rendering in Snow** (1-bit screen): 1-bit (dithered), 8-bit, and

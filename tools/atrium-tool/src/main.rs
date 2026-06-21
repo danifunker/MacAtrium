@@ -13,6 +13,7 @@ mod catalog;
 mod enrich;
 mod harvest;
 mod macroman;
+mod merge;
 mod pict;
 mod rbcli;
 
@@ -81,6 +82,24 @@ enum Cmd {
         /// Write a JSONL manifest of Box-Front art URLs (id, databaseID, art).
         #[arg(long)]
         art_manifest: Option<PathBuf>,
+    },
+
+    /// Apply a manual overrides overlay (partial records by id) onto the dataset:
+    /// overlay fields win (manual corrections + color/mouse LaunchBox lacks);
+    /// overlay ids not in the base are appended as new records.
+    Merge {
+        /// Base dataset (e.g. data/library.jsonl).
+        #[arg(long)]
+        base: PathBuf,
+        /// Overrides overlay (partial records by id, e.g. data/overrides.jsonl).
+        #[arg(long)]
+        overlay: PathBuf,
+        /// Output dataset (may equal --base to merge in place).
+        #[arg(long)]
+        out: PathBuf,
+        /// Only fill missing fields instead of letting the overlay win.
+        #[arg(long)]
+        fill_missing: bool,
     },
 
     /// Convert PNG/JPEG artwork to a classic-Mac PICT file at a given depth.
@@ -175,6 +194,10 @@ fn main() -> Result<()> {
         }
         Cmd::Enrich { src, metadata, out, platform, overwrite, art_manifest } => {
             enrich::run(&src, &metadata, &out, &platform, overwrite, art_manifest.as_deref())?;
+        }
+
+        Cmd::Merge { base, overlay, out, fill_missing } => {
+            merge::run(&base, &overlay, &out, fill_missing)?;
         }
 
         Cmd::Pict { input, out, depth, no_pack } => {

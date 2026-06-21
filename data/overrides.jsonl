@@ -1,0 +1,16 @@
+# data/overrides.jsonl — MANUAL overrides, applied over the dataset by
+# `atrium merge` (overlay wins). This is where hand-captured data lives:
+#
+#   • the facets LaunchBox doesn't carry — `color` (true=Color/false=B&W) and
+#     `mouse` (true=Mouse Required/false=No Mouse);
+#   • corrections to anything `atrium enrich` got wrong (e.g. a publisher name);
+#   • whole records for titles `enrich` couldn't match (give id+name+app+facets).
+#
+# Each line is a PARTIAL record keyed by `id`; only the fields you set are
+# applied. Pipeline order: harvest -> enrich (LaunchBox, fills gaps) -> merge
+# (this file, wins) -> catalog/pict. Lines starting with '#' or '//' are ignored.
+#
+# Examples (delete/replace with real data):
+# {"id":"prince-of-persia","color":true,"mouse":false}
+# {"id":"dark-castle","color":false,"mouse":true}
+# {"id":"glider","name":"Glider","kind":"game","year":1991,"vendor":"Casady & Greene","color":true,"mouse":true,"genre":["Arcade"],"app":"Apps/Glider/Glider"}
