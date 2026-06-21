@@ -1,0 +1,14 @@
+# Build output
+build/
+**/build/
+*.o
+*.bin
+*.APPL
+
+# Local test disk images (inject into copies, don't commit)
+*.dsk
+*.hda
+*.img
+
+# macOS
+.DS_Store
