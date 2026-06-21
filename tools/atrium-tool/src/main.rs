@@ -9,16 +9,8 @@
 //! Today `catalog` is implemented; `pict`, `harvest`, and `image` are scaffolded
 //! stubs that describe their planned behaviour.
 
-mod catalog;
-mod enrich;
-mod harvest;
-mod image;
-mod macroman;
-mod merge;
-mod pict;
-mod rbcli;
-
 use anyhow::Result;
+use atrium::{catalog, enrich, harvest, image, merge, pict};
 use clap::{Parser, Subcommand};
 use std::path::PathBuf;
 
