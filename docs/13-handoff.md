@@ -172,12 +172,22 @@ unit-tested and proven in Snow. Plus:
   so atrium keeps its dependency-free clean cross-compile (its lib pulls
   libchdman/openssl/gtk3).
 
-Remaining polish (queued): fold the LaunchBox **art download** (the
-`enrich --art-manifest` URLs) into `image`; median-cut palettes + resize in
-`pict`; depth-matched art variant selection in the launcher (sidesteps the
-4-bit-on-mono fault) + the 4-bit-on-colour-screen check; thread long GUI ops +
-box-art thumbnails; bundle `rb-cli` into the release. Otherwise →
-**Priority 2 (the 7.x feature set, §5).**
+Polish — **done:** `pict` adaptive **median-cut** palettes + **`--max`** resize;
+`image` **`download_art`** (fetch Box-Front art from LaunchBox → PICT → inject,
+proven in Snow with real Dark Castle box art); launcher **depth-matched art
+variants** (`art_depths: ["1","8"]` → base `image` path; the launcher loads the
+variant matching the screen depth, so a 1-bit screen never draws a colour PICT —
+the 4-bit-on-mono fault can't occur in production).
+
+Polish — **deferred (tooling-blocked, non-blocking):** the literal
+*4-bit-on-a-colour-screen* check (and exercising the colour render backend at
+depth) needs Snow booted at a colour depth, which the headless **keystroke-only**
+harness can't set up — the screen depth is programmed by Monitors (mouse) or a
+saved PRAM/`scrn` setting. Depth-matched variants make this non-blocking for
+correctness. Other nice-to-haves: thread long GUI ops + box-art thumbnails;
+bundle `rb-cli` per-platform into the release.
+
+Otherwise → **Priority 2 (the 7.x feature set, §5).**
 
 ---
 
