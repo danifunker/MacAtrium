@@ -234,8 +234,17 @@ fn field_tag(n: &[u8]) -> Option<&'static str> {
     }
 }
 
-/// Stream pass 2: Box-Front (preferred) image filename per wanted DatabaseID.
-fn parse_box_art(path: &Path, wanted: &HashSet<String>) -> Result<HashMap<String, String>> {
+/// The images we care about per game.
+#[derive(Default, Clone)]
+pub struct ImageSet {
+    pub box_front: Option<String>,  // FileName for "Box - Front"
+    pub screenshot: Option<String>, // FileName for a gameplay screenshot
+}
+
+/// Stream pass 2: per wanted DatabaseID, the best Box-Front (for art) and the
+/// best gameplay Screenshot (for colour detection). Box art is colourful even
+/// for B&W games, so the *screenshot* is what classifies colour.
+fn parse_images(path: &Path, wanted: &HashSet<String>) -> Result<HashMap<String, ImageSet>> {
     let mut reader = Reader::from_reader(BufReader::new(std::fs::File::open(path)?));
     reader.config_mut().trim_text(true);
 
@@ -243,8 +252,9 @@ fn parse_box_art(path: &Path, wanted: &HashSet<String>) -> Result<HashMap<String
     let mut in_img = false;
     let mut cur: Option<&'static str> = None;
     let mut acc: HashMap<&str, String> = HashMap::new();
-    // database_id -> (is_box_front, filename)
-    let mut found: HashMap<String, (bool, String)> = HashMap::new();
+    let mut out: HashMap<String, ImageSet> = HashMap::new();
+    // track whether the chosen screenshot was the preferred "Gameplay" one
+    let mut shot_is_gameplay: HashMap<String, bool> = HashMap::new();
 
     loop {
         match reader.read_event_into(&mut buf)? {
@@ -269,17 +279,19 @@ fn parse_box_art(path: &Path, wanted: &HashSet<String>) -> Result<HashMap<String
                     in_img = false;
                     cur = None;
                     if let (Some(id), Some(file)) = (acc.get("DatabaseID"), acc.get("FileName")) {
-                        if wanted.contains(id.trim()) {
-                            let is_box = acc.get("Type").map(|t| t == "Box - Front").unwrap_or(false);
-                            let entry = found.entry(id.trim().to_string());
-                            match entry {
-                                std::collections::hash_map::Entry::Vacant(v) => {
-                                    v.insert((is_box, file.trim().to_string()));
-                                }
-                                std::collections::hash_map::Entry::Occupied(mut o) => {
-                                    if is_box && !o.get().0 {
-                                        o.insert((true, file.trim().to_string()));
-                                    }
+                        let id = id.trim().to_string();
+                        if wanted.contains(&id) {
+                            let ty = acc.get("Type").map(String::as_str).unwrap_or("");
+                            let file = file.trim().to_string();
+                            let set = out.entry(id.clone()).or_default();
+                            if ty == "Box - Front" {
+                                set.box_front = Some(file.clone());
+                            } else if ty.starts_with("Screenshot") {
+                                let gameplay = ty == "Screenshot - Gameplay";
+                                let had_gameplay = *shot_is_gameplay.get(&id).unwrap_or(&false);
+                                if set.screenshot.is_none() || (gameplay && !had_gameplay) {
+                                    set.screenshot = Some(file);
+                                    shot_is_gameplay.insert(id, gameplay);
                                 }
                             }
                         }
@@ -293,7 +305,50 @@ fn parse_box_art(path: &Path, wanted: &HashSet<String>) -> Result<HashMap<String
         }
         buf.clear();
     }
-    Ok(found.into_iter().map(|(k, (_, f))| (k, f)).collect())
+    Ok(out)
+}
+
+/// Download a URL to `out` via curl (no Rust HTTP dependency). Returns Ok only if
+/// the file ends up non-empty.
+fn download(url: &str, out: &Path, curl: &str) -> Result<()> {
+    let dst = out.to_string_lossy();
+    let status = std::process::Command::new(curl)
+        .args(["-sL", "--max-time", "30", "-o", &dst, url])
+        .status()
+        .with_context(|| format!("running {curl}"))?;
+    anyhow::ensure!(status.success(), "curl failed for {url}");
+    let len = std::fs::metadata(out).map(|m| m.len()).unwrap_or(0);
+    anyhow::ensure!(len > 0, "empty download for {url}");
+    Ok(())
+}
+
+/// Classify an image as colour (true) or B&W (false) by the fraction of clearly
+/// saturated pixels — robust to JPEG chroma noise on grayscale shots.
+fn is_color_image(path: &Path) -> Result<bool> {
+    let img = image::ImageReader::open(path)?
+        .with_guessed_format()?
+        .decode()?
+        .to_rgb8();
+    let (w, h) = img.dimensions();
+    let data = img.as_raw();
+    let n = (w as usize) * (h as usize);
+    if n == 0 {
+        return Ok(false);
+    }
+    let step = (n / 5000).max(1);
+    let (mut colored, mut total) = (0usize, 0usize);
+    let mut i = 0;
+    while i < n {
+        let o = i * 3;
+        let (r, g, b) = (data[o] as i32, data[o + 1] as i32, data[o + 2] as i32);
+        let sat = r.max(g).max(b) - r.min(g).min(b);
+        if sat > 40 {
+            colored += 1;
+        }
+        total += 1;
+        i += step;
+    }
+    Ok(total > 0 && (colored as f64 / total as f64) >= 0.03)
 }
 
 fn is_blank_or_comment(t: &str) -> bool {
@@ -309,6 +364,12 @@ fn missing(obj: &Map<String, Value>, key: &str) -> bool {
     }
 }
 
+/// A dataset line: a comment/blank to pass through, or a parsed record.
+enum Item {
+    Pass(String),
+    Rec(Map<String, Value>),
+}
+
 pub fn run(
     src: &Path,
     metadata: &Path,
@@ -316,6 +377,8 @@ pub fn run(
     platform: &str,
     overwrite: bool,
     art_manifest: Option<&Path>,
+    detect_color: bool,
+    curl_bin: &str,
 ) -> Result<()> {
     let games = parse_games(metadata, platform)?;
     eprintln!("LaunchBox: {} games on platform \"{platform}\"", games.len());
@@ -336,19 +399,19 @@ pub fn run(
         }
     }
 
-    let text = std::fs::read_to_string(src)
-        .with_context(|| format!("reading {}", src.display()))?;
-    let mut out_text = String::new();
+    let text =
+        std::fs::read_to_string(src).with_context(|| format!("reading {}", src.display()))?;
+    let mut items: Vec<Item> = Vec::new();
     let mut total = 0usize;
     let mut matched = 0usize;
     let mut unmatched: Vec<String> = Vec::new();
-    let mut wanted_ids: Vec<(String, String)> = Vec::new(); // (item id, database id)
+    // (index into `items`, database id) for the matched records
+    let mut wanted: Vec<(usize, String)> = Vec::new();
 
     for line in text.lines() {
         let t = line.trim();
         if is_blank_or_comment(t) {
-            out_text.push_str(line);
-            out_text.push('\n');
+            items.push(Item::Pass(line.to_string()));
             continue;
         }
         total += 1;
@@ -374,15 +437,66 @@ pub fn run(
             if !g.genres.is_empty() && (overwrite || missing(&obj, "genre")) {
                 obj.insert("genre".into(), Value::from(g.genres.clone()));
             }
-            wanted_ids.push((id.clone(), g.database_id.clone()));
+            wanted.push((items.len(), g.database_id.clone()));
         } else {
             unmatched.push(format!("{name} ({id})"));
         }
-
-        out_text.push_str(&serde_json::to_string(&Value::Object(obj))?);
-        out_text.push('\n');
+        items.push(Item::Rec(obj));
     }
 
+    // Image lookup (shared by colour detection + the art manifest).
+    let images = if detect_color || art_manifest.is_some() {
+        let ids: HashSet<String> = wanted.iter().map(|(_, d)| d.clone()).collect();
+        parse_images(metadata, &ids)?
+    } else {
+        HashMap::new()
+    };
+
+    // Colour detection from a gameplay screenshot (box art is always colourful).
+    let (mut col_n, mut bw_n) = (0usize, 0usize);
+    if detect_color {
+        let tmp = std::env::temp_dir().join("atrium-shots");
+        std::fs::create_dir_all(&tmp)?;
+        for (item_idx, dbid) in &wanted {
+            let need = match &items[*item_idx] {
+                Item::Rec(o) => overwrite || missing(o, "color"),
+                _ => false,
+            };
+            if !need {
+                continue;
+            }
+            let Some(shot) = images.get(dbid).and_then(|s| s.screenshot.as_ref()) else {
+                continue;
+            };
+            let dst = tmp.join(dbid);
+            if download(&format!("{IMAGE_URL}{shot}"), &dst, curl_bin).is_ok() {
+                if let Ok(is_col) = is_color_image(&dst) {
+                    if let Item::Rec(o) = &mut items[*item_idx] {
+                        o.insert("color".into(), Value::Bool(is_col));
+                    }
+                    if is_col {
+                        col_n += 1;
+                    } else {
+                        bw_n += 1;
+                    }
+                }
+            }
+        }
+    }
+
+    let mut out_text = String::new();
+    for it in &items {
+        match it {
+            Item::Pass(s) => {
+                out_text.push_str(s);
+                out_text.push('\n');
+            }
+            Item::Rec(o) => {
+                out_text.push_str(&serde_json::to_string(&Value::Object(o.clone()))?);
+                out_text.push('\n');
+            }
+        }
+    }
     std::fs::write(out, &out_text).with_context(|| format!("writing {}", out.display()))?;
 
     eprintln!(
@@ -390,21 +504,24 @@ pub fn run(
         out.display(),
         unmatched.len()
     );
+    if detect_color {
+        eprintln!("colour-detect: {col_n} colour, {bw_n} B&W (from screenshots)");
+    }
     for u in &unmatched {
         eprintln!("  unmatched: {u}");
     }
 
     if let Some(mpath) = art_manifest {
-        let ids: HashSet<String> = wanted_ids.iter().map(|(_, d)| d.clone()).collect();
-        let art = parse_box_art(metadata, &ids)?;
         let mut m = String::new();
         let mut n = 0;
-        for (item_id, db_id) in &wanted_ids {
-            if let Some(file) = art.get(db_id) {
+        for (item_idx, db_id) in &wanted {
+            let item_id = match &items[*item_idx] {
+                Item::Rec(o) => o.get("id").and_then(Value::as_str).unwrap_or(""),
+                _ => "",
+            };
+            if let Some(file) = images.get(db_id).and_then(|s| s.box_front.as_ref()) {
                 m.push_str(&format!(
-                    "{{\"id\":{:?},\"databaseID\":{:?},\"art\":{:?}}}\n",
-                    item_id,
-                    db_id,
+                    "{{\"id\":{item_id:?},\"databaseID\":{db_id:?},\"art\":{:?}}}\n",
                     format!("{IMAGE_URL}{file}")
                 ));
                 n += 1;

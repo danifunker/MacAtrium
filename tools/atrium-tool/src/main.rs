@@ -83,6 +83,12 @@ enum Cmd {
         /// Write a JSONL manifest of Box-Front art URLs (id, databaseID, art).
         #[arg(long)]
         art_manifest: Option<PathBuf>,
+        /// Auto-detect color/B&W from a gameplay screenshot (downloads images).
+        #[arg(long)]
+        detect_color: bool,
+        /// curl binary used to download screenshots for --detect-color.
+        #[arg(long, default_value = "curl")]
+        curl: String,
     },
 
     /// Apply a manual overrides overlay (partial records by id) onto the dataset:
@@ -195,8 +201,8 @@ fn main() -> Result<()> {
                 catalog::inject(&rb_cli, &image, &out, &metadata_dir, backup_dir.as_deref())?;
             }
         }
-        Cmd::Enrich { src, metadata, out, platform, overwrite, art_manifest } => {
-            enrich::run(&src, &metadata, &out, &platform, overwrite, art_manifest.as_deref())?;
+        Cmd::Enrich { src, metadata, out, platform, overwrite, art_manifest, detect_color, curl } => {
+            enrich::run(&src, &metadata, &out, &platform, overwrite, art_manifest.as_deref(), detect_color, &curl)?;
         }
 
         Cmd::Merge { base, overlay, out, fill_missing } => {

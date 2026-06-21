@@ -24,6 +24,7 @@ fn d_apps_root() -> String { "/MacAtrium/Apps".into() }
 fn d_metadir() -> String { "/MacAtrium/metadata".into() }
 fn d_imagesdir() -> String { "/MacAtrium/images".into() }
 fn d_artdepth() -> String { "8".into() }
+fn d_curl() -> String { "curl".into() }
 
 #[derive(Deserialize)]
 struct HarvestSrc {
@@ -54,6 +55,11 @@ struct Config {
     metadata: Option<PathBuf>,
     #[serde(default = "d_platform")]
     platform: String,
+    /// Auto-detect color/B&W from LaunchBox screenshots during enrich.
+    #[serde(default)]
+    detect_color: bool,
+    #[serde(default = "d_curl")]
+    curl: String,
     /// Apps to harvest from donor images into the output.
     #[serde(default)]
     harvest: Vec<HarvestSrc>,
@@ -142,10 +148,10 @@ pub fn run(config: &Path) -> Result<()> {
         }
     }
 
-    // 4. enrich from LaunchBox (fills gaps only)
+    // 4. enrich from LaunchBox (fills gaps only; optional color auto-detect)
     if let Some(md) = &cfg.metadata {
         eprintln!("[3/7] enrich       LaunchBox \"{}\"", cfg.platform);
-        enrich::run(&work, md, &work, &cfg.platform, false, None)?;
+        enrich::run(&work, md, &work, &cfg.platform, false, None, cfg.detect_color, &cfg.curl)?;
     }
 
     // 5. manual overrides (win)

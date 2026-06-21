@@ -132,12 +132,19 @@ atrium enrich --src data/library.jsonl --metadata Metadata.xml --out data/librar
 Filters to `--platform "Apple Mac OS"` (default), then fills **`year`** (ReleaseYear/
 ReleaseDate), **`vendor`** (Publisher), and **`genre[]`** (Genres, `;`-delimited) —
 **only where missing**, so hand-curated values survive (use `--overwrite` to force).
-Matching strips parenthetical qualifiers and `:` subtitles, so our clean titles
-hit LaunchBox's disambiguated ones ("Prince of Persia (Brøderbund Software)",
-"Deja Vu: A Nightmare Comes True!!"), preferring the entry with the most complete
-data. **LaunchBox has no colour or mouse-required data — those two facets stay
-curated.** Unmatched titles are reported for manual fixing. Approach adapted from
-megatron-uk/x68klauncher's `tools/metadata.py`.
+
+**`--detect-color`** auto-fills the `color` facet by downloading a **gameplay
+screenshot** (not box art — box art is colourful even for B&W games) and measuring
+its colourfulness. It's a heuristic over the actual screenshot (early-Mac shots
+are often B&W even for titles that later got colour), so it's overridable via
+`merge`. **Mouse-required isn't derivable and stays curated.**
+
+Matching strips parenthetical qualifiers, `:` subtitles, leading/trailing articles,
+and dotted version suffixes — so our clean titles hit LaunchBox's disambiguated
+ones ("Prince of Persia (Brøderbund Software)", "Deja Vu: A Nightmare Comes
+True!!", "Hobbit, The", "Glider 4.0") — preferring the entry with the most
+complete data. Unmatched titles are reported for manual fixing. Approach adapted
+from megatron-uk/x68klauncher's `tools/metadata.py`.
 
 ### `atrium merge`
 
