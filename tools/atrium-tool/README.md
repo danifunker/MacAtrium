@@ -17,7 +17,7 @@ cargo test                     # unit tests (catalog facets, MacRoman, CR ending
 |------|--------|--------------|
 | `catalog` | **done** | Compile a curated dataset → on-Mac `catalog.jsonl` (faceted categories, CR line endings, MacRoman encoding) |
 | `harvest` | **done** | Pull apps out of a donor HFS image (the MacPack `.vhd`s) into `/MacAtrium/Apps`, both forks, + dataset stubs |
-| `pict` | planned | PNG/JPG → PICT, 1-bit + 8-bit depth variants (docs/06 Images) |
+| `pict` | **done** | PNG/JPEG → PICT at 1/4/8/16-bit (docs/06 Images) |
 | `image` | planned | Orchestrate a full bootable build end-to-end (retire the bash `assemble.sh`) |
 
 ### `atrium catalog`
@@ -93,3 +93,30 @@ in `data/library.jsonl`, then run `catalog`.
 Verified in Snow: harvested Prince of Persia (+ pack games) injected into a fresh
 image, then launched and returned through the launcher
 (`docs/evidence/harvest-pop-{selected,running,returned}.png`).
+
+### `atrium pict`
+
+Convert PNG/JPEG artwork to a classic-Mac **PICT** file (a 512-byte header +
+PICT v2 picture data). QuickDraw `DrawPicture`s it directly — there's no
+PNG/JPEG decoder on 68k.
+
+```sh
+atrium pict --input boxart.png --out boxart_8.pict --depth 8   # 1 | 4 | 8 | 16
+```
+
+- **1/4/8-bit** → indexed `PackBitsRect` (0x0098) with an embedded colour table:
+  1-bit uses an ordered (Bayer) dither; 4-bit the classic Mac 16-colour CLUT;
+  8-bit a 6×6×6 cube + grey ramp. `--no-pack` stores rows uncompressed.
+- **16-bit** → `DirectBitsRect` (0x009A), 1-5-5-5 "thousands" pixels.
+- Adaptive (median-cut) palettes and resizing are a future quality pass.
+
+The launcher previews the selected item's `image` PICT with the **P** key.
+**Verified rendering in Snow** (1-bit screen): 1-bit (dithered), 8-bit, and
+16-bit all `DrawPicture` correctly — `docs/evidence/pict-render-{1bit,8bit,16bit}.png`.
+**Known issue:** a **4-bit** PICT faults this emulator's QuickDraw when drawn onto
+a *1-bit* screen (crash when packed, hang when unpacked) — both modes; the file
+itself is structurally valid (round-trip-decodes, identical layout to the working
+8-bit). 1/8/16-bit on the same screen are fine, so it's a QD/Snow 4→1-bit
+conversion bug, not an encoder defect; 4-bit's real check awaits a colour-depth
+screen. In production the launcher should load the art variant matching the
+screen depth (docs/06), so a 1-bit screen gets the 1-bit variant.

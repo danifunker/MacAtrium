@@ -119,9 +119,16 @@ directly, organised by year/genre with a full text index).
    ([evidence](evidence/): `harvest-pop-{selected,running,returned}.png`).
    *Still open:* bulk-scan curation at scale, and real **aliases** so moved files
    still launch.
-3. **Convert artwork → PICT** — `atrium pict` (planned): native-Rust PICT encoder
-   (1-bit + 8-bit depth variants), no external converter. *(decided: build it
-   in-repo, Rust only — not ImageMagick.)*
+3. **Convert artwork → PICT** — **DONE ✅** (native-Rust, in-repo). `atrium pict`
+   turns PNG/JPEG into PICT v2 at **1/4/8/16-bit** (indexed PackBitsRect + colour
+   table for 1/4/8; DirectBitsRect 1-5-5-5 for 16). The launcher gained a PICT
+   **preview** (`P` key; `src/art.c`). **Verified in Snow:** 1-bit (Bayer-dithered),
+   8-bit, 16-bit all DrawPicture correctly on the 1-bit screen
+   ([evidence](evidence/): `pict-render-{1bit,8bit,16bit}.png`). *Known issue:*
+   **4-bit** faults QuickDraw on a 1-bit screen (crash packed / hang unpacked)
+   though the file is structurally valid — a QD/Snow 4→1-bit bug, not the encoder;
+   real 4-bit check needs a colour-depth screen (ties to the §5 colour-backend item).
+   *Next:* depth-matched variant selection in the launcher; median-cut palettes; resize.
 4. **Install the launcher** — Startup Items now; add the **boot-block shell-swap**
    option (we proved the swap works, §C″/S3) for a true Finder-replacement build.
 5. **Emit a bootable `.hda`** — `atrium image` (planned): orchestrate 1–4 +

@@ -21,6 +21,7 @@ add_application(MacAtrium
     src/render.c
     src/render_qd.c
     src/render_cqd.c
+    src/art.c
     src/ui.c
     src/launch.c
     src/sysctl.c

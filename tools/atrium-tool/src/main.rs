@@ -12,6 +12,7 @@
 mod catalog;
 mod harvest;
 mod macroman;
+mod pict;
 mod rbcli;
 
 use anyhow::Result;
@@ -57,12 +58,20 @@ enum Cmd {
         rb_cli: String,
     },
 
-    /// (planned) Convert PNG/JPG artwork to PICT (1-bit + 8-bit depth variants).
+    /// Convert PNG/JPEG artwork to a classic-Mac PICT file at a given depth.
     Pict {
+        /// Source image (PNG or JPEG).
         #[arg(long)]
-        input: Option<PathBuf>,
+        input: PathBuf,
+        /// Output .pict file.
         #[arg(long)]
-        out: Option<PathBuf>,
+        out: PathBuf,
+        /// Pixel depth: 1, 4, 8 (indexed) or 16 (direct). Default 8.
+        #[arg(long, default_value = "8")]
+        depth: String,
+        /// Store rows uncompressed (skip PackBits) for indexed depths.
+        #[arg(long)]
+        no_pack: bool,
     },
 
     /// Harvest apps out of a donor HFS image (a MacPack .vhd) into the
@@ -139,12 +148,17 @@ fn main() -> Result<()> {
                 catalog::inject(&rb_cli, &image, &out, &metadata_dir, backup_dir.as_deref())?;
             }
         }
-        Cmd::Pict { .. } => {
-            return not_yet(
-                "pict",
-                "PNG/JPG → PICT with 1-bit + 8-bit depth variants, sized to the \
-                 target resolution; written into /MacAtrium/images and referenced \
-                 by the catalog's `image` field (docs/06 Images).",
+        Cmd::Pict { input, out, depth, no_pack } => {
+            let d = pict::Depth::parse(&depth)?;
+            let s = pict::run(&input, &out, d, !no_pack)?;
+            eprintln!(
+                "pict: {}x{} {}-bit ({} colors) -> {} ({} bytes)",
+                s.width,
+                s.height,
+                s.depth,
+                if s.colors > 0 { s.colors.to_string() } else { "direct".into() },
+                out.display(),
+                s.bytes
             );
         }
         Cmd::Harvest {

@@ -2,6 +2,7 @@
  * ui.c — see ui.h. Direct-to-window drawing; full redraw per change (MVP).
  */
 #include "ui.h"
+#include "art.h"
 #include "mac_compat.h"
 
 #include <string.h>
@@ -56,6 +57,7 @@ void ui_init(Ui *u, Env *env, Render *r, Model *m, WindowPtr win, int safe)
     u->menuSel = 0;
     u->safe = safe;
     u->status[0] = '\0';
+    u->previewPic = 0;
 }
 
 void ui_set_status(Ui *u, const char *msg)
@@ -198,8 +200,8 @@ static void draw_list(Ui *u)
     render_hline(r, 0, (short)W, (short)(H - HINT_H));
     {
         const char *hint = narrow
-            ? "<> cat  ^v sel  Ret launch  T theme  Esc menu"
-            : "<- ->  category     ^ v  select     Return  launch     T  theme     Esc  menu";
+            ? "<> cat  ^v sel  Ret launch  P art  T theme  Esc menu"
+            : "<- ->  category    ^ v  select    Return  launch    P  art    T  theme    Esc  menu";
         short x = (short)((W - render_text_width(r, hint)) / 2);
         if (x < MARGIN) x = MARGIN;
         render_text(r, x, (short)(H - 7), hint, INK_DIM);
@@ -235,16 +237,52 @@ static void draw_menu(Ui *u)
     }
 }
 
+static void draw_preview(Ui *u)
+{
+    Render *r = u->r;
+    int     W = win_w(u), H = win_h(u);
+    Rect    full = u->win->portRect;
+    Rect    art;
+    const CatItem *it = model_cur_item(u->m);
+
+    render_fill(r, &full, FILL_BG);
+
+    /* title */
+    render_text_size(r, 12);
+    if (it)
+        render_text(r, MARGIN, 20, it->name, INK_TITLE);
+    render_hline(r, 0, (short)W, (short)(HEADER_H - 1));
+
+    /* art area between header and hint bar */
+    SetRect(&art, MARGIN, (short)(HEADER_H + MARGIN),
+            (short)(W - MARGIN), (short)(H - HINT_H - MARGIN));
+    if (u->previewPic)
+        art_draw_fit(u->previewPic, &art);
+    else
+        render_text(r, MARGIN, (short)(H / 2), "(no artwork)", INK_DIM);
+
+    render_hline(r, 0, (short)W, (short)(H - HINT_H));
+    {
+        const char *hint = "any key  back";
+        short x = (short)((W - render_text_width(r, hint)) / 2);
+        render_text(r, x, (short)(H - 7), hint, INK_DIM);
+    }
+}
+
 void ui_draw(Ui *u)
 {
     render_begin(u->r, u->win);
-    if (u->safe) {
-        draw_safe(u);
+    if (u->mode == UI_MODE_PREVIEW) {
+        draw_preview(u);
     } else {
-        draw_list(u);
+        if (u->safe) {
+            draw_safe(u);
+        } else {
+            draw_list(u);
+        }
+        if (u->mode == UI_MODE_MENU)
+            draw_menu(u);
     }
-    if (u->mode == UI_MODE_MENU)
-        draw_menu(u);
     render_end(u->r, u->win);
 }
 
@@ -265,9 +303,18 @@ UiCommand ui_key(Ui *u, char ch)
 {
     UiCommand cmd = UI_NONE;
 
-    /* Theme toggle works in any mode (list / menu / safe screen). */
+    /* Theme toggle works in any mode (list / menu / safe / preview). */
     if (ch == 't' || ch == 'T') {
         render_toggle_theme(u->r);
+        ui_draw(u);
+        return UI_NONE;
+    }
+
+    /* Preview mode: any other key returns to the list. */
+    if (u->mode == UI_MODE_PREVIEW) {
+        art_dispose(u->previewPic);
+        u->previewPic = 0;
+        u->mode = UI_MODE_LIST;
         ui_draw(u);
         return UI_NONE;
     }
@@ -299,6 +346,16 @@ UiCommand ui_key(Ui *u, char ch)
             if (!u->safe && model_cur_item(u->m)) {
                 u->status[0] = '\0';
                 cmd = UI_LAUNCH;
+            }
+            break;
+        case 'p':
+        case 'P':
+            if (!u->safe) {
+                const CatItem *it = model_cur_item(u->m);
+                if (it && it->image[0]) {
+                    u->previewPic = art_load(it->image);
+                    u->mode = UI_MODE_PREVIEW;   /* draws "(no artwork)" if load failed */
+                }
             }
             break;
     }

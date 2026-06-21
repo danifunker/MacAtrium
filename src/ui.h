@@ -19,7 +19,7 @@ typedef enum {
     UI_SHUTDOWN
 } UiCommand;
 
-enum { UI_MODE_LIST = 0, UI_MODE_MENU };
+enum { UI_MODE_LIST = 0, UI_MODE_MENU, UI_MODE_PREVIEW };
 
 typedef struct {
     Env       *env;
@@ -30,6 +30,7 @@ typedef struct {
     int        menuSel;
     int        safe;          /* 1 = "no catalog" recoverable screen */
     char       status[96];    /* transient line (e.g. launch error)  */
+    PicHandle  previewPic;    /* loaded art while in UI_MODE_PREVIEW  */
 } Ui;
 
 void      ui_init(Ui *u, Env *env, Render *r, Model *m, WindowPtr win, int safe);
