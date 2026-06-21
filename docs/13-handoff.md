@@ -155,12 +155,28 @@ stubs → enriched (year/vendor/genre) → `catalog` → device C-parser parses 
 with the new facet categories. DB at `~/launchbox/Metadata.xml`.
 
 **Priority 1 is complete.** The full host toolchain exists as the pure-Rust
-[`atrium`](../tools/atrium-tool/) crate — `harvest` · `enrich` · `merge` · `pict`
-· `catalog` · `image` — each unit-tested and proven in Snow. Remaining polish:
-fold the LaunchBox **art download** (the `enrich --art-manifest` URLs) into the
-`image` art stage; title-match refinements in `enrich` (leading "The", `"name, The"`);
-median-cut palettes + resize in `pict`; depth-matched art variant selection +
-the 4-bit-on-colour-screen check. Otherwise → **Priority 2 (the 7.x feature set, §5).**
+[`atrium`](../tools/atrium-tool/) crate (now a **library + CLI**) —
+`harvest` · `enrich` · `merge` · `set` · `pict` · `catalog` · `image` — each
+unit-tested and proven in Snow. Plus:
+- **`enrich --detect-color`** auto-classifies Color/B&W from a LaunchBox gameplay
+  screenshot (box art is always colourful); article/version-tolerant matching.
+- **`set`** is the CLI "checkbox" for the colour/mouse facets LaunchBox lacks →
+  `data/overrides.jsonl`, applied by `merge`.
+- **[`atrium-gui`](../tools/atrium-gui/)** — an egui front-end that drives the
+  *same* library functions (CLI stays source of truth). Builds; runs on a display.
+- **CI** ([.github/workflows/release.yml](../.github/workflows/release.yml)) builds
+  `atrium` for mac/win/linux × x86_64+arm64 + the 68k `MacAtrium.bin` (Retro68
+  container) and publishes a release with the Mac launcher + the build tools.
+- **rusty-backup** stays an *invoked* binary (`rb-cli`), unmodified and unlinked,
+  so atrium keeps its dependency-free clean cross-compile (its lib pulls
+  libchdman/openssl/gtk3).
+
+Remaining polish (queued): fold the LaunchBox **art download** (the
+`enrich --art-manifest` URLs) into `image`; median-cut palettes + resize in
+`pict`; depth-matched art variant selection in the launcher (sidesteps the
+4-bit-on-mono fault) + the 4-bit-on-colour-screen check; thread long GUI ops +
+box-art thumbnails; bundle `rb-cli` into the release. Otherwise →
+**Priority 2 (the 7.x feature set, §5).**
 
 ---
 
