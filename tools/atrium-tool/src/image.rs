@@ -71,6 +71,10 @@ struct Config {
     /// Downscale art so its longest side is at most this many pixels.
     #[serde(default)]
     art_max: Option<u32>,
+    /// Download Box-Front art from LaunchBox (needs `metadata`) when no local
+    /// art_dir file exists for an item.
+    #[serde(default)]
+    download_art: bool,
     #[serde(default = "d_rbcli")]
     rb_cli: String,
     #[serde(default = "d_apps_root")]
@@ -154,7 +158,16 @@ pub fn run(config: &Path) -> Result<()> {
     // 4. enrich from LaunchBox (fills gaps only; optional color auto-detect)
     if let Some(md) = &cfg.metadata {
         eprintln!("[3/7] enrich       LaunchBox \"{}\"", cfg.platform);
-        enrich::run(&work, md, &work, &cfg.platform, false, None, cfg.detect_color, &cfg.curl)?;
+        // When downloading art, also have enrich emit a Box-Front URL manifest.
+        let art_manifest = if cfg.download_art {
+            Some(stage.join("art-manifest.jsonl"))
+        } else {
+            None
+        };
+        enrich::run(
+            &work, md, &work, &cfg.platform, false,
+            art_manifest.as_deref(), cfg.detect_color, &cfg.curl,
+        )?;
     }
 
     // 5. manual overrides (win)
@@ -163,16 +176,45 @@ pub fn run(config: &Path) -> Result<()> {
         merge::run(&work, ov, &work, false)?;
     }
 
-    // 6. art: convert <id>.png/jpg -> PICT, inject, set the catalog image field
-    if let Some(adir) = &cfg.art_dir {
+    // 6. art: gather sources (local art_dir wins; else download Box-Front from
+    // LaunchBox), convert -> PICT, inject, set the catalog image field.
+    if cfg.art_dir.is_some() || cfg.download_art {
         let depth = pict::Depth::parse(&cfg.art_depth)?;
         rb.mkdir_p(&cfg.out, &cfg.images_dir)?;
+
+        // Downloaded Box-Front art, id -> local file (from the enrich manifest).
+        let mut downloaded: std::collections::HashMap<String, PathBuf> = std::collections::HashMap::new();
+        if cfg.download_art {
+            let manifest = stage.join("art-manifest.jsonl");
+            let dl_dir = stage.join("art-dl");
+            std::fs::create_dir_all(&dl_dir)?;
+            for line in std::fs::read_to_string(&manifest).unwrap_or_default().lines() {
+                let v: Value = match serde_json::from_str(line) { Ok(v) => v, Err(_) => continue };
+                let (Some(id), Some(url)) = (
+                    v.get("id").and_then(Value::as_str),
+                    v.get("art").and_then(Value::as_str),
+                ) else { continue };
+                let ext = url.rsplit('.').next().filter(|e| e.len() <= 4).unwrap_or("img");
+                let dst = dl_dir.join(format!("{id}.{ext}"));
+                if enrich::download(url, &dst, &cfg.curl).is_ok() {
+                    downloaded.insert(id.to_string(), dst);
+                }
+            }
+        }
+
         let mut overlay = String::new();
         let mut n = 0;
         for id in dataset_ids(&work)? {
-            if let Some(src) = find_art(adir, &id) {
+            let src = cfg
+                .art_dir
+                .as_ref()
+                .and_then(|adir| find_art(adir, &id))
+                .or_else(|| downloaded.get(&id).cloned());
+            if let Some(src) = src {
                 let pictfile = stage.join(format!("{id}.pict"));
-                pict::run(&src, &pictfile, depth, true, cfg.art_max)?;
+                if pict::run(&src, &pictfile, depth, true, cfg.art_max).is_err() {
+                    continue; // skip art that won't decode rather than fail the build
+                }
                 let dst = format!("{}/{}.pict", cfg.images_dir.trim_end_matches('/'), id);
                 rb.put_typed(&cfg.out, &pictfile, &dst, "PICT", "ttxt")?;
                 let rel = dst.strip_prefix("/MacAtrium/").unwrap_or(&dst);
@@ -180,7 +222,7 @@ pub fn run(config: &Path) -> Result<()> {
                 n += 1;
             }
         }
-        eprintln!("[5/7] art          {n} PICT(s) at {}-bit", cfg.art_depth);
+        eprintln!("[5/7] art          {n} PICT(s) at {}-bit ({} downloaded)", cfg.art_depth, downloaded.len());
         if n > 0 {
             let ovf = stage.join("art-overlay.jsonl");
             std::fs::write(&ovf, overlay)?;

@@ -310,7 +310,7 @@ fn parse_images(path: &Path, wanted: &HashSet<String>) -> Result<HashMap<String,
 
 /// Download a URL to `out` via curl (no Rust HTTP dependency). Returns Ok only if
 /// the file ends up non-empty.
-fn download(url: &str, out: &Path, curl: &str) -> Result<()> {
+pub fn download(url: &str, out: &Path, curl: &str) -> Result<()> {
     let dst = out.to_string_lossy();
     let status = std::process::Command::new(curl)
         .args(["-sL", "--max-time", "30", "-o", &dst, url])

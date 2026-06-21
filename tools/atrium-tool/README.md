@@ -196,11 +196,13 @@ atrium image --config example-image.json
 It (1) copies the base `system` → `out`; (2) `harvest`s each donor's `apps` into
 the image (appending stubs to a **throwaway copy** of the dataset — the build
 never mutates `data/library.jsonl`); (3) `enrich`es from `metadata` (LaunchBox);
-(4) `merge`s the manual `overrides`; (5) converts `art_dir/<id>.{png,jpg}` →
-PICT at `art_depth` and wires the catalog `image` field; (6) generates + injects
-the `catalog` (backing up any existing one); (7) installs the `launcher` into
-`startup_items`. See [`example-image.json`](example-image.json) for the schema;
-all fields except `system`/`out`/`launcher`/`dataset` are optional.
+(4) `merge`s the manual `overrides`; (5) gathers art (a local `art_dir/<id>.{png,jpg}`
+wins; otherwise, with `download_art: true`, **downloads each title's Box-Front
+art from LaunchBox**), converts it → PICT at `art_depth` (`art_max` to downscale),
+and wires the catalog `image` field; (6) generates + injects the `catalog`
+(backing up any existing one); (7) installs the `launcher` into `startup_items`.
+See [`example-image.json`](example-image.json) for the schema; all fields except
+`system`/`out`/`launcher`/`dataset` are optional.
 
 **Verified in Snow:** a full `atrium image` run (~2 s) produced a bootable image
 that boots into the faceted catalog, renders the built-in art, and launches a
