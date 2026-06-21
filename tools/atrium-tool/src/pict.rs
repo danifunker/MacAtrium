@@ -65,44 +65,6 @@ fn rect(out: &mut Vec<u8>, t: u16, l: u16, b: u16, r: u16) {
 // ---- palettes --------------------------------------------------------------
 const PAL_1: [(u8, u8, u8); 2] = [(255, 255, 255), (0, 0, 0)];
 
-/// The classic Macintosh 16-colour CLUT (approximate sRGB values).
-const PAL_16: [(u8, u8, u8); 16] = [
-    (0xFF, 0xFF, 0xFF), // white
-    (0xFC, 0xF3, 0x05), // yellow
-    (0xFF, 0x64, 0x03), // orange
-    (0xDD, 0x09, 0x07), // red
-    (0xF2, 0x08, 0x84), // magenta
-    (0x47, 0x00, 0xA5), // purple
-    (0x00, 0x00, 0xD3), // blue
-    (0x02, 0xAB, 0xEA), // cyan
-    (0x1F, 0xB7, 0x14), // green
-    (0x00, 0x64, 0x12), // dark green
-    (0x56, 0x2C, 0x05), // brown
-    (0x90, 0x71, 0x3A), // tan
-    (0xC0, 0xC0, 0xC0), // light grey
-    (0x80, 0x80, 0x80), // medium grey
-    (0x40, 0x40, 0x40), // dark grey
-    (0x00, 0x00, 0x00), // black
-];
-
-/// A 6×6×6 RGB cube + a 40-step grey ramp = 256 entries.
-fn palette_256() -> Vec<(u8, u8, u8)> {
-    let levels = [0u8, 51, 102, 153, 204, 255];
-    let mut p = Vec::with_capacity(256);
-    for &r in &levels {
-        for &g in &levels {
-            for &b in &levels {
-                p.push((r, g, b));
-            }
-        }
-    }
-    for i in 0..40 {
-        let v = (i * 255 / 39) as u8;
-        p.push((v, v, v));
-    }
-    p
-}
-
 fn luma(r: u8, g: u8, b: u8) -> u32 {
     (30 * r as u32 + 59 * g as u32 + 11 * b as u32) / 100
 }
@@ -214,13 +176,14 @@ fn quantize(rgba: &[u8], w: usize, h: usize, depth: Depth) -> (Vec<u8>, Vec<(u8,
             }
             (idx, PAL_1.to_vec())
         }
-        Depth::Four => quantize_fixed(rgba, w, h, &PAL_16),
-        Depth::Eight => quantize_fixed(rgba, w, h, &palette_256()),
+        // Adaptive median-cut palette built from the image's own colours.
+        Depth::Four => map_to_palette(rgba, w, h, &median_cut(sample_rgb(rgba, w * h), 16)),
+        Depth::Eight => map_to_palette(rgba, w, h, &median_cut(sample_rgb(rgba, w * h), 256)),
         Depth::Sixteen => unreachable!("16-bit is direct, not indexed"),
     }
 }
 
-fn quantize_fixed(
+fn map_to_palette(
     rgba: &[u8],
     w: usize,
     h: usize,
@@ -232,6 +195,84 @@ fn quantize_fixed(
         idx[i] = nearest(palette, rgba[o], rgba[o + 1], rgba[o + 2]);
     }
     (idx, palette.to_vec())
+}
+
+/// Sample up to ~16k RGB pixels from an RGBA buffer (for palette generation).
+fn sample_rgb(rgba: &[u8], n_px: usize) -> Vec<[u8; 3]> {
+    let step = (n_px / 16384).max(1);
+    let mut v = Vec::new();
+    let mut i = 0;
+    while i < n_px {
+        let o = i * 4;
+        v.push([rgba[o], rgba[o + 1], rgba[o + 2]]);
+        i += step;
+    }
+    v
+}
+
+/// Median-cut colour quantisation: recursively split the colour box with the
+/// widest channel at its median until we have `n` boxes, then average each box.
+/// Returns ≤ `n` palette colours (fewer if the image has fewer distinct colours).
+fn median_cut(mut px: Vec<[u8; 3]>, n: usize) -> Vec<(u8, u8, u8)> {
+    if px.is_empty() {
+        return vec![(0, 0, 0)];
+    }
+    struct Bx {
+        s: usize,
+        e: usize,
+    }
+    let mut boxes = vec![Bx { s: 0, e: px.len() }];
+    while boxes.len() < n {
+        // Pick the splittable box with the widest channel range.
+        let mut best: Option<usize> = None;
+        let mut best_range = 0i32;
+        let mut best_chan = 0usize;
+        for (bi, b) in boxes.iter().enumerate() {
+            if b.e - b.s < 2 {
+                continue;
+            }
+            let mut lo = [255i32; 3];
+            let mut hi = [0i32; 3];
+            for p in &px[b.s..b.e] {
+                for c in 0..3 {
+                    let v = p[c] as i32;
+                    lo[c] = lo[c].min(v);
+                    hi[c] = hi[c].max(v);
+                }
+            }
+            for c in 0..3 {
+                let r = hi[c] - lo[c];
+                if r > best_range {
+                    best_range = r;
+                    best = Some(bi);
+                    best_chan = c;
+                }
+            }
+        }
+        let Some(bi) = best else { break }; // nothing left to split
+        let (s, e) = (boxes[bi].s, boxes[bi].e);
+        px[s..e].sort_by_key(|p| p[best_chan]);
+        let mid = s + (e - s) / 2;
+        boxes[bi] = Bx { s, e: mid };
+        boxes.push(Bx { s: mid, e });
+    }
+    boxes
+        .iter()
+        .map(|b| {
+            let cnt = (b.e - b.s) as u64;
+            let (mut r, mut g, mut bl) = (0u64, 0u64, 0u64);
+            for p in &px[b.s..b.e] {
+                r += p[0] as u64;
+                g += p[1] as u64;
+                bl += p[2] as u64;
+            }
+            if cnt == 0 {
+                (0, 0, 0)
+            } else {
+                ((r / cnt) as u8, (g / cnt) as u8, (bl / cnt) as u8)
+            }
+        })
+        .collect()
 }
 
 // ---- picture assembly ------------------------------------------------------
@@ -357,14 +398,21 @@ fn build_pict(w: u16, h: u16, rgba: &[u8], depth: Depth, pack: bool) -> (Vec<u8>
 }
 
 /// Convert an image file to a PICT file (512-byte header + picture data).
-pub fn run(input: &Path, output: &Path, depth: Depth, pack: bool) -> Result<Stats> {
-    let img = image::ImageReader::open(input)
+/// `max` (if set) downscales so the longest side is at most `max` px (aspect
+/// preserved; never upscales) — docs/06 "sized to the target resolution".
+pub fn run(input: &Path, output: &Path, depth: Depth, pack: bool, max: Option<u32>) -> Result<Stats> {
+    let mut dynimg = image::ImageReader::open(input)
         .with_context(|| format!("opening {}", input.display()))?
         .with_guessed_format()
         .with_context(|| format!("reading {}", input.display()))?
         .decode()
-        .with_context(|| format!("decoding {}", input.display()))?
-        .to_rgba8();
+        .with_context(|| format!("decoding {}", input.display()))?;
+    if let Some(m) = max {
+        if dynimg.width() > m || dynimg.height() > m {
+            dynimg = dynimg.resize(m, m, image::imageops::FilterType::Lanczos3);
+        }
+    }
+    let img = dynimg.to_rgba8();
     let (w, h) = img.dimensions();
     anyhow::ensure!(w <= 0x7FFF && h <= 0x7FFF, "image too large for PICT ({w}x{h})");
 
@@ -450,6 +498,35 @@ mod tests {
         assert_eq!(colors, 0); // direct: no colour table
         // find the DirectBitsRect opcode (0x009A) after the header/clip
         assert!(data.windows(2).any(|w| w == [0x00, 0x9A]));
+    }
+
+    #[test]
+    fn median_cut_separates_distinct_colors() {
+        // four very different colours -> four palette entries, each near an input
+        let px = vec![
+            [255, 0, 0],
+            [0, 255, 0],
+            [0, 0, 255],
+            [10, 10, 10],
+        ];
+        let pal = median_cut(px.clone(), 4);
+        assert_eq!(pal.len(), 4);
+        for c in &px {
+            let i = nearest(&pal, c[0], c[1], c[2]) as usize;
+            let p = pal[i];
+            let d = (p.0 as i32 - c[0] as i32).abs()
+                + (p.1 as i32 - c[1] as i32).abs()
+                + (p.2 as i32 - c[2] as i32).abs();
+            assert!(d < 40, "colour {c:?} mapped to far palette entry {p:?}");
+        }
+    }
+
+    #[test]
+    fn median_cut_caps_at_n_and_handles_few_colors() {
+        // one colour, ask for 16 -> 1 entry (can't split)
+        let pal = median_cut(vec![[100, 100, 100]; 50], 16);
+        assert_eq!(pal.len(), 1);
+        assert_eq!(pal[0], (100, 100, 100));
     }
 
     #[test]

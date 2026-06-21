@@ -151,6 +151,9 @@ enum Cmd {
         /// Store rows uncompressed (skip PackBits) for indexed depths.
         #[arg(long)]
         no_pack: bool,
+        /// Downscale so the longest side is at most this many pixels (aspect kept).
+        #[arg(long)]
+        max: Option<u32>,
     },
 
     /// Harvest apps out of a donor HFS image (a MacPack .vhd) into the
@@ -263,9 +266,9 @@ fn main() -> Result<()> {
             merge::run(&base, &overlay, &out, fill_missing)?;
         }
 
-        Cmd::Pict { input, out, depth, no_pack } => {
+        Cmd::Pict { input, out, depth, no_pack, max } => {
             let d = pict::Depth::parse(&depth)?;
-            let s = pict::run(&input, &out, d, !no_pack)?;
+            let s = pict::run(&input, &out, d, !no_pack, max)?;
             eprintln!(
                 "pict: {}x{} {}-bit ({} colors) -> {} ({} bytes)",
                 s.width,

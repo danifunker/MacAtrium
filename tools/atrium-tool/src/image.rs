@@ -68,6 +68,9 @@ struct Config {
     art_dir: Option<PathBuf>,
     #[serde(default = "d_artdepth")]
     art_depth: String,
+    /// Downscale art so its longest side is at most this many pixels.
+    #[serde(default)]
+    art_max: Option<u32>,
     #[serde(default = "d_rbcli")]
     rb_cli: String,
     #[serde(default = "d_apps_root")]
@@ -169,7 +172,7 @@ pub fn run(config: &Path) -> Result<()> {
         for id in dataset_ids(&work)? {
             if let Some(src) = find_art(adir, &id) {
                 let pictfile = stage.join(format!("{id}.pict"));
-                pict::run(&src, &pictfile, depth, true)?;
+                pict::run(&src, &pictfile, depth, true, cfg.art_max)?;
                 let dst = format!("{}/{}.pict", cfg.images_dir.trim_end_matches('/'), id);
                 rb.put_typed(&cfg.out, &pictfile, &dst, "PICT", "ttxt")?;
                 let rel = dst.strip_prefix("/MacAtrium/").unwrap_or(&dst);

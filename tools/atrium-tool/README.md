@@ -120,10 +120,10 @@ atrium pict --input boxart.png --out boxart_8.pict --depth 8   # 1 | 4 | 8 | 16
 ```
 
 - **1/4/8-bit** → indexed `PackBitsRect` (0x0098) with an embedded colour table:
-  1-bit uses an ordered (Bayer) dither; 4-bit the classic Mac 16-colour CLUT;
-  8-bit a 6×6×6 cube + grey ramp. `--no-pack` stores rows uncompressed.
+  1-bit uses an ordered (Bayer) dither; **4/8-bit use an adaptive median-cut
+  palette** built from the image's own colours. `--no-pack` stores rows uncompressed.
 - **16-bit** → `DirectBitsRect` (0x009A), 1-5-5-5 "thousands" pixels.
-- Adaptive (median-cut) palettes and resizing are a future quality pass.
+- **`--max N`** downscales so the longest side is ≤ N px (aspect kept, no upscale).
 
 ### `atrium enrich`
 
