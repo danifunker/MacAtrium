@@ -20,11 +20,12 @@ cargo test                     # unit tests (catalog facets, MacRoman, CR ending
 | `enrich` | **done** | Fill the dataset (year/vendor/genre + art URLs) from the LaunchBox Games Database |
 | `merge` | **done** | Apply a manual overrides overlay (colour/mouse, corrections, unmatched titles) over the dataset |
 | `pict` | **done** | PNG/JPEG → PICT at 1/4/8/16-bit (docs/06 Images) |
-| `image` | planned | Orchestrate a full bootable build end-to-end (retire the bash `assemble.sh`) |
+| `image` | **done** | Orchestrate a full bootable build end-to-end (retires the bash `assemble.sh`) |
 
-The intended pipeline: **`harvest`** (bare stubs from a donor disk) → **`enrich`**
-(fill metadata from LaunchBox) → **`merge`** (manual `overrides.jsonl`: colour/mouse
-+ corrections, which win) → **`catalog`** + **`pict`** → (eventually) **`image`**.
+The pipeline: **`harvest`** (bare stubs from a donor disk) → **`enrich`** (fill
+metadata from LaunchBox) → **`merge`** (manual `overrides.jsonl`: colour/mouse +
+corrections, which win) → **`catalog`** + **`pict`** → **`image`** ties it all
+together into a bootable `.hda`.
 
 ### `atrium catalog`
 
@@ -153,6 +154,27 @@ set are applied, and the overlay **wins** (use `--fill-missing` to only fill
 gaps). Overlay ids not present in the base are appended as new records. So the
 full metadata flow is: `enrich` fills from LaunchBox (gaps only) → `merge` lays
 your manual corrections on top (authoritative).
+
+### `atrium image`
+
+The one-command bootable build — composes every verb above from a JSON config:
+
+```sh
+atrium image --config example-image.json
+```
+
+It (1) copies the base `system` → `out`; (2) `harvest`s each donor's `apps` into
+the image (appending stubs to a **throwaway copy** of the dataset — the build
+never mutates `data/library.jsonl`); (3) `enrich`es from `metadata` (LaunchBox);
+(4) `merge`s the manual `overrides`; (5) converts `art_dir/<id>.{png,jpg}` →
+PICT at `art_depth` and wires the catalog `image` field; (6) generates + injects
+the `catalog` (backing up any existing one); (7) installs the `launcher` into
+`startup_items`. See [`example-image.json`](example-image.json) for the schema;
+all fields except `system`/`out`/`launcher`/`dataset` are optional.
+
+**Verified in Snow:** a full `atrium image` run (~2 s) produced a bootable image
+that boots into the faceted catalog, renders the built-in art, and launches a
+harvested Prince of Persia — `docs/evidence/image-built-{catalog,art,pop-running}.png`.
 
 The launcher previews the selected item's `image` PICT with the **P** key.
 **Verified rendering in Snow** (1-bit screen): 1-bit (dithered), 8-bit, and

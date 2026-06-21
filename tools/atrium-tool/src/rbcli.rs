@@ -106,6 +106,20 @@ impl RbCli {
         self.run(&["put", &img, &h, dst, "--type", type_, "--creator", creator, "--force", "-q"])?;
         Ok(())
     }
+
+    /// Put a host file with an explicit type/creator (both forks not involved),
+    /// overwriting any existing file.
+    pub fn put_typed(&self, image: &Path, host: &Path, dst: &str, type_: &str, creator: &str) -> Result<()> {
+        self.put_text(image, host, dst, type_, creator)
+    }
+
+    /// Install a MacBinary archive (both forks + Finder info) into a directory.
+    pub fn put_macbinary(&self, image: &Path, host: &Path, dst_dir: &str) -> Result<()> {
+        let img = image.to_string_lossy();
+        let h = host.to_string_lossy();
+        self.run(&["put-macbinary", &img, &h, "--dst-dir", dst_dir, "-q"])?;
+        Ok(())
+    }
 }
 
 fn parse_ls_line(line: &str) -> Option<Entry> {

@@ -1,0 +1,23 @@
+{
+  "system": "~/MacOS_SampleDisks/MacLC_7-1.hda",
+  "out": "/tmp/macatrium.hda",
+  "launcher": "build/MacAtrium.bin",
+  "dataset": "data/library.jsonl",
+  "overrides": "data/overrides.jsonl",
+  "metadata": "~/launchbox/Metadata.xml",
+  "platform": "Apple Mac OS",
+  "harvest": [
+    {
+      "image": "~/macpack-work/Supplement.vhd",
+      "apps": ["/Games/01 Sys 6/Dark Castle 1.2", "/Games/01 Sys 6/Beyond Dark Castle 1.1"]
+    },
+    {
+      "image": "~/MacOS_SampleDisks/MacLC_6-0-8-POP.hda",
+      "apps": ["/Games/Prince of Persia ƒ"]
+    }
+  ],
+  "art_dir": "art",
+  "art_depth": "1",
+  "rb_cli": "rb-cli",
+  "startup_items": "/System Folder/Startup Items"
+}

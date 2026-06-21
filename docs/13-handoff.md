@@ -131,12 +131,16 @@ directly, organised by year/genre with a full text index).
    *Next:* depth-matched variant selection in the launcher; median-cut palettes; resize.
 4. **Install the launcher** — Startup Items now; add the **boot-block shell-swap**
    option (we proved the swap works, §C″/S3) for a true Finder-replacement build.
-5. **Emit a bootable `.hda`** — `atrium image` (**deferred on purpose**): the
-   one-command orchestrator (catalog + apps + art + launcher install + harness
-   smoke test, retiring `assemble.sh`) is held until the **LaunchBox enrichment**
-   lands, because that step defines the real dataset + art-source shape `image`
-   will consume — building it first avoids rework. `assemble.sh` remains the quick
-   hand-test path meanwhile.
+5. **Emit a bootable `.hda`** — **DONE ✅.** `atrium image --config build.json`
+   orchestrates the whole pipeline: copy base system → `harvest` donor apps
+   (`--into`) → `enrich` (LaunchBox) → `merge` overrides → art (`pict`) →
+   `catalog` (generate+inject) → install launcher. Works on a throwaway dataset
+   copy (no source mutation). **Verified in Snow:** a full run (~2 s) built an
+   image that boots the faceted catalog, renders built-in art, and launches a
+   harvested Prince of Persia ([evidence](evidence/):
+   `image-built-{catalog,art,pop-running}.png`). Schema:
+   [tools/atrium-tool/example-image.json](../tools/atrium-tool/example-image.json).
+   `assemble.sh` can now be retired (kept for quick hand tests).
 
 **LaunchBox enrichment — DONE ✅.** `atrium enrich` streams LaunchBox's ~500 MB
 `Metadata.xml` (SAX-style via quick-xml), filters `Platform == "Apple Mac OS"`
@@ -150,9 +154,13 @@ data: 11/12 curated titles matched (only SimpleText, an app, missed); bare harve
 stubs → enriched (year/vendor/genre) → `catalog` → device C-parser parses clean
 with the new facet categories. DB at `~/launchbox/Metadata.xml`.
 
-**Immediate next step — `atrium image`** (now unblocked): the one-command
-orchestrator tying `harvest` → `enrich` → curate → `catalog`/`pict` → bootable
-`.hda` + harness smoke test, retiring `assemble.sh`.
+**Priority 1 is complete.** The full host toolchain exists as the pure-Rust
+[`atrium`](../tools/atrium-tool/) crate — `harvest` · `enrich` · `merge` · `pict`
+· `catalog` · `image` — each unit-tested and proven in Snow. Remaining polish:
+fold the LaunchBox **art download** (the `enrich --art-manifest` URLs) into the
+`image` art stage; title-match refinements in `enrich` (leading "The", `"name, The"`);
+median-cut palettes + resize in `pict`; depth-matched art variant selection +
+the 4-bit-on-colour-screen check. Otherwise → **Priority 2 (the 7.x feature set, §5).**
 
 ---
 

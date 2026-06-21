@@ -12,6 +12,7 @@
 mod catalog;
 mod enrich;
 mod harvest;
+mod image;
 mod macroman;
 mod merge;
 mod pict;
@@ -148,10 +149,12 @@ enum Cmd {
         rb_cli: String,
     },
 
-    /// (planned) Assemble a full bootable appliance image end-to-end.
+    /// Assemble a full bootable appliance image end-to-end from a JSON config:
+    /// base system → harvest → enrich → merge → art → catalog → launcher.
     Image {
+        /// Build config (JSON). See README for the schema.
         #[arg(long)]
-        out: Option<PathBuf>,
+        config: PathBuf,
     },
 }
 
@@ -234,18 +237,9 @@ fn main() -> Result<()> {
                 append_to.as_deref(),
             )?;
         }
-        Cmd::Image { .. } => {
-            return not_yet(
-                "image",
-                "orchestrate a full build: generate the catalog, harvest apps, \
-                 convert art, install the launcher, and emit a bootable .hda — \
-                 retiring the bash assemble.sh (docs/13 Priority 1).",
-            );
+        Cmd::Image { config } => {
+            image::run(&config)?;
         }
     }
     Ok(())
-}
-
-fn not_yet(name: &str, plan: &str) -> Result<()> {
-    anyhow::bail!("`atrium {name}` is not implemented yet. Planned: {plan}");
 }
