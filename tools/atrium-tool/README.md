@@ -11,6 +11,13 @@ cargo build --release          # -> target/release/atrium
 cargo test                     # unit tests (catalog facets, MacRoman, CR endings)
 ```
 
+**Releases / CI** — [`.github/workflows/release.yml`](../../.github/workflows/release.yml)
+builds `atrium` for macOS / Windows / Linux on x86_64 + arm64 (native runners,
+no cross toolchain — the crate has no C deps), builds the 68k `MacAtrium.bin` in
+Retro68's published container, runs the C core's host tests, and publishes a
+GitHub release with **the Mac launcher plus the per-platform build tools**.
+Every push builds + tests; releases publish on `main` / tag pushes.
+
 ## Subcommands
 
 | Verb | Status | What it does |

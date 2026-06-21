@@ -1,0 +1,167 @@
+# Release pipeline for MacAtrium — mirrors rusty-backup's approach.
+#
+# Builds the host maintenance tooling (the pure-Rust `atrium` crate in
+# tools/atrium-tool) for modern macOS / Windows / Linux on x86_64 and arm64,
+# builds the 68k Mac launcher (MacAtrium.bin) in Retro68's published container,
+# runs the portable C core's host tests, and publishes a GitHub release bundling
+# **the executable that runs on the Mac (MacAtrium.bin) plus the build tools**.
+#
+# Every push builds + tests; the release is published on `main` and tag pushes.
+name: Release
+
+on:
+  push:
+    paths-ignore:
+      - "**/*.md"
+      - "docs/**"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  generate-version:
+    name: Generate version
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.v.outputs.version }}
+    steps:
+      - id: v
+        run: |
+          VERSION=$(date -u +"%Y-%m-%d-%H-%M")
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+          echo "version: $VERSION"
+
+  # Portable core (json/catalog/model) host unit tests — gcc, off-target.
+  test-core:
+    name: Core host tests
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+      - name: Run host tests
+        run: cd tests && make test
+
+  # The pure-Rust host tool, one native runner per target (no C deps → no cross
+  # toolchain needed). arm64 legs use GitHub's native arm runners.
+  build-tool:
+    name: atrium (${{ matrix.label }})
+    needs: generate-version
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { os: ubuntu-latest,    target: x86_64-unknown-linux-gnu,   label: linux-x64 }
+          - { os: ubuntu-24.04-arm, target: aarch64-unknown-linux-gnu,  label: linux-arm64 }
+          - { os: macos-13,         target: x86_64-apple-darwin,        label: macos-x64 }
+          - { os: macos-latest,     target: aarch64-apple-darwin,       label: macos-arm64 }
+          - { os: windows-latest,   target: x86_64-pc-windows-msvc,     label: windows-x64 }
+          - { os: windows-11-arm,   target: aarch64-pc-windows-msvc,    label: windows-arm64 }
+    env:
+      RELEASE_VERSION: ${{ needs.generate-version.outputs.version }}
+    defaults:
+      run:
+        working-directory: tools/atrium-tool
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.target }}
+
+      - name: Cache cargo
+        uses: actions/cache@v5
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+          key: ${{ runner.os }}-${{ matrix.target }}-cargo-${{ hashFiles('tools/atrium-tool/Cargo.lock') }}
+
+      - name: Test
+        run: cargo test --release --target ${{ matrix.target }}
+
+      - name: Build
+        run: cargo build --release --target ${{ matrix.target }}
+
+      - name: Package (unix)
+        if: runner.os != 'Windows'
+        run: |
+          BIN=target/${{ matrix.target }}/release/atrium
+          tar -C "$(dirname "$BIN")" -czf "atrium-${{ matrix.label }}-${RELEASE_VERSION}.tar.gz" atrium
+
+      - name: Package (windows)
+        if: runner.os == 'Windows'
+        shell: bash
+        run: |
+          7z a "atrium-${{ matrix.label }}-${RELEASE_VERSION}.zip" "./target/${{ matrix.target }}/release/atrium.exe"
+
+      - uses: actions/upload-artifact@v7
+        with:
+          name: atrium-${{ matrix.label }}-${{ needs.generate-version.outputs.version }}
+          path: tools/atrium-tool/atrium-${{ matrix.label }}-*
+
+  # The 68k Mac launcher, built with the Retro68 toolchain from autc04's
+  # published container (it ships the cross toolchain at /Retro68-build/toolchain).
+  build-launcher:
+    name: launcher (68k)
+    needs: generate-version
+    runs-on: ubuntu-latest
+    container: ghcr.io/autc04/retro68:latest
+    steps:
+      - name: Install build deps
+        run: apt-get update && apt-get install -y --no-install-recommends cmake make git ca-certificates
+      - uses: actions/checkout@v6
+      - name: Build launcher
+        run: |
+          cmake -S . -B build \
+            -DCMAKE_TOOLCHAIN_FILE=/Retro68-build/toolchain/m68k-apple-macos/cmake/retro68.toolchain.cmake
+          cmake --build build
+      - name: Stage launcher
+        run: |
+          mkdir -p out
+          cp build/MacAtrium.bin out/
+          cp build/MacAtrium.APPL out/ 2>/dev/null || true
+      - uses: actions/upload-artifact@v7
+        with:
+          name: MacAtrium-launcher-${{ needs.generate-version.outputs.version }}
+          path: out/*
+
+  release:
+    name: Create release
+    if: github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/tags/')
+    needs:
+      - generate-version
+      - test-core
+      - build-tool
+      - build-launcher
+    runs-on: ubuntu-latest
+    steps:
+      - name: Download all artifacts
+        uses: actions/download-artifact@v8
+        with:
+          path: artifacts
+
+      - name: Flatten release files
+        run: |
+          mkdir -p release-files
+          find artifacts -type f \( \
+            -name "*.tar.gz" -o -name "*.zip" \
+            -o -name "MacAtrium.bin" -o -name "MacAtrium.APPL" \
+          \) -exec cp {} release-files/ \;
+          ls -lh release-files/
+
+      - name: Create release
+        uses: softprops/action-gh-release@v3
+        with:
+          tag_name: v${{ needs.generate-version.outputs.version }}
+          name: MacAtrium ${{ needs.generate-version.outputs.version }}
+          files: release-files/*
+          draft: false
+          prerelease: false
+          generate_release_notes: true
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
