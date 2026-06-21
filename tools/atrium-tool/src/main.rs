@@ -10,6 +10,7 @@
 //! stubs that describe their planned behaviour.
 
 mod catalog;
+mod enrich;
 mod harvest;
 mod macroman;
 mod pict;
@@ -56,6 +57,30 @@ enum Cmd {
         /// Path to the rb-cli binary (for --into).
         #[arg(long, default_value = "rb-cli")]
         rb_cli: String,
+    },
+
+    /// Fill the curated dataset from the LaunchBox Games Database (Metadata.xml):
+    /// year, vendor (publisher), and genre[], matched by name, without clobbering
+    /// curated values. Optionally emit a Box-Front art manifest.
+    Enrich {
+        /// Curated source dataset to enrich (e.g. data/library.jsonl).
+        #[arg(long)]
+        src: PathBuf,
+        /// LaunchBox Metadata.xml (unzip of gamesdb.launchbox-app.com/Metadata.zip).
+        #[arg(long)]
+        metadata: PathBuf,
+        /// Output dataset (may equal --src to enrich in place).
+        #[arg(long)]
+        out: PathBuf,
+        /// LaunchBox platform to match.
+        #[arg(long, default_value = "Apple Mac OS")]
+        platform: String,
+        /// Overwrite existing values instead of only filling missing ones.
+        #[arg(long)]
+        overwrite: bool,
+        /// Write a JSONL manifest of Box-Front art URLs (id, databaseID, art).
+        #[arg(long)]
+        art_manifest: Option<PathBuf>,
     },
 
     /// Convert PNG/JPEG artwork to a classic-Mac PICT file at a given depth.
@@ -148,6 +173,10 @@ fn main() -> Result<()> {
                 catalog::inject(&rb_cli, &image, &out, &metadata_dir, backup_dir.as_deref())?;
             }
         }
+        Cmd::Enrich { src, metadata, out, platform, overwrite, art_manifest } => {
+            enrich::run(&src, &metadata, &out, &platform, overwrite, art_manifest.as_deref())?;
+        }
+
         Cmd::Pict { input, out, depth, no_pack } => {
             let d = pict::Depth::parse(&depth)?;
             let s = pict::run(&input, &out, d, !no_pack)?;

@@ -44,3 +44,8 @@ The starter titles in `library.jsonl` are real Macintosh classics from the
 images, organised by year/genre, that `rb-cli` reads directly). The metadata is
 a curated starter; refine `vendor`/`year`/etc. via PR. Harvesting the actual app
 forks out of the pack into `/MacAtrium/Apps` is the `atrium harvest` step (docs/13).
+
+`year`/`vendor`/`genre` can be filled automatically with **`atrium enrich`** from
+the **LaunchBox Games Database** (it only fills missing fields, so curation wins).
+`color` (Color/B&W) and `mouse` (Mouse Required/No Mouse) aren't in LaunchBox —
+set those by hand.

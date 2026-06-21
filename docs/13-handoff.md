@@ -138,12 +138,21 @@ directly, organised by year/genre with a full text index).
    will consume — building it first avoids rework. `assemble.sh` remains the quick
    hand-test path meanwhile.
 
-**Immediate next step — LaunchBox enrichment.** Wire the **LaunchBox Games
-Database** ("Apple Macintosh") into `data/library.jsonl`: map names/years/genres/
-publishers/box-art onto our facet fields, merging curated overrides (docs/06
-§"Build-time"). *Awaiting a sample of the LaunchBox DB-access code from the user*
-before implementing (likely a new `atrium enrich` verb feeding the dataset that
-`catalog`/`pict` already consume). Then build `atrium image` against that pipeline.
+**LaunchBox enrichment — DONE ✅.** `atrium enrich` streams LaunchBox's ~500 MB
+`Metadata.xml` (SAX-style via quick-xml), filters `Platform == "Apple Mac OS"`
+(731 games), matches our titles by normalised name (stripping parenthetical
+qualifiers + `:` subtitles, preferring the most complete entry), and fills
+`year`/`vendor`(Publisher)/`genre[]` **only where missing** (curation preserved;
+`--overwrite` to force). Box-Front art URLs (joined by `DatabaseID`) go to an
+optional manifest. **Colour/mouse aren't in LaunchBox → stay curated.** Approach
+adapted from megatron-uk/x68klauncher's `tools/metadata.py`. Validated on real
+data: 11/12 curated titles matched (only SimpleText, an app, missed); bare harvest
+stubs → enriched (year/vendor/genre) → `catalog` → device C-parser parses clean
+with the new facet categories. DB at `~/launchbox/Metadata.xml`.
+
+**Immediate next step — `atrium image`** (now unblocked): the one-command
+orchestrator tying `harvest` → `enrich` → curate → `catalog`/`pict` → bootable
+`.hda` + harness smoke test, retiring `assemble.sh`.
 
 ---
 

@@ -11,10 +11,13 @@ path = "src/main.rs"
 [dependencies]
 clap = { version = "4", features = ["derive"] }
 serde = { version = "1", features = ["derive"] }
-serde_json = "1"
+# preserve_order keeps dataset field order stable when `enrich` rewrites it.
+serde_json = { version = "1", features = ["preserve_order"] }
 anyhow = "1"
 # Input decoding only (PNG + JPEG); pure Rust, trimmed feature set.
 image = { version = "0.25", default-features = false, features = ["png", "jpeg"] }
+# Streaming XML for the (~500 MB) LaunchBox Metadata.xml — SAX-style, low memory.
+quick-xml = "0.38"
 
 [profile.release]
 opt-level = 2

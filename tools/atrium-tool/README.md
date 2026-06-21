@@ -17,8 +17,13 @@ cargo test                     # unit tests (catalog facets, MacRoman, CR ending
 |------|--------|--------------|
 | `catalog` | **done** | Compile a curated dataset → on-Mac `catalog.jsonl` (faceted categories, CR line endings, MacRoman encoding) |
 | `harvest` | **done** | Pull apps out of a donor HFS image (the MacPack `.vhd`s) into `/MacAtrium/Apps`, both forks, + dataset stubs |
+| `enrich` | **done** | Fill the dataset (year/vendor/genre + art URLs) from the LaunchBox Games Database |
 | `pict` | **done** | PNG/JPEG → PICT at 1/4/8/16-bit (docs/06 Images) |
 | `image` | planned | Orchestrate a full bootable build end-to-end (retire the bash `assemble.sh`) |
+
+The intended pipeline: **`harvest`** (bare stubs from a donor disk) → **`enrich`**
+(fill metadata from LaunchBox) → curate colour/mouse by hand → **`catalog`** +
+**`pict`** → (eventually) **`image`**.
 
 ### `atrium catalog`
 
@@ -109,6 +114,28 @@ atrium pict --input boxart.png --out boxart_8.pict --depth 8   # 1 | 4 | 8 | 16
   8-bit a 6×6×6 cube + grey ramp. `--no-pack` stores rows uncompressed.
 - **16-bit** → `DirectBitsRect` (0x009A), 1-5-5-5 "thousands" pixels.
 - Adaptive (median-cut) palettes and resizing are a future quality pass.
+
+### `atrium enrich`
+
+Fill the curated dataset from the **LaunchBox Games Database** — streams the
+~500 MB `Metadata.xml` (SAX-style, low memory) and matches our titles by name.
+
+```sh
+# one-time: grab the DB
+curl -L https://gamesdb.launchbox-app.com/Metadata.zip -o Metadata.zip && unzip Metadata.zip
+atrium enrich --src data/library.jsonl --metadata Metadata.xml --out data/library.jsonl \
+  --art-manifest /tmp/art.jsonl     # optional Box-Front art URLs (id, databaseID, art)
+```
+
+Filters to `--platform "Apple Mac OS"` (default), then fills **`year`** (ReleaseYear/
+ReleaseDate), **`vendor`** (Publisher), and **`genre[]`** (Genres, `;`-delimited) —
+**only where missing**, so hand-curated values survive (use `--overwrite` to force).
+Matching strips parenthetical qualifiers and `:` subtitles, so our clean titles
+hit LaunchBox's disambiguated ones ("Prince of Persia (Brøderbund Software)",
+"Deja Vu: A Nightmare Comes True!!"), preferring the entry with the most complete
+data. **LaunchBox has no colour or mouse-required data — those two facets stay
+curated.** Unmatched titles are reported for manual fixing. Approach adapted from
+megatron-uk/x68klauncher's `tools/metadata.py`.
 
 The launcher previews the selected item's `image` PICT with the **P** key.
 **Verified rendering in Snow** (1-bit screen): 1-bit (dithered), 8-bit, and
