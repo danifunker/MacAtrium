@@ -208,7 +208,13 @@ See [`example-image.json`](example-image.json) for the schema; all fields except
 that boots into the faceted catalog, renders the built-in art, and launches a
 harvested Prince of Persia — `docs/evidence/image-built-{catalog,art,pop-running}.png`.
 
-The launcher previews the selected item's `image` PICT with the **P** key.
+**Depth variants:** set `art_depths: ["1","8"]` (instead of `art_depth`) to emit
+`<id>.1.pict` + `<id>.8.pict` and a **base** catalog `image` (`images/<id>`). The
+launcher then loads the variant matching the screen depth (`.1.pict` on a 1-bit
+screen, `.8.pict` on colour) — so a 1-bit screen never draws a colour PICT.
+
+The launcher previews the selected item's `image` PICT with the **P** key
+(resolving `<base>.<depth>.pict`, or an explicit `…​.pict` path as-is).
 **Verified rendering in Snow** (1-bit screen): 1-bit (dithered), 8-bit, and
 16-bit all `DrawPicture` correctly — `docs/evidence/pict-render-{1bit,8bit,16bit}.png`.
 **Known issue:** a **4-bit** PICT faults this emulator's QuickDraw when drawn onto

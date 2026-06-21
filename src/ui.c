@@ -299,6 +299,49 @@ static UiCommand menu_select(Ui *u)
     return UI_NONE;
 }
 
+/* Build "<base>.<depth>.pict" into buf (depth is 1/4/8/16). */
+static void art_variant_path(char *buf, const char *base, int depth)
+{
+    int n;
+    strcpy(buf, base);
+    n = (int)strlen(buf);
+    buf[n++] = '.';
+    if (depth >= 10) { buf[n++] = (char)('0' + depth / 10); buf[n++] = (char)('0' + depth % 10); }
+    else             { buf[n++] = (char)('0' + depth); }
+    strcpy(buf + n, ".pict");
+}
+
+/* Resolve an item's `image` to a PicHandle. An explicit ".pict" path loads
+ * directly; otherwise it's a base path and we pick the depth variant matching
+ * the screen (e.g. "images/foo" -> "images/foo.1.pict" on a 1-bit screen),
+ * falling back to shallower depths then "<base>.pict". This keeps a 1-bit
+ * screen from ever drawing a colour PICT (docs/06 depth variants). */
+static PicHandle load_item_art(Ui *u, const char *image)
+{
+    int n = (int)strlen(image);
+    char buf[208];
+    PicHandle p;
+    int cand[4], nc = 0, i, depth;
+
+    if (n >= 5 && strcmp(image + n - 5, ".pict") == 0)
+        return art_load(image);
+
+    depth = u->env->pixelSize;
+    if      (depth <= 1) { cand[nc++] = 1; }
+    else if (depth <= 4) { cand[nc++] = 4;  cand[nc++] = 1; }
+    else if (depth <= 8) { cand[nc++] = 8;  cand[nc++] = 4;  cand[nc++] = 1; }
+    else                 { cand[nc++] = 16; cand[nc++] = 8;  cand[nc++] = 1; }
+
+    for (i = 0; i < nc; i++) {
+        art_variant_path(buf, image, cand[i]);
+        p = art_load(buf);
+        if (p) return p;
+    }
+    strcpy(buf, image);
+    strcat(buf, ".pict");
+    return art_load(buf);
+}
+
 UiCommand ui_key(Ui *u, char ch)
 {
     UiCommand cmd = UI_NONE;
@@ -353,7 +396,7 @@ UiCommand ui_key(Ui *u, char ch)
             if (!u->safe) {
                 const CatItem *it = model_cur_item(u->m);
                 if (it && it->image[0]) {
-                    u->previewPic = art_load(it->image);
+                    u->previewPic = load_item_art(u, it->image);
                     u->mode = UI_MODE_PREVIEW;   /* draws "(no artwork)" if load failed */
                 }
             }

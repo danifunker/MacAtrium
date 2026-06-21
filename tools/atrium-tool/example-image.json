@@ -17,7 +17,7 @@
     }
   ],
   "art_dir": "art",
-  "art_depth": "1",
+  "art_depths": ["1", "8"],
   "art_max": 256,
   "download_art": true,
   "rb_cli": "rb-cli",

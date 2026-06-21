@@ -68,6 +68,11 @@ struct Config {
     art_dir: Option<PathBuf>,
     #[serde(default = "d_artdepth")]
     art_depth: String,
+    /// Generate multiple depth variants (e.g. ["1","8"]) named `<id>.<depth>.pict`
+    /// with the catalog `image` set to the base path, so the launcher picks the
+    /// variant matching the screen depth. Empty → a single `<id>.pict` at art_depth.
+    #[serde(default)]
+    art_depths: Vec<String>,
     /// Downscale art so its longest side is at most this many pixels.
     #[serde(default)]
     art_max: Option<u32>,
@@ -202,6 +207,19 @@ pub fn run(config: &Path) -> Result<()> {
             }
         }
 
+        // One depth (single `<id>.pict`) or several variants (`<id>.<d>.pict`).
+        let multi = !cfg.art_depths.is_empty();
+        let depths: Vec<pict::Depth> = if multi {
+            cfg.art_depths.iter().map(|s| pict::Depth::parse(s)).collect::<Result<_>>()?
+        } else {
+            vec![depth]
+        };
+        let images_rel = cfg
+            .images_dir
+            .strip_prefix("/MacAtrium/")
+            .unwrap_or(&cfg.images_dir)
+            .trim_end_matches('/');
+
         let mut overlay = String::new();
         let mut n = 0;
         for id in dataset_ids(&work)? {
@@ -211,18 +229,31 @@ pub fn run(config: &Path) -> Result<()> {
                 .and_then(|adir| find_art(adir, &id))
                 .or_else(|| downloaded.get(&id).cloned());
             if let Some(src) = src {
-                let pictfile = stage.join(format!("{id}.pict"));
-                if pict::run(&src, &pictfile, depth, true, cfg.art_max).is_err() {
-                    continue; // skip art that won't decode rather than fail the build
+                let mut any = false;
+                for d in &depths {
+                    let sfx = if multi { format!(".{}", d.bits()) } else { String::new() };
+                    let pictfile = stage.join(format!("{id}{sfx}.pict"));
+                    if pict::run(&src, &pictfile, *d, true, cfg.art_max).is_err() {
+                        continue; // skip art that won't decode rather than fail
+                    }
+                    let dst = format!("{}/{}{}.pict", cfg.images_dir.trim_end_matches('/'), id, sfx);
+                    rb.put_typed(&cfg.out, &pictfile, &dst, "PICT", "ttxt")?;
+                    any = true;
                 }
-                let dst = format!("{}/{}.pict", cfg.images_dir.trim_end_matches('/'), id);
-                rb.put_typed(&cfg.out, &pictfile, &dst, "PICT", "ttxt")?;
-                let rel = dst.strip_prefix("/MacAtrium/").unwrap_or(&dst);
-                overlay.push_str(&format!("{{\"id\":{id:?},\"image\":{rel:?}}}\n"));
-                n += 1;
+                if any {
+                    // base path for variants; explicit .pict for the single case
+                    let rel = if multi {
+                        format!("{images_rel}/{id}")
+                    } else {
+                        format!("{images_rel}/{id}.pict")
+                    };
+                    overlay.push_str(&format!("{{\"id\":{id:?},\"image\":{rel:?}}}\n"));
+                    n += 1;
+                }
             }
         }
-        eprintln!("[5/7] art          {n} PICT(s) at {}-bit ({} downloaded)", cfg.art_depth, downloaded.len());
+        let depth_label = if multi { cfg.art_depths.join("/") } else { cfg.art_depth.clone() };
+        eprintln!("[5/7] art          {n} item(s) at {depth_label}-bit ({} downloaded)", downloaded.len());
         if n > 0 {
             let ovf = stage.join("art-overlay.jsonl");
             std::fs::write(&ovf, overlay)?;

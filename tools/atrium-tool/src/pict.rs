@@ -30,7 +30,7 @@ impl Depth {
             _ => anyhow::bail!("depth must be 1, 4, 8, or 16"),
         })
     }
-    fn bits(self) -> u16 {
+    pub fn bits(self) -> u16 {
         match self {
             Depth::One => 1,
             Depth::Four => 4,
