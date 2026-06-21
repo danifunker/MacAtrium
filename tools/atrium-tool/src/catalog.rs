@@ -8,6 +8,7 @@
 //! rb-cli writes to the volume as type `TEXT`.
 
 use crate::macroman;
+use crate::rbcli::RbCli;
 use anyhow::{bail, Context, Result};
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
@@ -262,6 +263,39 @@ pub fn run(src: &Path, out: &Path, lf: bool, crlf: bool) -> Result<Report> {
     report.bytes = bytes.len();
     std::fs::write(out, &bytes).with_context(|| format!("writing {}", out.display()))?;
     Ok(report)
+}
+
+/// Inject a generated catalog into an image's metadata dir, backing up any
+/// existing catalog first (so we never silently overwrite the on-volume index).
+pub fn inject(
+    rb_bin: &str,
+    image: &Path,
+    catalog_file: &Path,
+    metadata_dir: &str,
+    backup_dir: Option<&Path>,
+) -> Result<()> {
+    let rb = RbCli::new(rb_bin);
+    let dst = format!("{}/catalog.jsonl", metadata_dir.trim_end_matches('/'));
+
+    // Back up the existing on-volume catalog (best-effort; absent is fine).
+    let backup = backup_dir
+        .map(|d| d.join("catalog-prev.jsonl"))
+        .unwrap_or_else(|| {
+            catalog_file
+                .parent()
+                .unwrap_or_else(|| Path::new("."))
+                .join("catalog-prev.jsonl")
+        });
+    match rb.get(image, &dst, &backup, true) {
+        Ok(()) => eprintln!("backed up existing catalog -> {}", backup.display()),
+        Err(_) => eprintln!("no existing catalog to back up (first install)"),
+    }
+
+    rb.mkdir_p(image, metadata_dir)?;
+    rb.put_text(image, catalog_file, &dst, "TEXT", "ttxt")
+        .with_context(|| format!("writing {dst}"))?;
+    eprintln!("injected catalog -> {} : {dst}", image.display());
+    Ok(())
 }
 
 #[cfg(test)]

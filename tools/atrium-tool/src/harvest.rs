@@ -158,6 +158,53 @@ fn harvest_one(
     }))
 }
 
+/// Append harvested stubs to a curated dataset, de-duplicated by `id` so existing
+/// (hand-enriched) entries are never clobbered and re-runs are idempotent.
+/// Returns (appended, skipped). The dataset file is created if absent.
+fn append_to_dataset(dataset: &Path, harvested: &[Harvested]) -> Result<(usize, usize)> {
+    let existing = std::fs::read_to_string(dataset).unwrap_or_default();
+    let (out, appended, skipped) = merge_stubs(&existing, harvested);
+    if appended > 0 {
+        std::fs::write(dataset, out)
+            .with_context(|| format!("appending to {}", dataset.display()))?;
+    }
+    Ok((appended, skipped))
+}
+
+/// Pure merge: append stub lines for harvested apps whose `id` isn't already in
+/// `existing` (comments/blank lines ignored when collecting ids). Returns the new
+/// file text and (appended, skipped) counts.
+fn merge_stubs(existing: &str, harvested: &[Harvested]) -> (String, usize, usize) {
+    let have: std::collections::HashSet<String> = existing
+        .lines()
+        .map(str::trim)
+        .filter(|l| !l.is_empty() && !l.starts_with('#') && !l.starts_with("//"))
+        .filter_map(|l| serde_json::from_str::<serde_json::Value>(l).ok())
+        .filter_map(|v| v.get("id").and_then(|i| i.as_str()).map(String::from))
+        .collect();
+
+    let mut appended = 0usize;
+    let mut skipped = 0usize;
+    let mut add = String::new();
+    for h in harvested {
+        if have.contains(&h.id) {
+            skipped += 1;
+        } else {
+            add.push_str(&stub_line(h));
+            add.push('\n');
+            appended += 1;
+        }
+    }
+    let mut out = existing.to_string();
+    if appended > 0 {
+        if !out.is_empty() && !out.ends_with('\n') {
+            out.push('\n');
+        }
+        out.push_str(&add);
+    }
+    (out, appended, skipped)
+}
+
 /// Serialize a harvested app as a `data/library.jsonl` stub line.
 fn stub_line(h: &Harvested) -> String {
     let mut s = format!(
@@ -183,6 +230,7 @@ pub fn run(
     stage: &Path,
     into: Option<&Path>,
     apps_root: &str,
+    append_to: Option<&Path>,
 ) -> Result<()> {
     let rb = RbCli::new(rb_bin);
     std::fs::create_dir_all(stage)?;
@@ -233,6 +281,13 @@ pub fn run(
     );
     if into.is_some() {
         eprintln!("injected into target image's {apps_root}");
+    }
+    if let Some(dataset) = append_to {
+        let (appended, skipped) = append_to_dataset(dataset, &harvested)?;
+        eprintln!(
+            "appended {appended} new stub(s) to {} ({skipped} already present)",
+            dataset.display()
+        );
     }
     for w in &warnings {
         eprintln!("  warning: {w}");
@@ -285,6 +340,21 @@ mod tests {
         assert!(is_clutter(&mk("BTFL", "Desktop DB")));
         assert!(!is_clutter(&mk("APPL", "Dark Castle")));
         assert!(!is_clutter(&mk("DCFL", "Data A")));
+    }
+
+    #[test]
+    fn merge_dedups_by_id() {
+        let existing = "# header\n{\"id\":\"dark-castle\",\"name\":\"Dark Castle\",\"vendor\":\"Silicon Beach Software\"}\n";
+        let stubs = vec![
+            Harvested { id: "dark-castle".into(), name: "Dark Castle".into(), kind: "game".into(), year: None, genre: None, app_path: "Apps/Dark Castle/Dark Castle".into(), files: vec![] },
+            Harvested { id: "lemmings".into(), name: "Lemmings".into(), kind: "game".into(), year: Some(1991), genre: None, app_path: "Apps/Lemmings/Lemmings".into(), files: vec![] },
+        ];
+        let (out, appended, skipped) = merge_stubs(existing, &stubs);
+        assert_eq!((appended, skipped), (1, 1));
+        // existing enriched dark-castle entry preserved, lemmings appended
+        assert!(out.contains("Silicon Beach Software"));
+        assert!(out.contains("\"id\":\"lemmings\""));
+        assert_eq!(out.matches("dark-castle").count(), 1);
     }
 
     #[test]

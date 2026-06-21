@@ -83,6 +83,29 @@ impl RbCli {
         self.run(&["put-binhex", &img, &h, "--dst-dir", dst_dir, "-q"])?;
         Ok(())
     }
+
+    /// Extract a plain file (data fork) from an image to the host. Returns Err if
+    /// the source doesn't exist — callers that treat absence as fine ignore that.
+    /// `force` overwrites an existing host destination.
+    pub fn get(&self, image: &Path, src: &str, out: &Path, force: bool) -> Result<()> {
+        let img = image.to_string_lossy();
+        let dst = out.to_string_lossy();
+        let mut args = vec!["get", "-q", &img, src, &dst];
+        if force {
+            args.push("--force");
+        }
+        self.run(&args)?;
+        Ok(())
+    }
+
+    /// Write a host file into an image as a TEXT file with the given type/creator,
+    /// overwriting any existing file (--force).
+    pub fn put_text(&self, image: &Path, host: &Path, dst: &str, type_: &str, creator: &str) -> Result<()> {
+        let img = image.to_string_lossy();
+        let h = host.to_string_lossy();
+        self.run(&["put", &img, &h, dst, "--type", type_, "--creator", creator, "--force", "-q"])?;
+        Ok(())
+    }
 }
 
 fn parse_ls_line(line: &str) -> Option<Entry> {

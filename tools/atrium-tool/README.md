@@ -24,9 +24,14 @@ cargo test                     # unit tests (catalog facets, MacRoman, CR ending
 
 ```sh
 atrium catalog --src ../../data/library.jsonl --out /tmp/catalog.jsonl
-# then write it onto a volume as type TEXT:
-rb-cli put disk.hda /tmp/catalog.jsonl /MacAtrium/metadata/catalog.jsonl --type TEXT --creator ttxt
+# or generate AND inject in one step, backing up any existing on-image catalog:
+atrium catalog --src ../../data/library.jsonl --out /tmp/catalog.jsonl \
+  --into disk.hda --backup-dir /tmp --rb-cli /path/to/rb-cli
 ```
+
+`--into <image>` writes the catalog onto the volume as type `TEXT` (overwriting
+with `--force`), after saving the existing one to `<backup-dir>/catalog-prev.jsonl`
+via `rb-cli get` — so an on-volume catalog is never silently clobbered.
 
 Reads the curated source dataset (UTF-8 JSONL, `data/library.jsonl`) and emits
 the light index the launcher reads at boot. It **derives** the many-to-many
@@ -77,9 +82,13 @@ atrium harvest --image ~/macpack-work/boot.vhd --scan "/Games/1986" \
 
 Flags: `--app <folder>` (repeatable) and/or `--scan <dir>`; `--stage <dir>` for
 the `.hqx` forks + `harvested.jsonl`; `--into <image>` to also inject; `--rb-cli`
-for the rb-cli binary path; `--apps-root` (default `/MacAtrium/Apps`). The emitted
-stubs are minimal — enrich them with `vendor`/`color`/`mouse`/`genre` in
-`data/library.jsonl`, then run `catalog`.
+for the rb-cli binary path; `--apps-root` (default `/MacAtrium/Apps`).
+
+Harvest is **incremental**, not one-shot: `--append-to data/library.jsonl` merges
+the new stubs into the curated dataset, **de-duplicated by `id`** so a re-run
+never clobbers hand-enriched entries and you can keep adding titles over time.
+The emitted stubs are minimal — enrich them with `vendor`/`color`/`mouse`/`genre`
+in `data/library.jsonl`, then run `catalog`.
 
 Verified in Snow: harvested Prince of Persia (+ pack games) injected into a fresh
 image, then launched and returned through the launcher

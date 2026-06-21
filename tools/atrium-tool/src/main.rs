@@ -42,6 +42,19 @@ enum Cmd {
         /// Emit CRLF line endings instead of bare CR.
         #[arg(long)]
         crlf: bool,
+        /// Also inject the catalog into this target image's metadata dir,
+        /// backing up any existing catalog first (rb-cli get).
+        #[arg(long)]
+        into: Option<PathBuf>,
+        /// Where to save the backed-up existing catalog (default: next to --out).
+        #[arg(long)]
+        backup_dir: Option<PathBuf>,
+        /// Metadata dir inside the image.
+        #[arg(long, default_value = "/MacAtrium/metadata")]
+        metadata_dir: String,
+        /// Path to the rb-cli binary (for --into).
+        #[arg(long, default_value = "rb-cli")]
+        rb_cli: String,
     },
 
     /// (planned) Convert PNG/JPG artwork to PICT (1-bit + 8-bit depth variants).
@@ -73,6 +86,10 @@ enum Cmd {
         /// Target Apps root inside the image.
         #[arg(long, default_value = "/MacAtrium/Apps")]
         apps_root: String,
+        /// Append harvested stubs to this curated dataset (de-duped by id), so
+        /// populating is incremental — run repeatedly without losing curation.
+        #[arg(long)]
+        append_to: Option<PathBuf>,
         /// Path to the rb-cli binary (defaults to `rb-cli` on PATH).
         #[arg(long, default_value = "rb-cli")]
         rb_cli: String,
@@ -88,7 +105,16 @@ enum Cmd {
 fn main() -> Result<()> {
     let cli = Cli::parse();
     match cli.cmd {
-        Cmd::Catalog { src, out, lf, crlf } => {
+        Cmd::Catalog {
+            src,
+            out,
+            lf,
+            crlf,
+            into,
+            backup_dir,
+            metadata_dir,
+            rb_cli,
+        } => {
             let report = catalog::run(&src, &out, lf, crlf)?;
             eprintln!(
                 "catalog: {} items, {} categories, {} bytes -> {}",
@@ -109,6 +135,9 @@ fn main() -> Result<()> {
             for w in &report.warnings {
                 eprintln!("  warning: {w}");
             }
+            if let Some(image) = into {
+                catalog::inject(&rb_cli, &image, &out, &metadata_dir, backup_dir.as_deref())?;
+            }
         }
         Cmd::Pict { .. } => {
             return not_yet(
@@ -125,6 +154,7 @@ fn main() -> Result<()> {
             stage,
             into,
             apps_root,
+            append_to,
             rb_cli,
         } => {
             harvest::run(
@@ -135,6 +165,7 @@ fn main() -> Result<()> {
                 &stage,
                 into.as_deref(),
                 &apps_root,
+                append_to.as_deref(),
             )?;
         }
         Cmd::Image { .. } => {
