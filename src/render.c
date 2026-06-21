@@ -9,8 +9,10 @@
 
 void render_init(Render *r, const Env *e)
 {
-    r->color = e->useColor;
-    r->depth = e->pixelSize;
+    r->color        = e->useColor;
+    r->depth        = e->pixelSize > 0 ? e->pixelSize : 1;
+    r->useOffscreen = e->hasColorQD;   /* NewGWorld needs Color QD */
+    r->offscreen    = 0;
 }
 
 static void c2p(const char *s, Str255 out)
@@ -22,8 +24,25 @@ static void c2p(const char *s, Str255 out)
 
 void render_begin(Render *r, WindowPtr w)
 {
-    (void)r;
-    SetPort(w);
+    if (r->useOffscreen && !r->offscreen) {
+        Rect  b = w->portRect;
+        QDErr err = NewGWorld(&r->offscreen, r->depth, &b, 0L, 0L, 0);
+        if (err != noErr || !r->offscreen) {
+            r->useOffscreen = 0;          /* fall back to direct drawing */
+            r->offscreen    = 0;
+        } else {
+            r->bounds = b;
+        }
+    }
+
+    if (r->useOffscreen && r->offscreen) {
+        GetGWorld(&r->savePort, &r->saveGD);
+        SetGWorld(r->offscreen, 0L);
+        LockPixels(GetGWorldPixMap(r->offscreen));
+    } else {
+        SetPort(w);
+    }
+
     TextFont(systemFont);     /* Chicago */
     TextSize(12);
     TextFace(normal);
@@ -32,10 +51,17 @@ void render_begin(Render *r, WindowPtr w)
 
 void render_end(Render *r, WindowPtr w)
 {
-    (void)r;
-    (void)w;
-    /* Direct-to-window drawing for MVP; off-screen GWorld compositing is a
-     * later polish (docs/03 "Rendering strategy"). */
+    if (r->useOffscreen && r->offscreen) {
+        PixMapHandle pm = GetGWorldPixMap(r->offscreen);
+        SetGWorld(r->savePort, r->saveGD);    /* back to the window's port */
+        SetPort(w);
+        ForeColor(blackColor);                /* avoid CopyBits colourising */
+        BackColor(whiteColor);
+        CopyBits((BitMap *)*pm, &((GrafPtr)w)->portBits,
+                 &r->bounds, &w->portRect, srcCopy, 0L);
+        UnlockPixels(pm);
+    }
+    /* direct-to-window path: nothing to blit */
 }
 
 void render_fill(Render *r, const Rect *rr, int kind)

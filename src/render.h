@@ -20,8 +20,17 @@ enum { FILL_BG = 0, FILL_PANEL, FILL_SEL };
 enum { INK_NORMAL = 0, INK_DIM, INK_SELECTED, INK_TITLE };
 
 typedef struct {
-    int color;      /* 1 = Color QD backend, 0 = B&W backend */
-    int depth;      /* pixelSize */
+    int       color;       /* 1 = Color QD backend, 0 = B&W backend */
+    int       depth;       /* pixelSize */
+    /* Off-screen compositing: draw a whole frame into a GWorld, then blit it to
+     * the window in one CopyBits so there's no on-screen erase/repaint flicker
+     * (docs/03). Enabled when Color QD is present (NewGWorld available); falls
+     * back to direct-to-window drawing otherwise. */
+    int       useOffscreen;
+    GWorldPtr offscreen;
+    Rect      bounds;
+    CGrafPtr  savePort;    /* GetGWorld/SetGWorld use CGrafPtr */
+    GDHandle  saveGD;
 } Render;
 
 void  render_init(Render *r, const Env *e);
