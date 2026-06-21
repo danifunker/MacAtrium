@@ -15,7 +15,7 @@ boot/screenshot is desirable but unproven."* It's proven now.
 |-------|-----------|-------|
 | Mac II ROM | `~/repos/lbmactwo_MiSTer/releases/MacIIFDHD.rom` | 256 KB; Snow auto-detects "Macintosh II (FDHD)" |
 | Display-card ROM | MAME `nb_mdc824.zip` → `3410868.bin` | 32 KB; the **Macintosh Display Card 8•24** — a Mac II has no built-in video, Snow needs this for a framebuffer (`ExtraROMs::MDC12`) |
-| Boot disk | `~/MacLC_7-5-5_OG.hda` | raw SCSI image, System 7.5.5; boots fine on the Mac II ROM |
+| Boot disk | `~/MacOS_SampleDisks/MacLC_*.hda` | raw SCSI images; **7.0.1 / 7.1 / 7.5.5** all boot + auto-launch + launch/return verified on the Mac II ROM. 6.0.8 boots + MultiFinder activates but the launcher needs a port (docs/11 §C″). |
 
 Snow's CPU tops out at SE/30 class but the **Mac II (68020)** covers System
 7.x with Color QD — see docs/11 §B. The 7.5.5 image renders at 1-bit here, so
@@ -36,21 +36,41 @@ cargo build -r -p testrunner --bin macatrium_harness
 
 ## Assemble a test image
 
-`assemble.sh` builds a pristine image from a System 7.5.5 source disk: it creates
-`/MacAtrium/{metadata,Apps}`, injects `test_catalog.jsonl`, drops a real launch
-target (**SimpleText**, both forks, extracted from the source disk with
-`rb-cli get-binhex`) at `Apps/SimpleText/SimpleText`, and places the built
-`build/MacAtrium.bin` in **System Folder:Startup Items** so it auto-launches.
+`assemble.sh` builds a pristine image from a System 6/7 source disk: it creates
+`/MacAtrium/{metadata,Apps}`, injects `test_catalog.jsonl`, drops two real launch
+targets (both forks, via `rb-cli get-binhex`/`put-binhex`) — **SimpleText** and
+the **real Prince of Persia** (app + its `Persia(BW/COLOR/LC)` data files) — and
+places the built `build/MacAtrium.bin` in the blessed **Startup Items** folder so
+it auto-launches (or at the volume root if there's no Startup Items, e.g. System 6).
 
 ```sh
-# first extract SimpleText from the source disk (one time):
-rb-cli get-binhex ~/MacLC_7-5-5_OG.hda /SimpleText /tmp/macatrium-run/SimpleText.hqx
+mkdir -p /tmp/macatrium-run/pop
 cp test_catalog.jsonl /tmp/macatrium-run/
-./assemble.sh ~/MacLC_7-5-5_OG.hda /tmp/macatrium-run/master.hda
+# one-time: extract the launch targets (forks preserved)
+rb-cli get-binhex ~/MacOS_SampleDisks/MacLC_7-5-5_OG.hda /SimpleText /tmp/macatrium-run/SimpleText.hqx
+POPHDA=~/MacOS_SampleDisks/MacLC_6-0-8-POP.hda
+POPDIR='/Games/Prince of Persia ƒ'
+rb-cli get-binhex "$POPHDA" "$POPDIR/Prince of Persia" /tmp/macatrium-run/pop/Prince_of_Persia.hqx
+rb-cli get-binhex "$POPHDA" "$POPDIR/Persia(BW)"      /tmp/macatrium-run/pop/Persia_BW_.hqx
+rb-cli get-binhex "$POPHDA" "$POPDIR/Persia(COLOR)"   /tmp/macatrium-run/pop/Persia_COLOR_.hqx
+rb-cli get-binhex "$POPHDA" "$POPDIR/Persia(LC)"      /tmp/macatrium-run/pop/Persia_LC_.hqx
+
+# assemble (3rd arg = Startup Items dir; 7.0.1's blessed folder is "System Folder 7.0.1")
+./assemble.sh ~/MacOS_SampleDisks/MacLC_7-1.hda       /tmp/macatrium-run/master_71.hda
+./assemble.sh ~/MacOS_SampleDisks/MacLC_7-0-1.hda     /tmp/macatrium-run/master_701.hda "/System Folder 7.0.1/Startup Items"
+./assemble.sh ~/MacOS_SampleDisks/MacLC_7-5-5_OG.hda  /tmp/macatrium-run/master_755.hda
 ```
 
 (Adjust the `RUN`/paths at the top of `assemble.sh` if needed. Always work on a
 copy — `assemble.sh` copies the source first.)
+
+To activate MultiFinder on a System 6 disk (prerequisite for the resident-launch
+model there — docs/11 §C″), swap the boot-block shell name "Finder"→"MultiFinder"
+(Str15 at HFS partition offset `0x1A`):
+
+```sh
+printf '\x0bMultiFinder    ' | dd of=copy_608.hda bs=1 seek=49178 conv=notrunc  # 49152 = LBA96*512
+```
 
 ## Run a scripted test
 

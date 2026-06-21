@@ -198,10 +198,10 @@ for the [06-content-pipeline.md](06-content-pipeline.md) approach.
 
 | # | Item | Status |
 |---|------|--------|
-| L1 | `launchContinue` actually **returns control** | ✅ **confirmed on 7.5.5** (Mac II). See §C′. 6.0.8+MF / 7.1 / 7.6.1 still 🔬 |
+| L1 | `launchContinue` actually **returns control** | ✅ **confirmed on 7.0.1, 7.1, 7.5.5** (Mac II) — incl. the real Prince of Persia. See §C′. 6.0.8 needs a Milestone-4 port (§C″); 7.6.1 not run (no disk on this box). |
 | L3 | Startup-app crash is **recoverable** (no wedged boot) | ✅ by design for the current deployment: the launcher runs from **Startup Items** alongside the Finder, so a crash drops to the Finder, not a wedged boot. (Boot-block-swap deployment still 🔬.) |
 | S1/S2 | Covering the Finder desktop / **hiding the menu bar** | ◐ launcher runs full-screen below the menu bar (recoverable). Hiding the menu bar itself still 🔬. |
-| S3 | **Boot-block shell swap** behaves (and whether `rb-cli` should gain a helper) | 🔬 not yet (Startup-Items approach used instead for MVP) |
+| S3 | **Boot-block shell swap** behaves (and whether `rb-cli` should gain a helper) | ✅ confirmed: patching `bbShellName` "Finder"→"MultiFinder" (Str15 at partition offset `0x1A`) boots 6.0.8 into MultiFinder in Snow (§C″). A small `rb-cli` "set shell name" helper would be the clean tool. |
 | C1 | ~~classify control panels~~ ✅ all five are `cdev`s (§B′). **Remaining:** does an `odoc` AppleEvent to a resident Finder open a cdev from our backgrounded shell? | 🔬 (Milestone 2) |
 | I1 | MiSTer Mac core button→key mapping | 🔬 separate, needs MiSTer (not Snow) |
 
@@ -220,7 +220,7 @@ injects keystrokes at CPU-cycle marks, and dumps the framebuffer to PNG
 | Emulated model | **Macintosh II (FDHD)** (68020) — Snow auto-detected from the ROM |
 | Main ROM | `MacIIFDHD.rom` (256 KB) |
 | Display ROM | **Macintosh Display Card 8•24** (`nb_mdc824` / `3410868.bin`, 32 KB) — a Mac II has no built-in video, so Snow needs it (`ExtraROMs::MDC12`) for a framebuffer |
-| OS / disk | **System 7.5.5**, raw SCSI image (`MacLC_7-5-5_OG.hda`) — boots cleanly on the Mac II ROM |
+| OS / disk | **System 7.0.1, 7.1, 7.5.5**, raw SCSI images (`MacLC_*.hda`) — all boot cleanly on the Mac II ROM and auto-launch MacAtrium from Startup Items |
 | Depth | 1-bit → exercised the **B&W** render backend (the hard MVP requirement); Color QD backend is implemented but needs a colour depth to exercise |
 | Speed | ~44 M cycles/s; boot + Startup-Items launch ≈ 2 G cycles (~45 s wall) |
 
@@ -230,29 +230,57 @@ injects keystrokes at CPU-cycle marks, and dumps the framebuffer to PNG
    list: header `MacAtrium · All · 4 items`, Chicago font, items
    alphabetically sorted, white-on-black selection, year column, detail + hint
    bars — all laid out from the screen rect. (`01-launcher-menu.png`)
-2. `↓ ↓ ↓` selects **SimpleText**; `Return` → it **launches** (its menus +
-   "untitled" window appear) while the resident launcher stays alive behind it.
-   (`02-simpletext-launched.png`)
-3. `Cmd-Q` quits SimpleText → **control RETURNS to MacAtrium with the selection
-   still on SimpleText** — the keystone (`launchContinue` honoured) and the MVP
-   exit criteria. (`03-returned-selection-intact.png`)
+2. Select **SimpleText** / **Prince of Persia**; `Return` → it **launches** while
+   the resident launcher stays alive behind it. The **real Prince of Persia**
+   (extracted from the 6.0.8 sample disk) plays its intro on 7.0.1/7.1/7.5.5.
+   (`02-simpletext-launched.png`, `07-prince-of-persia-running.png`)
+3. `Cmd-Q` quits the child → **control RETURNS to MacAtrium with the selection
+   intact** — the keystone (`launchContinue` honoured) and the MVP exit criteria.
+   (`03-returned-selection-intact.png`, `08-pop-returned-71.png`)
 4. `Esc` → menu panel (Launch Finder / Restart / Shut Down).
    (`04-esc-menu.png`)
-5. Launching an item whose `app` is absent (Prince of Persia) → non-fatal
-   **"Not found"** status, stays in the list. (`05-not-found.png`)
+5. Launching an item whose `app` is absent → non-fatal **"Not found"** status,
+   stays in the list. (`05-not-found.png`)
 6. `← →` switches category (All → Action, count + sort update).
    (`06-category-action.png`)
 7. Esc → Restart (`ShutDwnStart`) → the machine **reboots** (clean restart, not a
    crash).
 
+Confirmed on **System 7.0.1, 7.1, and 7.5.5** (same single 68k binary, no
+recompile) — the launch/return keystone holds across the System 7 family.
+
 The launcher's `launch_app()` uses the identical `LaunchParamBlockRec` /
 `launchContinue | launchNoFileFlags` call documented in §A, so this confirms that
-documentary finding empirically on 7.5.5. The portable core (JSON/catalog/model)
-is also covered by off-target unit tests (`tests/`, 45 checks).
+documentary finding empirically. The portable core (JSON/catalog/model) is also
+covered by off-target unit tests (`tests/`, 45 checks).
 
-**Still to run:** the same on 6.0.8+MultiFinder, 7.1, 7.6.1 (L1 across the
-matrix); colour-depth run for the Color backend; menu-bar hiding (S1/S2);
-boot-block-swap deployment (S3).
+## C″. System 6.0.8 — boots + MultiFinder, launcher needs a port (Milestone 4)
+
+System 6.0.8 is explicitly the "after 7.x" target (docs/01) — Milestone 4. What
+the sample disks let us confirm now:
+
+- **6.0.8 boots on the Mac II ROM** in Snow (`evidence/09-608-multifinder-boot.png`).
+- **MultiFinder activation works via the boot-block shell swap (S3 ✅).** Patching
+  `bbShellName` "Finder"→"MultiFinder" (a Str15 at HFS partition offset `0x1A`,
+  i.e. absolute `LBA96*512 + 0x1A`) boots straight into MultiFinder — the
+  app-switcher icon appears top-right. This is the documented activation method
+  (§B′) and the prerequisite for the resident-launch model on System 6.
+- **The launcher itself won't run unmodified on base 6.0.8** — two concrete,
+  header-confirmed blockers:
+  - **FSSpec calls are System 7.** `FSMakeFSSpec`/`FSpOpenDF` are the trap
+    `0xAA52` (`_FSpDispatch`), unimplemented on base 6.0.8 → the catalog load in
+    `macfs.c` would fault. Milestone-4 fix: resolve `/MacAtrium` paths with the
+    older File Manager (`PBGetCatInfo`/`PBHOpen` by dir ID), or add FSSpec glue.
+  - **`WaitNextEvent` (`0xA860`) needs MultiFinder.** Fine once MultiFinder is
+    active (above), but the event loop should `TrapAvailable`-guard it and fall
+    back to `GetNextEvent` for safety.
+- The real **Prince of Persia** used in the 7.x tests was extracted *from* the
+  6.0.8 sample disk (`MacLC_6-0-8-POP.hda`, `Games/Prince of Persia ƒ/`) — app +
+  `Persia(BW/COLOR/LC)` data files, both forks, via `rb-cli get-binhex`.
+
+**Still to run:** L1 on 6.0.8+MultiFinder (after the Milestone-4 port) and 7.6.1
+(no disk on this box); colour-depth run for the Color backend; menu-bar hiding
+(S1/S2).
 
 ### The toolchain — decided
 
