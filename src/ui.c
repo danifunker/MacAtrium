@@ -58,6 +58,8 @@ void ui_init(Ui *u, Env *env, Render *r, Model *m, WindowPtr win, int safe)
     u->safe = safe;
     u->status[0] = '\0';
     u->previewPic = 0;
+    u->listArt = 0;
+    u->artFor = 0;
 }
 
 void ui_set_status(Ui *u, const char *msg)
@@ -79,6 +81,11 @@ const char *ui_current_name(Ui *u)
 }
 
 /* ---- drawing -------------------------------------------------------------- */
+
+static PicHandle load_item_art(Ui *u, const char *image);   /* defined below */
+
+#define ART_PANE_W 176          /* right-hand art pane width when wide enough */
+#define ART_MIN_W  560          /* show the art pane only at this width or more */
 
 static void draw_safe(Ui *u)
 {
@@ -125,10 +132,24 @@ static void draw_list(Ui *u)
     int       detailH = narrow ? 0 : ROW_H;
     short     listTop = HEADER_H;
     short     listBot = (short)(H - HINT_H - detailH);
+    int       showArt = (!narrow && W >= ART_MIN_W);
+    int       listW   = showArt ? (W - ART_PANE_W) : W;
     int       visRows = (listBot - listTop - 2) / ROW_H;
     int       i, top;
 
     render_fill(r, &full, FILL_BG);
+
+    /* lazy-load the selected item's art for the inline pane (only on change) */
+    if (showArt) {
+        const CatItem *curIt = model_cur_item(m);
+        if (curIt != u->artFor) {
+            if (u->listArt) { art_dispose(u->listArt); u->listArt = 0; }
+            if (curIt && curIt->image[0]) u->listArt = load_item_art(u, curIt->image);
+            u->artFor = curIt;
+        }
+    } else if (u->listArt) {
+        art_dispose(u->listArt); u->listArt = 0; u->artFor = 0;
+    }
 
     /* ---- header ---- */
     render_text_size(r, 12);
@@ -147,7 +168,7 @@ static void draw_list(Ui *u)
     render_hline(r, 0, (short)W, (short)(HEADER_H - 1));
 
     /* ---- list panel ---- */
-    SetRect(&rr, 0, listTop, (short)W, listBot);
+    SetRect(&rr, 0, listTop, (short)listW, listBot);
     render_fill(r, &rr, FILL_PANEL);
 
     top = clamp_scroll(u, visRows);
@@ -167,20 +188,37 @@ static void draw_list(Ui *u)
             y0  = (short)(listTop + i * ROW_H);
             base = (short)(y0 + ROW_H - 5);
 
-            SetRect(&rr, 0, y0, (short)W, (short)(y0 + ROW_H));
+            SetRect(&rr, 0, y0, (short)listW, (short)(y0 + ROW_H));
             render_fill(r, &rr, sel ? FILL_SEL : FILL_PANEL);
 
             render_text(r, MARGIN, base, it->name, sel ? INK_SELECTED : INK_NORMAL);
 
             if (!narrow && it->year > 0) {
                 l2s(it->year, num);
-                render_text(r, (short)(W - MARGIN - render_text_width(r, num)),
+                render_text(r, (short)(listW - MARGIN - render_text_width(r, num)),
                             base, num, sel ? INK_SELECTED : INK_DIM);
             }
         }
     }
-    SetRect(&rr, 0, listTop, (short)W, listBot);
+    SetRect(&rr, 0, listTop, (short)listW, listBot);
     render_frame(r, &rr);
+
+    /* ---- inline art pane (selected item's box art, depth-matched) ---- */
+    if (showArt) {
+        Rect ap, inner;
+        SetRect(&ap, (short)listW, listTop, (short)W, listBot);
+        render_fill(r, &ap, FILL_PANEL);
+        render_frame(r, &ap);
+        if (u->listArt) {
+            SetRect(&inner, (short)(listW + MARGIN), (short)(listTop + MARGIN),
+                    (short)(W - MARGIN), (short)(listBot - MARGIN));
+            art_draw_fit(u->listArt, &inner);
+        } else {
+            const char *t = "(no art)";
+            short tx = (short)(listW + (ART_PANE_W - render_text_width(r, t)) / 2);
+            render_text(r, tx, (short)((listTop + listBot) / 2), t, INK_DIM);
+        }
+    }
 
     /* ---- detail line (selection desc / status) ---- */
     if (!narrow) {

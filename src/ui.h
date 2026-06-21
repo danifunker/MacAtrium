@@ -31,6 +31,8 @@ typedef struct {
     int        safe;          /* 1 = "no catalog" recoverable screen */
     char       status[96];    /* transient line (e.g. launch error)  */
     PicHandle  previewPic;    /* loaded art while in UI_MODE_PREVIEW  */
+    PicHandle  listArt;       /* selected item's art for the inline pane */
+    const CatItem *artFor;    /* item listArt was loaded for (NULL = none) */
 } Ui;
 
 void      ui_init(Ui *u, Env *env, Render *r, Model *m, WindowPtr win, int safe);
