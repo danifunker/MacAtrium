@@ -194,18 +194,65 @@ R1 plan (thousands = add-on INIT on 6.x, built-in on 7).
 and the blessed folder — and `bless`/`chmeta`/`put` cover injection. Good signal
 for the [06-content-pipeline.md](06-content-pipeline.md) approach.
 
-## C. Still needs a build + run (🔬 empirical)
+## C. Empirical results — build + Snow (✅ / 🔬)
 
-These can't be settled from headers; they need the spike binary in Snow:
+| # | Item | Status |
+|---|------|--------|
+| L1 | `launchContinue` actually **returns control** | ✅ **confirmed on 7.5.5** (Mac II). See §C′. 6.0.8+MF / 7.1 / 7.6.1 still 🔬 |
+| L3 | Startup-app crash is **recoverable** (no wedged boot) | ✅ by design for the current deployment: the launcher runs from **Startup Items** alongside the Finder, so a crash drops to the Finder, not a wedged boot. (Boot-block-swap deployment still 🔬.) |
+| S1/S2 | Covering the Finder desktop / **hiding the menu bar** | ◐ launcher runs full-screen below the menu bar (recoverable). Hiding the menu bar itself still 🔬. |
+| S3 | **Boot-block shell swap** behaves (and whether `rb-cli` should gain a helper) | 🔬 not yet (Startup-Items approach used instead for MVP) |
+| C1 | ~~classify control panels~~ ✅ all five are `cdev`s (§B′). **Remaining:** does an `odoc` AppleEvent to a resident Finder open a cdev from our backgrounded shell? | 🔬 (Milestone 2) |
+| I1 | MiSTer Mac core button→key mapping | 🔬 separate, needs MiSTer (not Snow) |
 
-| # | Item | How Snow verifies it |
-|---|------|----------------------|
-| L1 | `launchContinue` actually **returns control** on 6.0.8+MF, 7.1, 7.5.5, 7.6.1 | trap breakpoint on `A9F2`; spike's return-counter increments |
-| L3 | Startup-app crash is **recoverable** (no wedged boot) | force a fault as startup app; confirm rescue path |
-| S1/S2 | Covering the Finder desktop / **hiding the menu bar** behaves per system | run shell full-screen, observe |
-| S3 | **Boot-block shell swap** behaves (and whether `rb-cli` should gain a helper) | swap on a copy image, boot in Snow |
-| C1 | ~~classify control panels~~ ✅ all five are `cdev`s (§B′). **Remaining:** does an `odoc` AppleEvent to a resident Finder open a cdev from our backgrounded shell? | run on-target |
-| I1 | MiSTer Mac core button→key mapping | separate, needs MiSTer (not Snow) |
+## C′. The keystone, proven end-to-end (✅ 2026-06-21)
+
+Built the MVP launcher (`src/`) with Retro68 and ran it **headlessly in Snow** —
+no display server — via a small harness that drives `snow_core` directly,
+injects keystrokes at CPU-cycle marks, and dumps the framebuffer to PNG
+([../tools/snow-harness](../tools/snow-harness/), screenshots in
+[evidence/](evidence/)). This is the automation docs/04 left open.
+
+**Environment**
+
+| Piece | Value |
+|-------|-------|
+| Emulated model | **Macintosh II (FDHD)** (68020) — Snow auto-detected from the ROM |
+| Main ROM | `MacIIFDHD.rom` (256 KB) |
+| Display ROM | **Macintosh Display Card 8•24** (`nb_mdc824` / `3410868.bin`, 32 KB) — a Mac II has no built-in video, so Snow needs it (`ExtraROMs::MDC12`) for a framebuffer |
+| OS / disk | **System 7.5.5**, raw SCSI image (`MacLC_7-5-5_OG.hda`) — boots cleanly on the Mac II ROM |
+| Depth | 1-bit → exercised the **B&W** render backend (the hard MVP requirement); Color QD backend is implemented but needs a colour depth to exercise |
+| Speed | ~44 M cycles/s; boot + Startup-Items launch ≈ 2 G cycles (~45 s wall) |
+
+**What was observed** (each a screenshot in `evidence/`)
+
+1. Boot → MacAtrium **auto-launches** from Startup Items, draws the full-screen
+   list: header `MacAtrium · All · 4 items`, Chicago font, items
+   alphabetically sorted, white-on-black selection, year column, detail + hint
+   bars — all laid out from the screen rect. (`01-launcher-menu.png`)
+2. `↓ ↓ ↓` selects **SimpleText**; `Return` → it **launches** (its menus +
+   "untitled" window appear) while the resident launcher stays alive behind it.
+   (`02-simpletext-launched.png`)
+3. `Cmd-Q` quits SimpleText → **control RETURNS to MacAtrium with the selection
+   still on SimpleText** — the keystone (`launchContinue` honoured) and the MVP
+   exit criteria. (`03-returned-selection-intact.png`)
+4. `Esc` → menu panel (Launch Finder / Restart / Shut Down).
+   (`04-esc-menu.png`)
+5. Launching an item whose `app` is absent (Prince of Persia) → non-fatal
+   **"Not found"** status, stays in the list. (`05-not-found.png`)
+6. `← →` switches category (All → Action, count + sort update).
+   (`06-category-action.png`)
+7. Esc → Restart (`ShutDwnStart`) → the machine **reboots** (clean restart, not a
+   crash).
+
+The launcher's `launch_app()` uses the identical `LaunchParamBlockRec` /
+`launchContinue | launchNoFileFlags` call documented in §A, so this confirms that
+documentary finding empirically on 7.5.5. The portable core (JSON/catalog/model)
+is also covered by off-target unit tests (`tests/`, 45 checks).
+
+**Still to run:** the same on 6.0.8+MultiFinder, 7.1, 7.6.1 (L1 across the
+matrix); colour-depth run for the Color backend; menu-bar hiding (S1/S2);
+boot-block-swap deployment (S3).
 
 ### The toolchain — decided
 

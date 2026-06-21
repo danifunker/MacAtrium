@@ -14,8 +14,16 @@ Why it fits: ✅ compile on this Mac with no emulation in the loop, ✅ standard
 ### Assumed environment
 
 - Retro68 toolchain installed on the build machine (the prompt may run on a box
-  that already has it). Record the install path and the CMake toolchain file in
-  the repo's top-level build docs once known.
+  that already has it). **Confirmed working** (2026-06-21) on the dev box:
+  `RETRO68=~/repos/Retro68-build`, toolchain file
+  `$RETRO68/toolchain/m68k-apple-macos/cmake/retro68.toolchain.cmake`,
+  `m68k-apple-macos-gcc` 12.2.0. The root `CMakeLists.txt` builds
+  `build/MacAtrium.bin` from this; see also `spikes/launch-return/`.
+  Note Retro68's multiversal headers are leaner than Apple's Universal
+  Interfaces — a few constants (`launchNoFileFlags`, `gestaltLaunchCanReturn`,
+  `kOnSystemDisk`, `fsRtDirID`) are supplied in `src/mac_compat.h`, and there is
+  no `<Folders.h>`/`<Shutdown.h>`/`<QuickdrawText.h>` (those symbols arrive via
+  any Toolbox shim, which pulls in the single combined header).
 - Output we care about: a 68k `APPL` with the right **type/creator** so the OS
   treats it as the startup app, with our resources (`SIZE`, `vers`, menus,
   theme defaults, the built-in "no catalog" screen) attached.

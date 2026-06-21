@@ -69,13 +69,29 @@ and copy `test.dsk` over — or `cargo build` rusty-backup there.)
 4. Also note the on-screen `launchCanReturn` flag matches whether it actually
    returned.
 
-## Matrix to fill in
+## Status (2026-06-21)
 
-Run on each target and record (promote results into the de-risk log):
+- **Builds clean** with Retro68 (fixed for Retro68's leaner multiversal headers:
+  dropped the nonexistent `<QuickdrawText.h>`/`<Shutdown.h>`, and `#define`d
+  `launchNoFileFlags` / `gestaltLaunchCanReturn` with the values from
+  [../../docs/11-derisk-log.md](../../docs/11-derisk-log.md) §A; a `Str255` can't
+  take a `"\p"` static initialiser so the label is seeded at runtime).
+- **The keystone itself is confirmed on 7.5.5** — but via the **MVP launcher**
+  (`src/`), which reuses this exact `LaunchParamBlockRec`/`launchContinue` code
+  and is far easier to drive headlessly than this spike's interactive
+  `StandardGetFile` dialog. The launcher launched a real app (SimpleText) and
+  control returned with selection intact, run automatically in Snow. See
+  [../../docs/11-derisk-log.md](../../docs/11-derisk-log.md) §C and
+  [../../docs/evidence/](../../docs/evidence/). The spike remains as the minimal
+  reference for the call.
+
+## Matrix
+
+Run on each target and record (promoted into the de-risk log):
 
 | System | Model (Snow) | launchCanReturn | Returns? | Notes |
 |--------|--------------|-----------------|----------|-------|
-| 6.0.8 +MultiFinder | SE/30 | ? | ? | |
-| 7.1 | II / SE/30 | ? | ? | |
-| 7.5.5 | II / SE/30 | ? | ? | |
-| 7.6.1 | SE/30 | ? | ? | |
+| 6.0.8 +MultiFinder | SE/30 | ? | ? | not yet run |
+| 7.1 | II / SE/30 | ? | ? | not yet run |
+| 7.5.5 | **Macintosh II (FDHD)** | **YES** | **YES** ✅ | proven via MVP launcher (identical launch code); SimpleText launched & returned, selection intact — headless Snow run, [tools/snow-harness](../../tools/snow-harness/) |
+| 7.6.1 | SE/30 | ? | ? | not yet run |

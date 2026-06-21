@@ -21,8 +21,7 @@
  * and watch execution return to our loop. Also inspect the LaunchParamBlockRec.
  */
 
-#include <Quickdraw.h>
-#include <QuickdrawText.h>
+#include <Quickdraw.h>     /* pulls in the whole Multiverse header, incl. text + ShutDwn */
 #include <Fonts.h>
 #include <Windows.h>
 #include <Events.h>
@@ -32,9 +31,22 @@
 #include <Processes.h>
 #include <Gestalt.h>
 #include <StandardFile.h>
-#include <Shutdown.h>
 #include <Files.h>
 #include <Memory.h>     /* BlockMoveData */
+
+/* Retro68's multiversal headers are leaner than Apple's Universal Interfaces:
+ * a few well-known Process Manager / Gestalt constants aren't defined. Supply
+ * them with the exact values confirmed from Apple's headers in
+ * docs/11-derisk-log.md §A (Processes.h / GestaltEqu.h). */
+#ifndef launchNoFileFlags
+#define launchNoFileFlags 0x0800   /* we resolve the FSSpec ourselves */
+#endif
+#ifndef gestaltLaunchCanReturn
+#define gestaltLaunchCanReturn 1   /* bit in gestaltOSAttr: resident launch */
+#endif
+#ifndef gestaltLaunchControl
+#define gestaltLaunchControl 3     /* bit in gestaltOSAttr */
+#endif
 
 /* ---- state ---------------------------------------------------------------- */
 static WindowPtr gWin;
@@ -45,7 +57,7 @@ static long      gQDVers     = 0;
 static long      gSysVers    = 0;
 static int       gLaunchCount= 0;       /* times control returned from a launch */
 static OSErr     gLastErr    = noErr;
-static Str255    gLastApp    = "\p(none)";
+static Str255    gLastApp;               /* set to "(none)" at startup */
 
 /* ---- helpers -------------------------------------------------------------- */
 
@@ -175,6 +187,12 @@ int main(void)
     InitCursor();
 
     ProbeEnvironment();
+
+    {   /* Str255 can't be statically initialised from a "\p" literal here, so
+         * seed the "last app" label at runtime. */
+        const unsigned char *def = "\p(none)";
+        BlockMoveData(def, gLastApp, def[0] + 1);
+    }
 
     SetRect(&bounds, 40, 60, 40 + 460, 60 + 300);
     gWin = NewWindow(NULL, &bounds, "\plaunch-return spike",

@@ -10,5 +10,8 @@ build/
 *.hda
 *.img
 
+# host unit-test binary
+tests/host_test
+
 # macOS
 .DS_Store

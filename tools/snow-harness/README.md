@@ -1,0 +1,82 @@
+# tools/snow-harness — headless Snow verification
+
+This is how the MVP launcher (and the launch-return keystone) were verified
+**without a display server**: a small Rust harness drives Snow's emulator core
+directly — boots a Mac II + System 7.5.5 hard disk, injects keystrokes at given
+CPU-cycle marks, and dumps the framebuffer to PNG so the result can be inspected
+programmatically.
+
+It is the practical answer to docs/04's open item *"automating emulator
+boot/screenshot is desirable but unproven."* It's proven now.
+
+## What it needs (all already on the dev machine)
+
+| Piece | Path used | Notes |
+|-------|-----------|-------|
+| Mac II ROM | `~/repos/lbmactwo_MiSTer/releases/MacIIFDHD.rom` | 256 KB; Snow auto-detects "Macintosh II (FDHD)" |
+| Display-card ROM | MAME `nb_mdc824.zip` → `3410868.bin` | 32 KB; the **Macintosh Display Card 8•24** — a Mac II has no built-in video, Snow needs this for a framebuffer (`ExtraROMs::MDC12`) |
+| Boot disk | `~/MacLC_7-5-5_OG.hda` | raw SCSI image, System 7.5.5; boots fine on the Mac II ROM |
+
+Snow's CPU tops out at SE/30 class but the **Mac II (68020)** covers System
+7.x with Color QD — see docs/11 §B. The 7.5.5 image renders at 1-bit here, so
+the runs exercise the **B&W** render backend (the hard MVP requirement); the
+Color backend is implemented but needs a colour depth to exercise.
+
+## Build the harness
+
+It depends on `snow_core`, so build it as a bin inside Snow's `testrunner`
+crate (reuses Snow's warm build artifacts):
+
+```sh
+cp macatrium_harness.rs ~/repos/snow/testrunner/src/bin/macatrium_harness.rs
+cd ~/repos/snow
+cargo build -r -p testrunner --bin macatrium_harness
+# -> ~/repos/snow/target/release/macatrium_harness
+```
+
+## Assemble a test image
+
+`assemble.sh` builds a pristine image from a System 7.5.5 source disk: it creates
+`/MacAtrium/{metadata,Apps}`, injects `test_catalog.jsonl`, drops a real launch
+target (**SimpleText**, both forks, extracted from the source disk with
+`rb-cli get-binhex`) at `Apps/SimpleText/SimpleText`, and places the built
+`build/MacAtrium.bin` in **System Folder:Startup Items** so it auto-launches.
+
+```sh
+# first extract SimpleText from the source disk (one time):
+rb-cli get-binhex ~/MacLC_7-5-5_OG.hda /SimpleText /tmp/macatrium-run/SimpleText.hqx
+cp test_catalog.jsonl /tmp/macatrium-run/
+./assemble.sh ~/MacLC_7-5-5_OG.hda /tmp/macatrium-run/master.hda
+```
+
+(Adjust the `RUN`/paths at the top of `assemble.sh` if needed. Always work on a
+copy — `assemble.sh` copies the source first.)
+
+## Run a scripted test
+
+```
+macatrium_harness <rom> <mdc_rom> <hdd.img> <out_dir> <max_cycles> \
+    [--snap-every N] [--keys "CYCLE:KEY;CYCLE:KEY;..."] [--wall-secs S]
+```
+
+- `--snap-every N` dumps `snap_NNN_<cycle>.png` every N cycles; `final.png` at the end.
+- `--keys` taps keys at the given cycle marks. KEY ∈ letters, `enter`/`return`,
+  `esc`, `up`/`down`/`left`/`right`, `space`, or `cmd-<key>` (e.g. `cmd-q`).
+- Boot to the desktop + Startup-Items launch takes ~2 G cycles (~45 s wall on
+  this box at ~44 M cycles/s).
+
+The end-to-end launch/return verification (results in docs/11 §C, screenshots in
+docs/evidence/):
+
+```sh
+cp /tmp/macatrium-run/master.hda /tmp/macatrium-run/run.hda
+macatrium_harness \
+  ~/repos/lbmactwo_MiSTer/releases/MacIIFDHD.rom \
+  /tmp/mdc/3410868.bin \
+  /tmp/macatrium-run/run.hda \
+  /tmp/macatrium-run/out 4000000000 \
+  --snap-every 100000000 \
+  --keys "2200000000:down;2280000000:down;2360000000:down;2480000000:enter;3300000000:cmd-q"
+# down x3 -> SimpleText, Enter -> launches it, Cmd-Q -> quits it,
+# control returns to MacAtrium with the selection intact.
+```

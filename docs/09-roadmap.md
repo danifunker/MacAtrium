@@ -8,25 +8,32 @@ System 7 (resident, easiest) leads; System 6 and richer visuals layer on.
 **Definition (locked):** 68k · System 7 · reads the catalog JSONL · launches an
 app and returns · Shutdown/Restart · B&W + 256-color rendering.
 
-Scope:
+Scope (✅ verified end-to-end on System 7.5.5 / Mac II in Snow, 2026-06-21 —
+see [11 §C′](11-derisk-log.md) and [evidence/](evidence/)):
 
-- [ ] Retro68 build producing a 68k `APPL`; `rb-cli` assembles a bootable System
-      7 test image (see [04](04-toolchain-build.md)).
-- [ ] Toolbox init + `env` probes (OS version, Color QD, screen bounds/depth,
+- [x] Retro68 build producing a 68k `APPL` (`build/MacAtrium.bin`, creator
+      `ATRM`); `rb-cli` assembles a bootable System 7 test image
+      ([tools/snow-harness](../tools/snow-harness/)).
+- [x] Toolbox init + `env` probes (OS version, Color QD, screen bounds/depth,
       launch capability, Shutdown Mgr).
-- [ ] `json.c` JSONL parser (CR/LF/CRLF-tolerant, MacRoman) + `catalog`/`model`
-      loading a **hand-authored** `data/catalog.jsonl`.
-- [ ] List UI: categories + "All", ↑↓ select, ←→ category, Return launch, Esc
+- [x] `json.c` JSONL parser (CR/LF/CRLF-tolerant, MacRoman) + `catalog`/`model`
+      loading `data/catalog.jsonl` (+ 45 off-target unit tests in `tests/`).
+- [x] List UI: categories + "All", ↑↓ select, ←→ category, Return launch, Esc
       menu; layout computed from screen rect. Chicago font.
-- [ ] Two render backends wired (B&W + Color), backend chosen at startup. (256
-      first; 16 and thousands can be Milestone 3.)
-- [ ] Sub-launch via the resident `Launch` path; return to a preserved selection.
-- [ ] Esc menu with **Restart** and **Shut Down** via Shutdown Manager.
-- [ ] The "no catalog / safe" fallback screen (so a bad boot is recoverable).
-- [ ] **Runs as a normal app (dev mode)** over a normal Finder boot.
+- [x] Render backends wired; backend chosen at startup. **B&W exercised** (the
+      7.5.5 test ran at 1-bit); the Color (256) backend is built but still needs
+      a colour-depth run to exercise.
+- [x] Sub-launch via the resident `Launch` path; **return to a preserved
+      selection** (the keystone — proven).
+- [x] Esc menu with **Restart** and **Shut Down** via Shutdown Manager (Restart
+      verified to reboot cleanly).
+- [x] The "no catalog / safe" fallback screen (built in `ui.c`; shown when the
+      catalog is missing/empty).
+- [x] **Runs auto-launched over a normal Finder boot** (Startup Items) — the
+      dev-mode-plus path; double-click-as-normal-app is the same binary.
 
-**Exit criteria:** boot the image (or run in dev mode) → pick a game → it
-launches → quit it → back in the shell with selection intact → Restart works.
+**Exit criteria — met:** booted the image → selected SimpleText → it launched →
+Cmd-Q quit it → back in the shell with selection intact → Restart reboots. ✅
 
 ## Milestone 2 — actually the boot shell
 
@@ -81,7 +88,9 @@ launches → quit it → back in the shell with selection intact → Restart wor
 These are the assumptions most likely to bite; prove them in Milestone 1–2 (full
 list in [10-open-questions.md](10-open-questions.md)):
 
-1. Resident `Launch` flags actually return control on each target. 🔬
-2. Boot path is recoverable when the shell crashes on launch. 🔬
+1. Resident `Launch` flags actually return control on each target. ✅ **7.5.5**
+   confirmed (Mac II, Snow); 6.0.8+MF / 7.1 / 7.6.1 still 🔬.
+2. Boot path is recoverable when the shell crashes on launch. ✅ for the
+   Startup-Items deployment (a crash drops to the Finder); boot-block-swap 🔬.
 3. Covering the Finder / hiding the menu bar behaves across systems. 🔬
 4. Single 68k binary really runs unmodified on 6.0.8 + 7.x. 🔬
