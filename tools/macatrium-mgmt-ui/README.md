@@ -1,4 +1,4 @@
-# tools/atrium-gui — egui front-end for the build tooling
+# tools/macatrium-mgmt-ui — MacAtrium Management UI
 
 A thin GUI over the [`atrium`](../atrium-tool/) library. **Every action calls the
 same `atrium` functions the CLI exposes** — the CLI stays the source of truth;
@@ -7,7 +7,7 @@ rusty-backup; like the CLI, it invokes the unmodified `rb-cli` binary, so the
 heavy C deps never enter this build.)
 
 ```sh
-cd tools/atrium-gui
+cd tools/macatrium-mgmt-ui
 cargo run --release      # opens a window (needs a display — not the headless dev box)
 ```
 

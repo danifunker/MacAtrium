@@ -162,8 +162,9 @@ unit-tested and proven in Snow. Plus:
   screenshot (box art is always colourful); article/version-tolerant matching.
 - **`set`** is the CLI "checkbox" for the colour/mouse facets LaunchBox lacks →
   `data/overrides.jsonl`, applied by `merge`.
-- **[`atrium-gui`](../tools/atrium-gui/)** — an egui front-end that drives the
-  *same* library functions (CLI stays source of truth). Builds; runs on a display.
+- **[MacAtrium Management UI](../tools/macatrium-mgmt-ui/)** (`macatrium-mgmt-ui`)
+  — an egui front-end that drives the *same* library functions (CLI stays source
+  of truth). Builds; runs on a display.
 - **CI** ([.github/workflows/release.yml](../.github/workflows/release.yml)) builds
   `atrium` for mac/win/linux × x86_64+arm64 + the 68k `MacAtrium.bin` (Retro68
   container) and publishes a release with the Mac launcher + the build tools.

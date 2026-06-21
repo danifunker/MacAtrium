@@ -1,4 +1,4 @@
-//! atrium-gui — an egui front-end for the MacAtrium build tooling.
+//! MacAtrium Management UI — an egui front-end for the MacAtrium build tooling.
 //!
 //! Every action here calls the `atrium` **library** — the exact functions the
 //! CLI exposes — so the CLI stays the source of truth and this is just a nicer
@@ -24,7 +24,7 @@ fn main() -> eframe::Result<()> {
         ..Default::default()
     };
     eframe::run_native(
-        "MacAtrium Manager",
+        "MacAtrium Management UI",
         opts,
         Box::new(|_cc| Ok(Box::<App>::default())),
     )
@@ -117,7 +117,7 @@ impl App {
             return;
         }
         let rb = RbCli::new(&self.rb_cli);
-        let tmp = std::env::temp_dir().join("atrium-gui-catalog.jsonl");
+        let tmp = std::env::temp_dir().join("macatrium-mgmt-catalog.jsonl");
         let _ = std::fs::remove_file(&tmp);
         match rb.get(
             PathBuf::from(&self.image_path).as_path(),
@@ -191,7 +191,7 @@ impl App {
             "overrides": self.overrides,
             "rb_cli": self.rb_cli,
         });
-        let cfg_path = std::env::temp_dir().join("atrium-gui-build.json");
+        let cfg_path = std::env::temp_dir().join("macatrium-mgmt-build.json");
         if let Err(e) = std::fs::write(&cfg_path, serde_json::to_string_pretty(&cfg).unwrap()) {
             self.status = format!("Config write failed: {e}");
             return;
@@ -206,7 +206,7 @@ impl App {
 impl eframe::App for App {
     // eframe 0.34 hands us a root Ui (no panels); we lay out controls + table in it.
     fn ui(&mut self, ui: &mut egui::Ui, _frame: &mut eframe::Frame) {
-        ui.heading("MacAtrium Manager");
+        ui.heading("MacAtrium Management UI");
         ui.horizontal(|ui| {
             ui.label("rb-cli:");
             ui.text_edit_singleline(&mut self.rb_cli);

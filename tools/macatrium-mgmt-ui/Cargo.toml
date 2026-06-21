@@ -1,11 +1,11 @@
 [package]
-name = "atrium-gui"
+name = "macatrium-mgmt-ui"
 version = "0.1.0"
 edition = "2021"
-description = "egui front-end for the MacAtrium build tooling — a thin GUI over the atrium library (the CLI stays the source of truth)."
+description = "MacAtrium Management UI — an egui front-end over the atrium build library (the CLI stays the source of truth)."
 
 [[bin]]
-name = "atrium-gui"
+name = "macatrium-mgmt-ui"
 path = "src/main.rs"
 
 [dependencies]

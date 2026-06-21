@@ -1,8 +1,8 @@
 //! MacAtrium host build tooling — library crate.
 //!
 //! Every command's logic lives here so both the CLI (`src/main.rs`) and the GUI
-//! (`tools/atrium-gui`) drive the *same* functions: the CLI is the source of
-//! truth, the GUI is a thin front-end over it.
+//! (`tools/macatrium-mgmt-ui`) drive the *same* functions: the CLI is the source
+//! of truth, the GUI is a thin front-end over it.
 
 pub mod catalog;
 pub mod enrich;
