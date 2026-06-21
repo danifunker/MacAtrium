@@ -1,0 +1,28 @@
+# data/library.jsonl — curated MacAtrium source dataset (UTF-8 JSONL, PR-friendly).
+#
+# Compiled into the on-Mac metadata/catalog.jsonl by `atrium catalog`
+# (tools/atrium-tool), which DERIVES the many-to-many `categories` from the
+# facet fields below — the "facets + decade buckets" model (docs/06):
+#   kind  -> Games | Applications | Utilities
+#   genre -> verbatim genre categories
+#   color -> "Color" / "B&W"
+#   year  -> a decade bucket ("1980s" / "1990s"); raw year kept for sort
+#   vendor-> the publisher (Broderbund, ...)
+#   mouse -> "Mouse Required" / "No Mouse"
+#
+# Lines starting with '#' or '//', and blank lines, are ignored.
+# `app` paths are relative to the /MacAtrium root on the target volume.
+# Titles here are real Macintosh classics present in the MacPack collection;
+# treat the metadata as a curated starter — refine vendor/year/etc. via PR.
+{"id":"prince-of-persia","name":"Prince of Persia","kind":"game","year":1990,"vendor":"Broderbund","color":true,"mouse":false,"genre":["Action"],"app":"Apps/Prince of Persia/Prince of Persia","desc":"Race the clock to rescue the princess from Jaffar."}
+{"id":"dark-castle","name":"Dark Castle","kind":"game","year":1986,"vendor":"Silicon Beach Software","color":false,"mouse":true,"genre":["Action"],"app":"Apps/Dark Castle/Dark Castle","desc":"Throw rocks and dodge bats in the Black Knight's castle."}
+{"id":"beyond-dark-castle","name":"Beyond Dark Castle","kind":"game","year":1987,"vendor":"Silicon Beach Software","color":false,"mouse":true,"genre":["Action"],"app":"Apps/Beyond Dark Castle/Beyond Dark Castle","desc":"The sequel: escape the Black Knight's domain."}
+{"id":"shufflepuck-cafe","name":"Shufflepuck Café","kind":"game","year":1989,"vendor":"Broderbund","color":false,"mouse":true,"genre":["Sports"],"app":"Apps/Shufflepuck Cafe/Shufflepuck Cafe","desc":"Air-hockey against a cantina full of aliens."}
+{"id":"crystal-quest","name":"Crystal Quest","kind":"game","year":1987,"vendor":"Casady & Greene","color":false,"mouse":true,"genre":["Arcade"],"app":"Apps/Crystal Quest/Crystal Quest","desc":"Collect crystals, dodge nasties, escape."}
+{"id":"lemmings","name":"Lemmings","kind":"game","year":1991,"vendor":"Psygnosis","color":true,"mouse":true,"genre":["Puzzle"],"app":"Apps/Lemmings/Lemmings","desc":"Guide the little fellows safely to the exit."}
+{"id":"simcity","name":"SimCity","kind":"game","year":1989,"vendor":"Maxis","color":true,"mouse":true,"genre":["Strategy"],"app":"Apps/SimCity/SimCity","desc":"Build and run your own city."}
+{"id":"deja-vu","name":"Déjà Vu","kind":"game","year":1985,"vendor":"ICOM Simulations","color":false,"mouse":true,"genre":["Adventure"],"app":"Apps/Deja Vu/Deja Vu","desc":"A noir point-and-click mystery."}
+{"id":"maze-wars","name":"Maze Wars+","kind":"game","year":1986,"vendor":"MacroMind","color":false,"mouse":true,"genre":["Action"],"app":"Apps/Maze Wars/Maze Wars+","desc":"First-person networked maze shooter."}
+{"id":"spectre","name":"Spectre","kind":"game","year":1991,"vendor":"Velocity","color":true,"mouse":false,"genre":["Action"],"app":"Apps/Spectre/Spectre","desc":"Tank combat on a neon grid."}
+{"id":"tetris","name":"Tetris","kind":"game","year":1988,"vendor":"Spectrum HoloByte","color":false,"mouse":true,"genre":["Puzzle"],"app":"Apps/Tetris/Tetris","desc":"The falling-blocks classic."}
+{"id":"simpletext","name":"SimpleText","kind":"app","year":1994,"vendor":"Apple Computer","color":true,"mouse":true,"genre":["Productivity"],"app":"Apps/SimpleText/SimpleText","desc":"Apple's plain-text editor."}

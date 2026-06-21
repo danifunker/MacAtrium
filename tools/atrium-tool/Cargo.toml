@@ -1,0 +1,18 @@
+[package]
+name = "atrium"
+version = "0.1.0"
+edition = "2021"
+description = "MacAtrium host build tooling: faceted catalog generation, PNG→PICT, app harvest, and bootable-image assembly. Pure Rust → builds on Mac/Windows/Linux for CI."
+
+[[bin]]
+name = "atrium"
+path = "src/main.rs"
+
+[dependencies]
+clap = { version = "4", features = ["derive"] }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+anyhow = "1"
+
+[profile.release]
+opt-level = 2

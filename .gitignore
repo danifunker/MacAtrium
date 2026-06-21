@@ -5,6 +5,11 @@ build/
 *.bin
 *.APPL
 
+# Rust (host tooling, tools/atrium-tool) — target/ is generated; Cargo.lock is
+# committed for reproducible CI builds (binary crate).
+target/
+**/target/
+
 # Local test disk images (inject into copies, don't commit)
 *.dsk
 *.hda

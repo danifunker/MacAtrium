@@ -24,6 +24,13 @@ The MVP is built, unit-tested, and verified end-to-end on real emulated hardware
   (Launch Finder / Restart / Shut Down), Restart reboots, graceful "Not found",
   the "no catalog" safe screen.
 - **Redraw is double-buffered** (off-screen GWorld → one `CopyBits`); no flicker.
+- **Dark / light theme** — dark by default; `T` toggles at runtime. Both backends
+  honour it (Color QD via two palettes in `render_cqd.c`; B&W via a straight
+  black/white inversion in `render_qd.c`). Verified in Snow on 7.1: boots dark →
+  `T` → light → `T` → dark ([evidence/theme-dark-default.png](evidence/theme-dark-default.png),
+  [theme-light-toggled.png](evidence/theme-light-toggled.png),
+  [theme-dark-restored.png](evidence/theme-dark-restored.png)). Theme is not yet
+  persisted (no prefs file) — resets to dark each boot.
 - **Headless verification harness** drives Snow's core directly
   ([../tools/snow-harness](../tools/snow-harness/)) — boot, inject keystrokes at
   cycle marks, dump framebuffer PNGs.
@@ -85,27 +92,37 @@ Down/Launch Finder. `main` — init, full-screen window, event loop.
 ready-to-boot appliance image** — no hand steps. This is roadmap
 [Milestone 5](09-roadmap.md) + the [content pipeline](06-content-pipeline.md).
 
-What exists today is a *prototype*: `tools/snow-harness/assemble.sh` hard-codes
-a hand-written catalog and two hand-extracted apps. The real tool should:
+**Decided & underway:** the host tool is a new **pure-Rust crate**,
+[`tools/atrium-tool`](../tools/atrium-tool/) (binary `atrium`) — builds on
+Mac/Windows/Linux, no native deps, CI-able. It owns catalog generation, art
+conversion, app harvest, and image assembly via subcommands (rather than bolting
+onto rb-cli, which stays the volume-I/O layer it calls). Data source decided too:
+the **MacPack** collection (MiSTer MacPlus pack — APM/HFS `.vhd`s `rb-cli` reads
+directly, organised by year/genre with a full text index).
 
-1. **Generate `catalog.jsonl` from the repo dataset** (`data/`), not by hand —
-   merge curated metadata, map genres→categories, emit CR/MacRoman/`TEXT`
-   (schema [06](06-content-pipeline.md)). Decide: a standalone host tool in
-   `tools/` vs. a new **`rb-cli scan`/`catalog`** subcommand (06 leaves this
-   open; rb-cli is the natural home for volume I/O).
-2. **Populate `/MacAtrium/Apps`** from a source tree or by extracting/aliasing
-   apps already on a disk (both forks — `get-binhex`/`put-binhex` is the proven
-   path; consider real **aliases** so moved files still launch).
-3. **Convert artwork → PICT** (depth variants) into `/MacAtrium/images` — host
-   PNG→PICT step (06 leaves the exact converter open; pick one).
+1. **Generate `catalog.jsonl`** — **DONE ✅.** `atrium catalog` compiles the
+   curated `data/library.jsonl` → faceted `categories` (the locked **"facets +
+   decade buckets"** model: kind, genre, `Color`/`B&W`, decade bucket, vendor,
+   `Mouse Required`/`No Mouse`; raw `year` kept for sort), CR/MacRoman, validated
+   against the device parser limits. Unit-tested + **verified in Snow** with a
+   12-title dataset: facet categories navigate and a real app launches/returns
+   from the generated catalog ([evidence](evidence/): `catalog-generated-all-12.png`,
+   `facet-{bw,color,decade-1980s,vendor-broderbund,no-mouse}.png`,
+   `launch-return-generated-catalog.png`).
+2. **Populate `/MacAtrium/Apps`** — `atrium harvest` (planned): enumerate apps in
+   a MacPack `.vhd` via `rb-cli ls`, extract chosen ones with both forks
+   (`get-binhex`/`put-binhex`, proven), lay them into `Apps/`, emit dataset stubs
+   to enrich; consider real **aliases** so moved files still launch.
+3. **Convert artwork → PICT** — `atrium pict` (planned): native-Rust PICT encoder
+   (1-bit + 8-bit depth variants), no external converter. *(decided: build it
+   in-repo, Rust only — not ImageMagick.)*
 4. **Install the launcher** — Startup Items now; add the **boot-block shell-swap**
    option (we proved the swap works, §C″/S3) for a true Finder-replacement build.
-5. **Emit a bootable `.hda`** (+ optionally a Snow workspace / `hddN.img` layout)
-   and run the harness as a smoke test.
+5. **Emit a bootable `.hda`** — `atrium image` (planned): orchestrate 1–4 +
+   launcher install + harness smoke test; retire the bash `assemble.sh`.
 
-Deliverable: something like `make image DATASET=… SYSTEM=… OUT=…` (or a
-`tools/build-image` script) that's reproducible and CI-able. Fold the working
-bits of `assemble.sh` into it; keep `assemble.sh` as the quick test path.
+Deliverable: `atrium image …`, reproducible and CI-able. `assemble.sh` stays the
+quick hand-test path until `atrium image` lands.
 
 ---
 
@@ -134,7 +151,8 @@ roughly highest-leverage first:
 - [ ] **Artwork** — app icons (`ICN#`/`icl8`, no assets needed) → curated PICT,
       lazy-loaded; wire into the UI. (M3)
 - [ ] **UI polish** — type-ahead jump, per-item hotkeys, detail/art pane at
-      800×600 & 1024×768, theme presets, tune layouts incl. 512×342. (M3)
+      800×600 & 1024×768, tune layouts incl. 512×342. (M3)
+      (dark/light **theme** is done — `T` toggles; persist it via a prefs file next.)
 - [ ] **16-bit / thousands** backend variant. (M3)
 - [ ] **7.6.1 run** to finish the L1 matrix (needs a 7.6.1 disk — not on this box).
 

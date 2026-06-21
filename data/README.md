@@ -1,28 +1,46 @@
-# data/ — sample catalog for MVP
+# data/ — the curated source dataset
 
-`catalog.jsonl` is a tiny hand-authored catalog to develop the MVP launcher
-against, before the host tooling and LaunchBox enrichment exist. Schema v2 is
-documented in [../docs/06-content-pipeline.md](../docs/06-content-pipeline.md).
+Two files live here:
 
-Three entries, deliberately minimal (just `id`, `name`, `categories`, `app`,
-`year` — no images; MVP is text-only):
+- **`library.jsonl`** — the **curated source dataset** (the thing humans edit /
+  PR). UTF-8 JSONL keyed by `id`, carrying *facet* fields. `# …` / `// …` lines
+  and blank lines are comments. This is the input to the host tool.
+- **`catalog.jsonl`** — a tiny hand-authored *output-format* sample kept from the
+  MVP era (schema v2). The real on-Mac catalog is now **generated**, not authored.
 
-- **Prince of Persia (1992)** — the one you asked for. In `Games` *and* `Action`.
-- Dark Castle (1986), Lemmings (1991) — filler so the list has rows to arrow
-  through and more than one category to switch between (Games / Action / Puzzle,
-  plus the synthesized **All**). Trim to just Prince of Persia if you want.
+## Source → on-Mac catalog
 
-Note Prince of Persia carries **two** categories — that's the many-to-many model:
-one app, many categories, no duplicate files.
+The host tool [`atrium`](../tools/atrium-tool/) compiles `library.jsonl` into the
+light index the launcher reads at boot, **deriving** the many-to-many
+`categories` from the facet fields — the "facets + decade buckets" model:
 
-## Using it for the MVP
+```sh
+atrium catalog --src data/library.jsonl --out /tmp/catalog.jsonl
+rb-cli put disk.hda /tmp/catalog.jsonl /MacAtrium/metadata/catalog.jsonl --type TEXT --creator ttxt
+```
 
-1. This repo file uses normal LF endings. The host tooling will re-emit it as
-   **CR / MacRoman / type `TEXT`** when targeting a Mac volume (the launcher's
-   parser tolerates LF/CR/CRLF anyway).
-2. Inject it: `rb-cli put test.dsk data/catalog.jsonl /MacAtrium/metadata/catalog.jsonl --type TEXT`
-3. **To actually test launch-and-return:** the `app` paths are relative to
-   `/MacAtrium`, so put a real app (or an alias) at the referenced path — e.g.
-   copy an app to `/MacAtrium/Apps/Prince of Persia/Prince of Persia`. For a
-   quick first test you can point one entry's `app` at any app you know is on the
-   disk (the 7.x sample disks have **SimpleText**).
+| Source field | Req | → derived category / use |
+|--------------|-----|--------------------------|
+| `id` | ✅ | stable slug |
+| `name` | ✅ | display name |
+| `app` | ✅ | launch path, relative to `/MacAtrium` |
+| `kind` | ○ | `game` (default) / `app` / `utility` → `Games` / `Applications` / `Utilities` |
+| `genre` | ○ | array → genre categories (`Action`, `Puzzle`, …) |
+| `color` | ○ | bool → `Color` / `B&W` |
+| `year` | ○ | int → decade bucket (`1980s` / `1990s`); raw year kept for sort/display |
+| `vendor` | ○ | publisher → its own category (`Broderbund`, …) |
+| `mouse` | ○ | bool → `Mouse Required` / `No Mouse` |
+| `categories` | ○ | manual extras (e.g. `Recommended`), preserved in dataset order |
+| `desc` / `image` / `type` / `creator` | ○ | passed through to the catalog |
+
+The tool transcodes to **MacRoman**, emits **CR** line endings, and validates
+against the on-device parser limits (`src/catalog.h`). See the
+[tool README](../tools/atrium-tool/README.md).
+
+## Provenance
+
+The starter titles in `library.jsonl` are real Macintosh classics from the
+**MacPack** collection (the MiSTer MacPlus pack — a curated set of HFS disk
+images, organised by year/genre, that `rb-cli` reads directly). The metadata is
+a curated starter; refine `vendor`/`year`/etc. via PR. Harvesting the actual app
+forks out of the pack into `/MacAtrium/Apps` is the `atrium harvest` step (docs/13).
