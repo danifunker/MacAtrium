@@ -1,0 +1,17 @@
+[package]
+name = "atrium-gui"
+version = "0.1.0"
+edition = "2021"
+description = "egui front-end for the MacAtrium build tooling — a thin GUI over the atrium library (the CLI stays the source of truth)."
+
+[[bin]]
+name = "atrium-gui"
+path = "src/main.rs"
+
+[dependencies]
+eframe = "0.34"
+rfd = "0.15"
+anyhow = "1"
+serde_json = { version = "1", features = ["preserve_order"] }
+# The CLI's logic, reused verbatim — every action the GUI takes is an atrium call.
+atrium = { path = "../atrium-tool" }
