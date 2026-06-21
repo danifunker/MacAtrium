@@ -10,7 +10,9 @@
 //! stubs that describe their planned behaviour.
 
 mod catalog;
+mod harvest;
 mod macroman;
+mod rbcli;
 
 use anyhow::Result;
 use clap::{Parser, Subcommand};
@@ -50,10 +52,30 @@ enum Cmd {
         out: Option<PathBuf>,
     },
 
-    /// (planned) Harvest apps out of a donor HFS image into the /MacAtrium tree.
+    /// Harvest apps out of a donor HFS image (a MacPack .vhd) into the
+    /// /MacAtrium tree: extract both forks, stage them, emit dataset stubs.
     Harvest {
+        /// Source HFS image to harvest from (e.g. ~/macpack-work/boot.vhd).
         #[arg(long)]
-        image: Option<PathBuf>,
+        image: PathBuf,
+        /// A source app folder to harvest (repeatable), e.g. "/Games/1986/Dark Castle 1.2".
+        #[arg(long = "app")]
+        apps: Vec<String>,
+        /// Harvest every subfolder of this source dir as an app, e.g. "/Games/1986".
+        #[arg(long)]
+        scan: Option<String>,
+        /// Staging dir for extracted .hqx forks + harvested.jsonl stubs.
+        #[arg(long)]
+        stage: PathBuf,
+        /// Optionally inject the forks straight into this target image.
+        #[arg(long)]
+        into: Option<PathBuf>,
+        /// Target Apps root inside the image.
+        #[arg(long, default_value = "/MacAtrium/Apps")]
+        apps_root: String,
+        /// Path to the rb-cli binary (defaults to `rb-cli` on PATH).
+        #[arg(long, default_value = "rb-cli")]
+        rb_cli: String,
     },
 
     /// (planned) Assemble a full bootable appliance image end-to-end.
@@ -96,13 +118,24 @@ fn main() -> Result<()> {
                  by the catalog's `image` field (docs/06 Images).",
             );
         }
-        Cmd::Harvest { .. } => {
-            return not_yet(
-                "harvest",
-                "enumerate apps in a donor HFS image (via rb-cli ls), extract the \
-                 chosen ones with both forks (get-binhex), and lay them into \
-                 /MacAtrium/Apps — emitting matching dataset stubs to enrich.",
-            );
+        Cmd::Harvest {
+            image,
+            apps,
+            scan,
+            stage,
+            into,
+            apps_root,
+            rb_cli,
+        } => {
+            harvest::run(
+                &rb_cli,
+                &image,
+                &apps,
+                scan.as_deref(),
+                &stage,
+                into.as_deref(),
+                &apps_root,
+            )?;
         }
         Cmd::Image { .. } => {
             return not_yet(

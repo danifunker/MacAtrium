@@ -109,10 +109,16 @@ directly, organised by year/genre with a full text index).
    from the generated catalog ([evidence](evidence/): `catalog-generated-all-12.png`,
    `facet-{bw,color,decade-1980s,vendor-broderbund,no-mouse}.png`,
    `launch-return-generated-catalog.png`).
-2. **Populate `/MacAtrium/Apps`** — `atrium harvest` (planned): enumerate apps in
-   a MacPack `.vhd` via `rb-cli ls`, extract chosen ones with both forks
-   (`get-binhex`/`put-binhex`, proven), lay them into `Apps/`, emit dataset stubs
-   to enrich; consider real **aliases** so moved files still launch.
+2. **Populate `/MacAtrium/Apps`** — **DONE ✅.** `atrium harvest` enumerates apps
+   in a MacPack `.vhd` (or any donor disk) via `rb-cli ls`, extracts the launchable
+   `APPL` + its data files with both forks (`get-binhex`), skips bundled clutter
+   (System/Finder, Desktop DB/DF, Icon), optionally injects into a target image
+   (`--into`), and emits `data/library.jsonl` stubs with `year`/`kind` inferred
+   from the source path. **Verified in Snow:** harvested Prince of Persia + two
+   pack games into a fresh image, then launched/returned PoP through the launcher
+   ([evidence](evidence/): `harvest-pop-{selected,running,returned}.png`).
+   *Still open:* bulk-scan curation at scale, and real **aliases** so moved files
+   still launch.
 3. **Convert artwork → PICT** — `atrium pict` (planned): native-Rust PICT encoder
    (1-bit + 8-bit depth variants), no external converter. *(decided: build it
    in-repo, Rust only — not ImageMagick.)*
