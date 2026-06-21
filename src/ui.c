@@ -198,8 +198,8 @@ static void draw_list(Ui *u)
     render_hline(r, 0, (short)W, (short)(H - HINT_H));
     {
         const char *hint = narrow
-            ? "<> cat  ^v sel  Ret launch  Esc menu"
-            : "<- ->  category     ^ v  select     Return  launch     Esc  menu";
+            ? "<> cat  ^v sel  Ret launch  T theme  Esc menu"
+            : "<- ->  category     ^ v  select     Return  launch     T  theme     Esc  menu";
         short x = (short)((W - render_text_width(r, hint)) / 2);
         if (x < MARGIN) x = MARGIN;
         render_text(r, x, (short)(H - 7), hint, INK_DIM);
@@ -264,6 +264,13 @@ static UiCommand menu_select(Ui *u)
 UiCommand ui_key(Ui *u, char ch)
 {
     UiCommand cmd = UI_NONE;
+
+    /* Theme toggle works in any mode (list / menu / safe screen). */
+    if (ch == 't' || ch == 'T') {
+        render_toggle_theme(u->r);
+        ui_draw(u);
+        return UI_NONE;
+    }
 
     if (u->mode == UI_MODE_MENU) {
         switch (ch) {

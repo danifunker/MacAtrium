@@ -19,8 +19,13 @@ enum { FILL_BG = 0, FILL_PANEL, FILL_SEL };
 /* Text ink roles. */
 enum { INK_NORMAL = 0, INK_DIM, INK_SELECTED, INK_TITLE };
 
+/* Themes. Dark is the default (docs/07); both backends honour it — Color QD via
+ * two palettes, B&W via a straight black/white inversion. */
+enum { THEME_DARK = 0, THEME_LIGHT };
+
 typedef struct {
     int       color;       /* 1 = Color QD backend, 0 = B&W backend */
+    int       theme;       /* THEME_DARK (default) / THEME_LIGHT */
     int       depth;       /* pixelSize */
     /* Off-screen compositing: draw a whole frame into a GWorld, then blit it to
      * the window in one CopyBits so there's no on-screen erase/repaint flicker
@@ -34,6 +39,9 @@ typedef struct {
 } Render;
 
 void  render_init(Render *r, const Env *e);
+
+void  render_set_theme(Render *r, int theme);   /* THEME_DARK / THEME_LIGHT */
+int   render_toggle_theme(Render *r);           /* flip; returns new theme */
 
 void  render_begin(Render *r, WindowPtr w);     /* SetPort + Chicago font */
 void  render_end(Render *r, WindowPtr w);

@@ -10,9 +10,21 @@
 void render_init(Render *r, const Env *e)
 {
     r->color        = e->useColor;
+    r->theme        = THEME_DARK;      /* dark by default; 'T' toggles at runtime */
     r->depth        = e->pixelSize > 0 ? e->pixelSize : 1;
     r->useOffscreen = e->hasColorQD;   /* NewGWorld needs Color QD */
     r->offscreen    = 0;
+}
+
+void render_set_theme(Render *r, int theme)
+{
+    r->theme = (theme == THEME_LIGHT) ? THEME_LIGHT : THEME_DARK;
+}
+
+int render_toggle_theme(Render *r)
+{
+    r->theme = (r->theme == THEME_DARK) ? THEME_LIGHT : THEME_DARK;
+    return r->theme;
 }
 
 static void c2p(const char *s, Str255 out)
