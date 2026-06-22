@@ -67,6 +67,9 @@ static int item_from_object(const JsonObject *o, CatItem *it)
     f = json_get(o, "image");
     if (f && f->type == JT_STR) copy_field(it->image, sizeof it->image, f->str);
 
+    f = json_get(o, "shot");
+    if (f && f->type == JT_STR) copy_field(it->shot, sizeof it->shot, f->str);
+
     return 1;
 }
 

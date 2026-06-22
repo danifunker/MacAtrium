@@ -30,7 +30,8 @@ typedef struct {
     char type[8];                            /* OSType text, "" if absent */
     char creator[8];
     char desc[ITEM_DESC_LEN];
-    char image[ITEM_PATH_LEN];
+    char image[ITEM_PATH_LEN];               /* box-art base path, "" if absent */
+    char shot[ITEM_PATH_LEN];                /* screenshot base path, "" if absent */
 } CatItem;
 
 typedef struct {

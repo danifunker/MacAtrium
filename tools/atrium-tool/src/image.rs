@@ -154,6 +154,51 @@ fn bake_app_icon(
     Ok(true)
 }
 
+/// Bake the depth variants for one source image under `name` (e.g. "prince" for
+/// box art or "prince.shot" for the screenshot), inject them, and return the
+/// catalog path to record — a base path for multi-variant, an explicit `.ext`
+/// for the single-depth case. `None` if nothing decoded.
+fn bake_variants(
+    rb: &RbCli,
+    cfg: &Config,
+    stage: &Path,
+    images_rel: &str,
+    name: &str,
+    src: &Path,
+    depths: &[pict::Depth],
+    multi: bool,
+) -> Result<Option<String>> {
+    let mut any = false;
+    for d in depths {
+        let sfx = if multi { format!(".{}", d.bits()) } else { String::new() };
+        // 1-bit ships as a raw CopyBits bitmap (.raw); colour depths as PICT.
+        let raw = *d == pict::Depth::One;
+        let ext = if raw { "raw" } else { "pict" };
+        let stagefile = stage.join(format!("{name}{sfx}.{ext}"));
+        let ok = if raw {
+            pict::run_raw1(src, &stagefile, cfg.art_max).is_ok()
+        } else {
+            pict::run(src, &stagefile, *d, true, cfg.art_max).is_ok()
+        };
+        if !ok {
+            continue; // skip art that won't decode rather than fail the build
+        }
+        let dst = format!("{}/{}{}.{}", cfg.images_dir.trim_end_matches('/'), name, sfx, ext);
+        let (ftype, creator) = if raw { ("ABMP", "ttxt") } else { ("PICT", "ttxt") };
+        rb.put_typed(&cfg.out, &stagefile, &dst, ftype, creator)?;
+        any = true;
+    }
+    if !any {
+        return Ok(None);
+    }
+    Ok(Some(if multi {
+        format!("{images_rel}/{name}")
+    } else {
+        let ext = if depths[0] == pict::Depth::One { "raw" } else { "pict" };
+        format!("{images_rel}/{name}.{ext}")
+    }))
+}
+
 pub fn run(config: &Path) -> Result<()> {
     let cfg: Config = serde_json::from_str(
         &std::fs::read_to_string(config).with_context(|| format!("reading {}", config.display()))?,
@@ -221,22 +266,30 @@ pub fn run(config: &Path) -> Result<()> {
         let depth = pict::Depth::parse(&cfg.art_depth)?;
         rb.mkdir_p(&cfg.out, &cfg.images_dir)?;
 
-        // Downloaded Box-Front art, id -> local file (from the enrich manifest).
+        // Downloaded art, id -> local file (from the enrich manifest): Box-Front
+        // ("art") and the gameplay Screenshot ("shot").
         let mut downloaded: std::collections::HashMap<String, PathBuf> = std::collections::HashMap::new();
+        let mut downloaded_shot: std::collections::HashMap<String, PathBuf> = std::collections::HashMap::new();
         if cfg.download_art {
             let manifest = stage.join("art-manifest.jsonl");
             let dl_dir = stage.join("art-dl");
             std::fs::create_dir_all(&dl_dir)?;
             for line in std::fs::read_to_string(&manifest).unwrap_or_default().lines() {
                 let v: Value = match serde_json::from_str(line) { Ok(v) => v, Err(_) => continue };
-                let (Some(id), Some(url)) = (
-                    v.get("id").and_then(Value::as_str),
-                    v.get("art").and_then(Value::as_str),
-                ) else { continue };
-                let ext = url.rsplit('.').next().filter(|e| e.len() <= 4).unwrap_or("img");
-                let dst = dl_dir.join(format!("{id}.{ext}"));
-                if enrich::download(url, &dst, &cfg.curl).is_ok() {
-                    downloaded.insert(id.to_string(), dst);
+                let Some(id) = v.get("id").and_then(Value::as_str) else { continue };
+                if let Some(url) = v.get("art").and_then(Value::as_str) {
+                    let ext = url.rsplit('.').next().filter(|e| e.len() <= 4).unwrap_or("img");
+                    let dst = dl_dir.join(format!("{id}.{ext}"));
+                    if enrich::download(url, &dst, &cfg.curl).is_ok() {
+                        downloaded.insert(id.to_string(), dst);
+                    }
+                }
+                if let Some(url) = v.get("shot").and_then(Value::as_str) {
+                    let ext = url.rsplit('.').next().filter(|e| e.len() <= 4).unwrap_or("img");
+                    let dst = dl_dir.join(format!("{id}.shot.{ext}"));
+                    if enrich::download(url, &dst, &cfg.curl).is_ok() {
+                        downloaded_shot.insert(id.to_string(), dst);
+                    }
                 }
             }
         }
@@ -256,68 +309,47 @@ pub fn run(config: &Path) -> Result<()> {
 
         let mut overlay = String::new();
         let mut n = 0;
+        let mut n_shot = 0;
         let mut n_icon = 0;
         for (id, app) in dataset_records(&work)? {
-            let src = cfg
-                .art_dir
-                .as_ref()
-                .and_then(|adir| find_art(adir, &id))
+            // Box-Front (catalog `image`) and Screenshot (catalog `shot`); a local
+            // art_dir wins, else the downloaded file. art_dir screenshots are named
+            // `<id>.shot.<ext>`.
+            let box_src = cfg.art_dir.as_ref().and_then(|adir| find_art(adir, &id))
                 .or_else(|| downloaded.get(&id).cloned());
-            if src.is_none() {
-                // No box art — fall back to the app's own Finder icon (ICN#),
+            let shot_name = format!("{id}.shot");
+            let shot_src = cfg.art_dir.as_ref().and_then(|adir| find_art(adir, &shot_name))
+                .or_else(|| downloaded_shot.get(&id).cloned());
+
+            let mut fields = String::new();
+            if let Some(src) = &box_src {
+                if let Some(rel) = bake_variants(&rb, &cfg, &stage, images_rel, &id, src, &depths, multi)? {
+                    fields.push_str(&format!(",\"image\":{rel:?}"));
+                    n += 1;
+                }
+            }
+            if let Some(src) = &shot_src {
+                if let Some(rel) = bake_variants(&rb, &cfg, &stage, images_rel, &shot_name, src, &depths, multi)? {
+                    fields.push_str(&format!(",\"shot\":{rel:?}"));
+                    n_shot += 1;
+                }
+            }
+            if !fields.is_empty() {
+                overlay.push_str(&format!("{{\"id\":{id:?}{fields}}}\n"));
+            } else if let Some(app) = app.as_deref().filter(|a| !a.is_empty()) {
+                // No box/shot art — fall back to the app's own Finder icon (ICN#),
                 // harvested from the app we just injected, as a .raw the launcher
                 // CopyBits like any other 1-bit art (docs/14).
-                if let Some(app) = app.as_deref().filter(|a| !a.is_empty()) {
-                    if bake_app_icon(&rb, &cfg, &stage, images_rel, &id, app, &mut overlay).unwrap_or(false) {
-                        n_icon += 1;
-                    }
-                }
-                continue;
-            }
-            let src = src.unwrap();
-            {
-                let mut any = false;
-                for d in &depths {
-                    let sfx = if multi { format!(".{}", d.bits()) } else { String::new() };
-                    // 1-bit art ships as a raw CopyBits-ready bitmap (.raw), not a
-                    // PICT: the launcher blits it directly, dodging the Snow
-                    // DrawPicture fault on some valid 1-bit art (docs/14). Colour
-                    // depths stay PICT (DrawPicture is fine there).
-                    let raw = *d == pict::Depth::One;
-                    let ext = if raw { "raw" } else { "pict" };
-                    let stagefile = stage.join(format!("{id}{sfx}.{ext}"));
-                    let ok = if raw {
-                        pict::run_raw1(&src, &stagefile, cfg.art_max).is_ok()
-                    } else {
-                        pict::run(&src, &stagefile, *d, true, cfg.art_max).is_ok()
-                    };
-                    if !ok {
-                        continue; // skip art that won't decode rather than fail
-                    }
-                    let dst = format!("{}/{}{}.{}", cfg.images_dir.trim_end_matches('/'), id, sfx, ext);
-                    let (ftype, creator) = if raw { ("ABMP", "ttxt") } else { ("PICT", "ttxt") };
-                    rb.put_typed(&cfg.out, &stagefile, &dst, ftype, creator)?;
-                    any = true;
-                }
-                if any {
-                    // base path for variants; explicit ext for the single case
-                    let rel = if multi {
-                        format!("{images_rel}/{id}")
-                    } else {
-                        let ext = if depths[0] == pict::Depth::One { "raw" } else { "pict" };
-                        format!("{images_rel}/{id}.{ext}")
-                    };
-                    overlay.push_str(&format!("{{\"id\":{id:?},\"image\":{rel:?}}}\n"));
-                    n += 1;
+                if bake_app_icon(&rb, &cfg, &stage, images_rel, &id, app, &mut overlay).unwrap_or(false) {
+                    n_icon += 1;
                 }
             }
         }
         let depth_label = if multi { cfg.art_depths.join("/") } else { cfg.art_depth.clone() };
         eprintln!(
-            "[5/7] art          {n} box-art + {n_icon} app-icon item(s) at {depth_label}-bit ({} downloaded)",
-            downloaded.len()
+            "[5/7] art          {n} box-art + {n_shot} screenshot + {n_icon} app-icon item(s) at {depth_label}-bit"
         );
-        if n + n_icon > 0 {
+        if n + n_shot + n_icon > 0 {
             let ovf = stage.join("art-overlay.jsonl");
             std::fs::write(&ovf, overlay)?;
             merge::run(&work, &ovf, &work, false)?;

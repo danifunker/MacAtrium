@@ -42,6 +42,7 @@ typedef struct {
     short      depths[UI_MAX_DEPTHS]; /* screen depths the device supports     */
     int        ndepths;       /* count in depths[]                            */
     int        vol;           /* speaker volume 0..SOUND_VOL_MAX (-1 = n/a)   */
+    int        artPref;       /* 0 = Box Art, 1 = Screenshot (the `shot` field) */
 } Ui;
 
 void      ui_init(Ui *u, Env *env, Render *r, Model *m, WindowPtr win, int safe);

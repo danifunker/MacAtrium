@@ -57,6 +57,9 @@ struct SourceItem {
     desc: Option<String>,
     #[serde(default)]
     image: Option<String>,
+    /// Optional second artwork (gameplay screenshot) base path.
+    #[serde(default)]
+    shot: Option<String>,
     #[serde(rename = "type", default)]
     type_: Option<String>,
     #[serde(default)]
@@ -87,6 +90,10 @@ struct OutItem {
     desc: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     image: Option<String>,
+    /// Second artwork (gameplay screenshot) base path; the launcher can show it
+    /// instead of the box art per the user's Artwork setting.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    shot: Option<String>,
 }
 
 /// Top-level category for a `kind` value.
@@ -245,6 +252,7 @@ fn build(src_text: &str) -> Result<(Vec<OutItem>, Report)> {
             creator: it.creator,
             desc: it.desc,
             image: it.image,
+            shot: it.shot,
         });
     }
 

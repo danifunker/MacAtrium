@@ -127,13 +127,16 @@ static void test_catalog_optional_fields(void)
     const char *s =
         "{\"id\":\"lem\",\"name\":\"Lemmings\",\"categories\":[\"Games\",\"Puzzle\"],"
         "\"app\":\"a\",\"year\":1991,\"vendor\":\"Psygnosis\","
-        "\"genre\":\"Puzzle, Strategy\",\"desc\":\"Guide them to the exit.\"}\n";
+        "\"genre\":\"Puzzle, Strategy\",\"desc\":\"Guide them to the exit.\","
+        "\"image\":\"images/lem\",\"shot\":\"images/lem.shot\"}\n";
     Catalog c;
     int n = catalog_parse(s, (long)strlen(s), &c);
     CHECK(n == 1, "catalog optional-fields item parses");
     CHECK(strcmp(c.items[0].vendor, "Psygnosis") == 0, "catalog vendor field");
     CHECK(strcmp(c.items[0].genre, "Puzzle, Strategy") == 0, "catalog genre field");
     CHECK(strcmp(c.items[0].desc, "Guide them to the exit.") == 0, "catalog desc field");
+    CHECK(strcmp(c.items[0].image, "images/lem") == 0, "catalog image field");
+    CHECK(strcmp(c.items[0].shot, "images/lem.shot") == 0, "catalog shot field");
     CHECK(c.items[0].year == 1991, "catalog year field");
 }
 

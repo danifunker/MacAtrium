@@ -71,7 +71,12 @@ lines for the selection: a meta line (`year - developer - genre`) and the blurb
 the word-wrapped description, and the box art shown large. These read the new
 display fields the catalog now carries (`vendor`, `genre` string; see
 [06-content-pipeline.md](06-content-pipeline.md)) in addition to `desc`/`image`.
-Additional artwork beyond the box front (e.g. screenshots) is a follow-up.
+
+**Artwork (box art vs. screenshot).** `atrium image` bakes two artworks per title
+— Box-Front (`image`) and a gameplay Screenshot (`shot`) — at every depth. The
+**Artwork** row in the Settings panel (Theme / Color Depth / Volume / **Artwork**)
+chooses which the inline pane, More Info card, and `P` preview show; the choice
+persists in prefs. Each falls back to the other when only one exists.
 
 Left/Right doubles as category switch and, for very long single categories,
 paging — final mapping to settle during implementation. Keep **one consistent

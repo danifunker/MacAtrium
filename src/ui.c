@@ -110,6 +110,16 @@ void ui_init(Ui *u, Env *env, Render *r, Model *m, WindowPtr win, int safe)
     u->setSel = 0;
     u->ndepths = display_depths(u->depths, UI_MAX_DEPTHS);   /* all OS-supported depths */
     u->vol = sound_available() ? sound_get_vol() : -1;
+    u->artPref = 0;                                          /* Box Art by default */
+}
+
+/* The art base path to show for an item, honouring the Artwork setting: the
+ * screenshot (`shot`) when the user picked it and one exists, else the box art
+ * (`image`); each falls back to the other so a pane is never needlessly empty. */
+static const char *art_base(Ui *u, const CatItem *it)
+{
+    if (u->artPref == 1) return it->shot[0] ? it->shot : it->image;
+    return it->image[0] ? it->image : it->shot;
 }
 
 void ui_set_status(Ui *u, const char *msg)
@@ -217,7 +227,10 @@ static void draw_list(Ui *u)
         const CatItem *curIt = model_cur_item(m);
         if (curIt != u->artFor) {
             if (u->listArt) { art_dispose(u->listArt); u->listArt = 0; }
-            if (curIt && curIt->image[0]) u->listArt = load_item_art(u, curIt->image);
+            if (curIt) {
+                const char *base = art_base(u, curIt);
+                if (base && base[0]) u->listArt = load_item_art(u, base);
+            }
             u->artFor = curIt;
         }
     } else if (u->listArt) {
@@ -330,7 +343,7 @@ static void draw_list(Ui *u)
 
 /* The Settings panel: a list of adjustable rows (Theme / Color Depth / Volume).
  * Up/Down move rows; Left/Right (and Return) change the selected row's value. */
-#define SET_N 3
+#define SET_N 4
 
 static void set_row_text(Ui *u, int row, char *out)
 {
@@ -348,11 +361,16 @@ static void set_row_text(Ui *u, int row, char *out)
             else if (u->env->pixelSize >= 16) { strcat(out, "Thousands"); }
             else { l2s(u->env->pixelSize, num); strcat(out, num); strcat(out, "-bit"); }
             break;
-        default:
+        case 2:
             strcpy(out, "Volume");
             while (strlen(out) < 16) strcat(out, " ");
             if (u->vol < 0) { strcat(out, "n/a"); }
             else { l2s(u->vol, num); strcat(out, num); strcat(out, " / 7"); }
+            break;
+        default:
+            strcpy(out, "Artwork");
+            while (strlen(out) < 16) strcat(out, " ");
+            strcat(out, (u->artPref == 1) ? "Screenshot" : "Box Art");
             break;
     }
 }
@@ -505,8 +523,10 @@ static void draw_info(Ui *u)
         SetRect(&ar, (short)(W - artW - MARGIN), (short)(HEADER_H + MARGIN),
                 (short)(W - MARGIN), (short)(H - HINT_H - MARGIN));
         art_draw_fit(u->previewPic, &ar);
-    } else if (it->image[0] == '\0') {
-        render_text(r, (short)(W - artW), (short)(H / 2), "(no art)", INK_DIM);
+    } else {
+        const char *base = art_base(u, it);
+        if (!base || !base[0])
+            render_text(r, (short)(W - artW), (short)(H / 2), "(no art)", INK_DIM);
     }
 
     render_hline(r, 0, (short)W, (short)(H - HINT_H));
@@ -660,7 +680,7 @@ static int settings_adjust(Ui *u, int dir)
                 apply_depth(u, u->depths[cur]);
             return 0;
         }
-        default:                                   /* Volume (persisted) */
+        case 2:                                    /* Volume (persisted) */
             if (u->vol >= 0) {
                 int old = u->vol;
                 u->vol += dir;
@@ -670,6 +690,11 @@ static int settings_adjust(Ui *u, int dir)
                 return (u->vol != old);
             }
             return 0;
+        default:                                   /* Artwork: Box Art / Screenshot */
+            u->artPref = u->artPref ? 0 : 1;
+            if (u->listArt) { art_dispose(u->listArt); u->listArt = 0; }
+            u->artFor = 0;                          /* force the inline pane to reload */
+            return 1;                               /* persisted */
     }
 }
 
@@ -771,8 +796,9 @@ UiCommand ui_key(Ui *u, char ch)
         case 'P':
             if (!u->safe) {
                 const CatItem *it = model_cur_item(u->m);
-                if (it && it->image[0]) {
-                    u->previewPic = load_item_art(u, it->image);
+                const char *base = it ? art_base(u, it) : 0;
+                if (base && base[0]) {
+                    u->previewPic = load_item_art(u, base);
                     u->mode = UI_MODE_PREVIEW;   /* draws "(no artwork)" if load failed */
                 }
             }
@@ -783,7 +809,8 @@ UiCommand ui_key(Ui *u, char ch)
             if (!u->safe) {
                 const CatItem *it = model_cur_item(u->m);
                 if (it) {
-                    if (it->image[0]) u->previewPic = load_item_art(u, it->image);
+                    const char *base = art_base(u, it);
+                    if (base && base[0]) u->previewPic = load_item_art(u, base);
                     u->mode = UI_MODE_INFO;
                 }
             }

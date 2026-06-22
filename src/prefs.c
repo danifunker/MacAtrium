@@ -70,6 +70,7 @@ void prefs_load(Prefs *p)
     /* defaults: everything unset */
     p->theme = 0; p->haveTheme = 0;
     p->vol   = 0; p->haveVol   = 0;
+    p->artPref = 0; p->haveArtPref = 0;
     p->category[0] = '\0';
     p->item[0]     = '\0';
     p->haveSel = 0;
@@ -104,6 +105,9 @@ void prefs_load(Prefs *p)
             if (v > 7) v = 7;                    /* SOUND_VOL_MAX scale */
             p->vol = v;
             p->haveVol = 1;
+        } else if (strcmp(key, "artwork") == 0) {
+            p->artPref = (strcmp(val, "screenshot") == 0) ? 1 : 0;
+            p->haveArtPref = 1;
         } else if (strcmp(key, "category") == 0) {
             strncpy(p->category, val, sizeof p->category - 1);
             p->category[sizeof p->category - 1] = '\0';
@@ -156,6 +160,11 @@ OSErr prefs_save(const Prefs *p)
     if (p->haveVol) {
         append_str(body, &n, sizeof body, "volume=");
         append_int(body, &n, sizeof body, p->vol);
+        append_str(body, &n, sizeof body, "\r");
+    }
+    if (p->haveArtPref) {
+        append_str(body, &n, sizeof body, "artwork=");
+        append_str(body, &n, sizeof body, p->artPref ? "screenshot" : "box");
         append_str(body, &n, sizeof body, "\r");
     }
     if (p->haveSel && p->category[0]) {

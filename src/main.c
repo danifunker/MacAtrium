@@ -157,6 +157,8 @@ static void save_prefs(void)
     p.haveTheme = 1;
     if (gUi.vol >= 0) { p.vol = gUi.vol; p.haveVol = 1; }
     else              { p.vol = 0;       p.haveVol = 0; }
+    p.artPref = gUi.artPref;
+    p.haveArtPref = 1;
 
     p.category[0] = '\0';
     p.item[0]     = '\0';
@@ -239,6 +241,7 @@ int main(void)
     if (gPrefs.haveSel) model_select(&gModel, gPrefs.category, gPrefs.item);
 
     ui_init(&gUi, &gEnv, &gRender, &gModel, gWin, loaded ? 0 : 1);
+    if (gPrefs.haveArtPref) gUi.artPref = gPrefs.artPref;   /* restore Artwork choice */
 
     bring_self_front();
     SetPort(gWin);

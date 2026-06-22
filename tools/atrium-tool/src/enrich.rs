@@ -513,22 +513,36 @@ pub fn run(
 
     if let Some(mpath) = art_manifest {
         let mut m = String::new();
-        let mut n = 0;
+        let (mut n, mut n_shot) = (0, 0);
         for (item_idx, db_id) in &wanted {
             let item_id = match &items[*item_idx] {
                 Item::Rec(o) => o.get("id").and_then(Value::as_str).unwrap_or(""),
                 _ => "",
             };
-            if let Some(file) = images.get(db_id).and_then(|s| s.box_front.as_ref()) {
-                m.push_str(&format!(
-                    "{{\"id\":{item_id:?},\"databaseID\":{db_id:?},\"art\":{:?}}}\n",
-                    format!("{IMAGE_URL}{file}")
-                ));
+            let set = images.get(db_id);
+            let box_front = set.and_then(|s| s.box_front.as_ref());
+            let shot = set.and_then(|s| s.screenshot.as_ref());
+            if box_front.is_none() && shot.is_none() {
+                continue;
+            }
+            // One line per item: Box-Front as "art", gameplay Screenshot as "shot"
+            // (either may be absent). The image pass bakes both depth variants.
+            let mut fields = format!("\"id\":{item_id:?},\"databaseID\":{db_id:?}");
+            if let Some(file) = box_front {
+                fields.push_str(&format!(",\"art\":{:?}", format!("{IMAGE_URL}{file}")));
                 n += 1;
             }
+            if let Some(file) = shot {
+                fields.push_str(&format!(",\"shot\":{:?}", format!("{IMAGE_URL}{file}")));
+                n_shot += 1;
+            }
+            m.push_str(&format!("{{{fields}}}\n"));
         }
         std::fs::write(mpath, m)?;
-        eprintln!("art manifest: {n} Box-Front image(s) -> {}", mpath.display());
+        eprintln!(
+            "art manifest: {n} Box-Front + {n_shot} Screenshot image(s) -> {}",
+            mpath.display()
+        );
     }
 
     Ok(())

@@ -20,6 +20,8 @@ typedef struct {
     int  haveTheme;                /* 1 if `theme` was loaded                  */
     int  vol;                      /* 0..SOUND_VOL_MAX alert volume            */
     int  haveVol;                  /* 1 if `vol` was loaded                    */
+    int  artPref;                  /* 0 = Box Art, 1 = Screenshot              */
+    int  haveArtPref;              /* 1 if `artPref` was loaded                */
     char category[ITEM_CAT_LEN];   /* last category name ("" if none)          */
     char item[ITEM_ID_LEN];        /* last item id ("" if none)                */
     int  haveSel;                  /* 1 if a category was loaded               */
