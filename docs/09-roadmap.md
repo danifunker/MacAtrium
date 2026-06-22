@@ -47,7 +47,9 @@ Cmd-Q quit it → back in the shell with selection intact → Restart reboots. �
 ## Milestone 3 — visuals & breadth
 
 - [ ] 16-color and thousands backends; theme system + a few presets.
-- [ ] Real app icons (`ICN#`/`icl8`) next to entries.
+- [~] Real app icons — `ICN#` harvested from the app and shown as **fallback
+      art** when a title has no box art (`atrium icon` + launcher `.icon.raw`).
+      Still open: icons *next to* list entries, and `icl8` colour icons.
 - [ ] Type-ahead search; per-item hotkeys.
 - [ ] Detail pane / two-column layout at 800×600 and 1024×768.
 - [ ] Tune layouts across all five resolutions incl. 512×342 B&W.

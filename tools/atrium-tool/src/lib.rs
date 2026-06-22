@@ -7,6 +7,7 @@
 pub mod catalog;
 pub mod enrich;
 pub mod harvest;
+pub mod icons;
 pub mod image;
 pub mod macroman;
 pub mod merge;

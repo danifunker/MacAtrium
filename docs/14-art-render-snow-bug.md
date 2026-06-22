@@ -156,3 +156,29 @@ Castle / etc. still render (now via the `.raw` path too).
 `art_depths`) emits `<id>.raw` with an explicit catalog path — covered. The
 colour `DrawPicture` path is unchanged and still only exercised once a colour
 depth can be set in the headless harness (see docs/13 §5).
+
+---
+
+## Follow-up — app icons as fallback art
+
+Titles with no box art now fall back to the **app's own Finder icon**, rendered
+through the very same crash-free `CopyBits` raw-bitmap path (no PICT/DrawPicture).
+
+- **`atrium` (`src/icons.rs`).** Decodes a BinHex 4.0 `.hqx` (both forks, as
+  `rb-cli get-binhex` emits), parses the resource fork, and resolves the app
+  icon the Finder way — `BNDL` → the `FREF` whose file type is `APPL` → that
+  local id's `ICN#` — falling back to the lowest-id `ICN#`. A 32×32 `ICN#` is
+  already MSB-first 1-bit with rowBytes 4, so it wraps straight into the `.raw`
+  header (`pict::raw1_wrap`). Exposed as `atrium icon --hqx … --out …`.
+- **`atrium image`.** For each dataset item with no box art, `bake_app_icon`
+  `get-binhex`es the injected app, extracts its icon to `<id>.icon.raw`, and
+  points the catalog `image` at the base path.
+- **Launcher (`src/ui.c`).** `load_item_art` tries `<base>.icon.raw` as the last
+  resort, after depth-matched box-art variants.
+
+**Verified in Snow:** harvested ZTerm 1.0.1 (no box art) shows its real `ICN#`
+in the art pane ([evidence/art-app-icon-fallback-zterm.png](evidence/art-app-icon-fallback-zterm.png));
+SimpleText (app not in the image) degrades cleanly to "(no art)". Host: the
+BinHex+resource-fork+ICN# path is unit-tested and was validated end-to-end on a
+real 76 KB-resource app (SimpleText). *Deferred:* colour icons (`icl8`) — the
+1-bit `ICN#` already renders fine on every screen depth via CopyBits.

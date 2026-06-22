@@ -11,7 +11,7 @@
 //! curated `data/library.jsonl`. Run with `atrium image --config build.json`.
 
 use crate::rbcli::RbCli;
-use crate::{catalog, enrich, harvest, merge, pict};
+use crate::{catalog, enrich, harvest, icons, merge, pict};
 use anyhow::{Context, Result};
 use serde::Deserialize;
 use serde_json::Value;
@@ -93,9 +93,11 @@ struct Config {
     stage: Option<PathBuf>,
 }
 
-fn dataset_ids(path: &Path) -> Result<Vec<String>> {
+/// (id, app-path) for every dataset record with an id. `app` is the launcher
+/// path relative to /MacAtrium (e.g. "Apps/Foo/Foo"), used for icon harvest.
+fn dataset_records(path: &Path) -> Result<Vec<(String, Option<String>)>> {
     let text = std::fs::read_to_string(path)?;
-    let mut ids = Vec::new();
+    let mut recs = Vec::new();
     for line in text.lines() {
         let t = line.trim();
         if t.is_empty() || t.starts_with('#') || t.starts_with("//") {
@@ -103,11 +105,12 @@ fn dataset_ids(path: &Path) -> Result<Vec<String>> {
         }
         if let Ok(v) = serde_json::from_str::<Value>(t) {
             if let Some(id) = v.get("id").and_then(Value::as_str) {
-                ids.push(id.to_string());
+                let app = v.get("app").and_then(Value::as_str).map(str::to_string);
+                recs.push((id.to_string(), app));
             }
         }
     }
-    Ok(ids)
+    Ok(recs)
 }
 
 fn find_art(dir: &Path, id: &str) -> Option<PathBuf> {
@@ -118,6 +121,37 @@ fn find_art(dir: &Path, id: &str) -> Option<PathBuf> {
         }
     }
     None
+}
+
+/// Harvest the app's own Finder icon (`ICN#`) from the injected app into
+/// `<id>.icon.raw`, and point the catalog `image` at the base path (the launcher
+/// resolves `<base>.icon.raw` as a last resort, after box-art variants). Returns
+/// Ok(true) when an icon was baked. Never fails the build — a missing or odd app
+/// just yields Ok(false).
+fn bake_app_icon(
+    rb: &RbCli,
+    cfg: &Config,
+    stage: &Path,
+    images_rel: &str,
+    id: &str,
+    app: &str,
+    overlay: &mut String,
+) -> Result<bool> {
+    let hqx = stage.join(format!("{id}.icon.hqx"));
+    let src = format!("/MacAtrium/{}", app.trim_start_matches('/'));
+    if rb.get_binhex(&cfg.out, &src, &hqx).is_err() {
+        return Ok(false); // not extractable (e.g. path moved/aliased)
+    }
+    let raw = match std::fs::read(&hqx).ok().and_then(|b| icons::app_icon_raw1(&b).ok().flatten()) {
+        Some(r) => r,
+        None => return Ok(false), // no usable ICN#
+    };
+    let rawfile = stage.join(format!("{id}.icon.raw"));
+    std::fs::write(&rawfile, &raw)?;
+    let dst = format!("{}/{}.icon.raw", cfg.images_dir.trim_end_matches('/'), id);
+    rb.put_typed(&cfg.out, &rawfile, &dst, "ABMP", "ttxt")?;
+    overlay.push_str(&format!("{{\"id\":{id:?},\"image\":{:?}}}\n", format!("{images_rel}/{id}")));
+    Ok(true)
 }
 
 pub fn run(config: &Path) -> Result<()> {
@@ -222,13 +256,26 @@ pub fn run(config: &Path) -> Result<()> {
 
         let mut overlay = String::new();
         let mut n = 0;
-        for id in dataset_ids(&work)? {
+        let mut n_icon = 0;
+        for (id, app) in dataset_records(&work)? {
             let src = cfg
                 .art_dir
                 .as_ref()
                 .and_then(|adir| find_art(adir, &id))
                 .or_else(|| downloaded.get(&id).cloned());
-            if let Some(src) = src {
+            if src.is_none() {
+                // No box art — fall back to the app's own Finder icon (ICN#),
+                // harvested from the app we just injected, as a .raw the launcher
+                // CopyBits like any other 1-bit art (docs/14).
+                if let Some(app) = app.as_deref().filter(|a| !a.is_empty()) {
+                    if bake_app_icon(&rb, &cfg, &stage, images_rel, &id, app, &mut overlay).unwrap_or(false) {
+                        n_icon += 1;
+                    }
+                }
+                continue;
+            }
+            let src = src.unwrap();
+            {
                 let mut any = false;
                 for d in &depths {
                     let sfx = if multi { format!(".{}", d.bits()) } else { String::new() };
@@ -266,8 +313,11 @@ pub fn run(config: &Path) -> Result<()> {
             }
         }
         let depth_label = if multi { cfg.art_depths.join("/") } else { cfg.art_depth.clone() };
-        eprintln!("[5/7] art          {n} item(s) at {depth_label}-bit ({} downloaded)", downloaded.len());
-        if n > 0 {
+        eprintln!(
+            "[5/7] art          {n} box-art + {n_icon} app-icon item(s) at {depth_label}-bit ({} downloaded)",
+            downloaded.len()
+        );
+        if n + n_icon > 0 {
             let ovf = stage.join("art-overlay.jsonl");
             std::fs::write(&ovf, overlay)?;
             merge::run(&work, &ovf, &work, false)?;

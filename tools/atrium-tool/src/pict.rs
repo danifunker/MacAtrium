@@ -448,23 +448,32 @@ pub fn run(input: &Path, output: &Path, depth: Depth, pack: bool, max: Option<u3
 /// PICT/DrawPicture opcode interpreter that faults Snow on some valid 1-bit art.
 pub const RAW1_HEADER_LEN: usize = 12;
 
+/// Wrap already-packed 1-bit pixel rows (MSB-first, `rowbytes` per row, even)
+/// in the `.raw` sidecar header. `pixels` must be exactly `rowbytes*h` bytes.
+/// Shared by box-art conversion (`build_raw1`) and app-icon harvest (`icons`).
+pub fn raw1_wrap(w: u16, h: u16, rowbytes: u16, pixels: &[u8]) -> Vec<u8> {
+    let mut out = Vec::with_capacity(RAW1_HEADER_LEN + pixels.len());
+    out.extend(b"AB"); // magic
+    out.extend(be16(1)); // version
+    out.extend(be16(w));
+    out.extend(be16(h));
+    out.extend(be16(rowbytes)); // even, high bit clear
+    out.extend(be16(1)); // depth
+    out.extend_from_slice(pixels);
+    out
+}
+
 fn build_raw1(w: u16, h: u16, rgba: &[u8]) -> (Vec<u8>, usize) {
     let (wi, hi) = (w as usize, h as usize);
     let (idx, _palette) = quantize(rgba, wi, hi, Depth::One);
     // Even rowBytes (QuickDraw requirement; see encode_indexed).
     let rowbytes = ((wi + 7) / 8 + 1) & !1usize;
 
-    let mut out = Vec::with_capacity(RAW1_HEADER_LEN + rowbytes * hi);
-    out.extend(b"AB"); // magic
-    out.extend(be16(1)); // version
-    out.extend(be16(w));
-    out.extend(be16(h));
-    out.extend(be16(rowbytes as u16));
-    out.extend(be16(1)); // depth
+    let mut pixels = Vec::with_capacity(rowbytes * hi);
     for y in 0..hi {
-        out.extend(pack_row(&idx[y * wi..(y + 1) * wi], wi, 1, rowbytes));
+        pixels.extend(pack_row(&idx[y * wi..(y + 1) * wi], wi, 1, rowbytes));
     }
-    (out, rowbytes)
+    (raw1_wrap(w, h, rowbytes as u16, &pixels), rowbytes)
 }
 
 /// Convert an image file to a raw 1-bit bitmap sidecar (see `build_raw1`).

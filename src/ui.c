@@ -398,6 +398,11 @@ static Art *load_item_art(Ui *u, const char *image)
     if (p) return p;
     strcpy(buf, image);
     strcat(buf, ".raw");
+    p = art_load(buf);
+    if (p) return p;
+    /* last resort: the app's own Finder icon, baked as a raw bitmap (docs/14). */
+    strcpy(buf, image);
+    strcat(buf, ".icon.raw");
     return art_load(buf);
 }
 

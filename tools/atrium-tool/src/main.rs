@@ -10,7 +10,7 @@
 //! stubs that describe their planned behaviour.
 
 use anyhow::Result;
-use atrium::{catalog, enrich, harvest, image, merge, pict};
+use atrium::{catalog, enrich, harvest, icons, image, merge, pict};
 use clap::{Parser, Subcommand};
 use std::path::PathBuf;
 
@@ -161,6 +161,17 @@ enum Cmd {
         max: Option<u32>,
     },
 
+    /// Extract an app's Finder icon (ICN#) from a BinHex (.hqx) export
+    /// (`rb-cli get-binhex`) to a raw 1-bit bitmap (.raw) the launcher can blit.
+    Icon {
+        /// Source BinHex 4.0 (.hqx) of the app (both forks).
+        #[arg(long)]
+        hqx: PathBuf,
+        /// Output .raw file (32x32 1-bit).
+        #[arg(long)]
+        out: PathBuf,
+    },
+
     /// Harvest apps out of a donor HFS image (a MacPack .vhd) into the
     /// /MacAtrium tree: extract both forks, stage them, emit dataset stubs.
     Harvest {
@@ -287,6 +298,16 @@ fn main() -> Result<()> {
                 out.display(),
                 s.bytes
             );
+        }
+        Cmd::Icon { hqx, out } => {
+            let bytes = std::fs::read(&hqx)?;
+            match icons::app_icon_raw1(&bytes)? {
+                Some(raw) => {
+                    std::fs::write(&out, &raw)?;
+                    eprintln!("icon: 32x32 1-bit -> {} ({} bytes)", out.display(), raw.len());
+                }
+                None => anyhow::bail!("no usable ICN# in {}", hqx.display()),
+            }
         }
         Cmd::Harvest {
             image,
