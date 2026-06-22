@@ -85,6 +85,16 @@ struct App {
     images_dir: String,
     stage: String,
     curl: String,
+    // a long op (extract / enrich / build) running on a worker thread, if any
+    job: Option<std::sync::mpsc::Receiver<Done>>,
+    busy: String, // label of the running job ("" = idle)
+}
+
+/// Result of a background job, applied on the UI thread when it arrives.
+struct Done {
+    status: String,
+    dataset: Option<String>, // if set, switch the working dataset to this path
+    reload: bool,            // re-read the dataset table after
 }
 
 impl Default for App {
@@ -117,6 +127,8 @@ impl Default for App {
             images_dir: "/MacAtrium/images".into(),
             stage: String::new(),
             curl: "curl".into(),
+            job: None,
+            busy: String::new(),
         }
     }
 }
@@ -189,25 +201,62 @@ fn load_rows(path: &str) -> anyhow::Result<Vec<Row>> {
 }
 
 impl App {
-    fn extract_catalog(&mut self) {
+    fn extract_catalog(&mut self, ctx: &egui::Context) {
         if self.image_path.is_empty() {
             self.status = "Pick an .hda first.".into();
             return;
         }
-        let rb = RbCli::new(&self.rb_cli);
-        let tmp = std::env::temp_dir().join("macatrium-mgmt-catalog.jsonl");
-        let _ = std::fs::remove_file(&tmp);
-        match rb.get(
-            PathBuf::from(&self.image_path).as_path(),
-            "/MacAtrium/metadata/catalog.jsonl",
-            &tmp,
-            true,
-        ) {
-            Ok(()) => {
-                self.dataset = tmp.to_string_lossy().into_owned();
-                self.reload();
+        let rb_cli = self.rb_cli.clone();
+        let image_path = self.image_path.clone();
+        self.spawn_job(ctx, "Extracting catalog", move || {
+            let rb = RbCli::new(&rb_cli);
+            let tmp = std::env::temp_dir().join("macatrium-mgmt-catalog.jsonl");
+            let _ = std::fs::remove_file(&tmp);
+            match rb.get(
+                PathBuf::from(&image_path).as_path(),
+                "/MacAtrium/metadata/catalog.jsonl",
+                &tmp,
+                true,
+            ) {
+                Ok(()) => Done { status: String::new(), dataset: Some(tmp.to_string_lossy().into_owned()), reload: true },
+                Err(e) => Done { status: format!("Extract failed: {e}"), dataset: None, reload: false },
             }
-            Err(e) => self.status = format!("Extract failed: {e}"),
+        });
+    }
+
+    /// Run `f` on a worker thread; its `Done` is applied by poll_job() when the
+    /// thread wakes the UI (`request_repaint`). Keeps the window responsive
+    /// during long ops (enrich streams ~500 MB; a full build harvests + downloads).
+    fn spawn_job<F>(&mut self, ctx: &egui::Context, label: &str, f: F)
+    where
+        F: FnOnce() -> Done + Send + 'static,
+    {
+        let (tx, rx) = std::sync::mpsc::channel();
+        let ctx = ctx.clone();
+        std::thread::spawn(move || {
+            let done = f();
+            let _ = tx.send(done);
+            ctx.request_repaint();
+        });
+        self.job = Some(rx);
+        self.busy = label.to_string();
+        self.status = format!("{label}…");
+    }
+
+    /// Apply a finished job's result (called at the top of each frame).
+    fn poll_job(&mut self) {
+        let done = self.job.as_ref().and_then(|rx| rx.try_recv().ok());
+        if let Some(done) = done {
+            self.job = None;
+            self.busy.clear();
+            if let Some(ds) = done.dataset {
+                self.dataset = ds;
+            }
+            if done.reload {
+                self.reload();
+            } else {
+                self.status = done.status;
+            }
         }
     }
 
@@ -241,18 +290,23 @@ impl App {
         };
     }
 
-    fn run_enrich(&mut self) {
+    fn run_enrich(&mut self, ctx: &egui::Context) {
         if self.metadata.is_empty() {
             self.status = "Set the LaunchBox Metadata.xml path first.".into();
             return;
         }
-        let p = PathBuf::from(&self.dataset);
-        match enrich::run(&p, PathBuf::from(&self.metadata).as_path(), &p, &self.platform, false, None, self.detect_color, &self.curl) {
-            Ok(()) => {
-                self.reload();
+        let dataset = self.dataset.clone();
+        let metadata = self.metadata.clone();
+        let platform = self.platform.clone();
+        let detect = self.detect_color;
+        let curl = self.curl.clone();
+        self.spawn_job(ctx, "Enriching from LaunchBox", move || {
+            let p = PathBuf::from(&dataset);
+            match enrich::run(&p, PathBuf::from(&metadata).as_path(), &p, &platform, false, None, detect, &curl) {
+                Ok(()) => Done { status: String::new(), dataset: None, reload: true },
+                Err(e) => Done { status: format!("Enrich failed: {e}"), dataset: None, reload: false },
             }
-            Err(e) => self.status = format!("Enrich failed: {e}"),
-        }
+        });
     }
 
     /// The checked art-depth variants, ascending (e.g. ["1","8","24"]).
@@ -266,7 +320,7 @@ impl App {
         v
     }
 
-    fn build_image(&mut self) {
+    fn build_image(&mut self, ctx: &egui::Context) {
         if self.base_system.trim().is_empty() || self.out_image.trim().is_empty() {
             self.status = "Set base system + output paths first.".into();
             return;
@@ -337,10 +391,12 @@ impl App {
             self.status = format!("Config write failed: {e}");
             return;
         }
-        match image::run(&cfg_path) {
-            Ok(()) => self.status = format!("Built image -> {}  (art depths {})", self.out_image, depths.join("/")),
-            Err(e) => self.status = format!("Build failed: {e}"),
-        }
+        let out = self.out_image.clone();
+        let label = format!("Building image ({})", depths.join("/"));
+        self.spawn_job(ctx, &label, move || match image::run(&cfg_path) {
+            Ok(()) => Done { status: format!("Built image -> {out}"), dataset: None, reload: false },
+            Err(e) => Done { status: format!("Build failed: {e}"), dataset: None, reload: false },
+        });
     }
 }
 
@@ -349,6 +405,10 @@ impl eframe::App for App {
     // top-level sibling widgets/closures — so each closure borrows only the
     // fields it touches (no nested whole-`self` captures to fight the borrowck).
     fn ui(&mut self, ui: &mut egui::Ui, _frame: &mut eframe::Frame) {
+        self.poll_job();                       // apply a finished background job
+        let busy = !self.busy.is_empty();      // a long op is running -> disable actions
+        let ctx = ui.ctx().clone();
+
         ui.heading("MacAtrium Management UI");
         ui.horizontal(|ui| {
             ui.label("rb-cli:");
@@ -366,13 +426,13 @@ impl eframe::App for App {
                 }
             }
             ui.monospace(&self.image_path);
-            if ui.button("Extract catalog").clicked() {
-                self.extract_catalog();
+            if ui.add_enabled(!busy, egui::Button::new("Extract catalog")).clicked() {
+                self.extract_catalog(&ctx);
             }
             ui.separator();
             ui.label("Dataset:");
             ui.text_edit_singleline(&mut self.dataset);
-            if ui.button("Open").clicked() {
+            if ui.add_enabled(!busy, egui::Button::new("Open")).clicked() {
                 self.reload();
             }
         });
@@ -417,11 +477,11 @@ impl eframe::App for App {
         ui.horizontal(|ui| {
             ui.label("overrides:");
             ui.text_edit_singleline(&mut self.overrides);
-            if ui.button("Save overrides").clicked() {
+            if ui.add_enabled(!busy, egui::Button::new("Save overrides")).clicked() {
                 self.save_overrides();
             }
-            if ui.button("Enrich (LaunchBox)").clicked() {
-                self.run_enrich();
+            if ui.add_enabled(!busy, egui::Button::new("Enrich (LaunchBox)")).clicked() {
+                self.run_enrich(&ctx);
             }
         });
 
@@ -508,11 +568,18 @@ impl eframe::App for App {
             });
         });
 
-        if ui.button("Build image").clicked() {
-            self.build_image();
+        if ui.add_enabled(!busy, egui::Button::new("Build image")).clicked() {
+            self.build_image(&ctx);
         }
 
         ui.separator();
-        ui.label(&self.status);
+        if busy {
+            ui.horizontal(|ui| {
+                ui.spinner();
+                ui.label(&self.status);
+            });
+        } else {
+            ui.label(&self.status);
+        }
     }
 }

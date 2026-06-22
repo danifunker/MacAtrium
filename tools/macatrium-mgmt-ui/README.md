@@ -65,5 +65,7 @@ real one later).
 
 ## Follow-ups
 
-Long operations run inline (a brief freeze); moving them to a worker thread, and
-box-art thumbnails (`egui_extras` image loaders), are still pending.
+Long operations (Extract / Enrich / Build) now run on a **worker thread** — the
+window stays responsive, the action buttons disable with a spinner, and the
+result is applied when the thread finishes. Box-art thumbnails in the table
+(`egui_extras` image loaders) are still pending.
