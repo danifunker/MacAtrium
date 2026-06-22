@@ -247,15 +247,17 @@ roughly highest-leverage first:
   machines fall back to direct drawing; a classic off-screen-BitMap path is the
   Milestone-4 follow-up.
 - The **harness duplication** between this repo and the `snow` repo (see §2).
-- **Guest disk *writes* freeze the headless Snow harness** (reads are fine — boot,
-  catalog, art all work). Verified 2026-06-21: a launcher that does
-  `FSpCreate`/`FSWrite` to a Preferences file wedges the whole machine (menu-bar
-  clock stops) the instant it writes; reads of the same File-Manager path at
-  startup work. So **any write-dependent feature can't be verified here** and
-  would hang the app on Snow: theme persistence (a prefs file) was implemented
-  and reverted for this reason. Needs either a Snow SCSI-write fix or
-  verification on another emulator / real hardware before retrying. Affects:
-  prefs/theme persistence, high-scores, anything that saves state.
+- **Guest disk writes work; the headless harness just doesn't persist them.**
+  (Corrected 2026-06-21 — an earlier note here wrongly blamed Snow.) A full
+  `FindFolder`→`FSpCreate`→`FSWrite`→`FSClose`→`FlushVol` to a Preferences file
+  completes with `err=0` and no freeze (back-to-back, no yields). The original
+  theme-persistence freeze was a bug in that (now-deleted) code, not the write
+  path. **Caveat:** the headless `macatrium_harness` doesn't sync Snow's mmap
+  back to the `.hda` after exit (a normal boot leaves the image byte-identical),
+  so cross-boot *persistence* can't be verified headlessly — writes themselves
+  are fine; an interactive Snow / MAME / real hardware persists normally. So
+  prefs/theme/volume persistence is implementable but its round-trip needs a
+  non-headless check.
 
 ---
 

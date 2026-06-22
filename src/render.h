@@ -40,6 +40,11 @@ typedef struct {
 
 void  render_init(Render *r, const Env *e);
 
+/* Re-select the backend after the user changes screen depth at runtime: drops
+ * the off-screen GWorld (rebuilt next frame at `depth`) and chooses colour vs
+ * B&W to match. `e` supplies hasColorQD. */
+void  render_reset_for_depth(Render *r, const Env *e, int depth);
+
 void  render_set_theme(Render *r, int theme);   /* THEME_DARK / THEME_LIGHT */
 int   render_toggle_theme(Render *r);           /* flip; returns new theme */
 

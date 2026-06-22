@@ -16,6 +16,17 @@ void render_init(Render *r, const Env *e)
     r->offscreen    = 0;
 }
 
+void render_reset_for_depth(Render *r, const Env *e, int depth)
+{
+    if (r->offscreen) {            /* old GWorld is the wrong depth now */
+        DisposeGWorld(r->offscreen);
+        r->offscreen = 0;
+    }
+    r->depth        = depth > 0 ? depth : 1;
+    r->color        = (e->hasColorQD && r->depth >= 4);   /* matches env_probe */
+    r->useOffscreen = e->hasColorQD;                      /* may rebuild next frame */
+}
+
 void render_set_theme(Render *r, int theme)
 {
     r->theme = (theme == THEME_LIGHT) ? THEME_LIGHT : THEME_DARK;
@@ -38,7 +49,12 @@ void render_begin(Render *r, WindowPtr w)
 {
     if (r->useOffscreen && !r->offscreen) {
         Rect  b = w->portRect;
-        QDErr err = NewGWorld(&r->offscreen, r->depth, &b, 0L, 0L, 0);
+        /* A 640x480 GWorld is ~38 KB at 1-bit but ~300 KB at 8-bit, which won't
+         * fit the default app partition. Allocate from temp (MultiFinder) memory
+         * first; fall back to the app heap, then to direct drawing. */
+        QDErr err = NewGWorld(&r->offscreen, r->depth, &b, 0L, 0L, useTempMem);
+        if (err != noErr || !r->offscreen)
+            err = NewGWorld(&r->offscreen, r->depth, &b, 0L, 0L, 0);
         if (err != noErr || !r->offscreen) {
             r->useOffscreen = 0;          /* fall back to direct drawing */
             r->offscreen    = 0;
@@ -65,12 +81,19 @@ void render_end(Render *r, WindowPtr w)
 {
     if (r->useOffscreen && r->offscreen) {
         PixMapHandle pm = GetGWorldPixMap(r->offscreen);
+        BitMap      *dst;
         SetGWorld(r->savePort, r->saveGD);    /* back to the window's port */
         SetPort(w);
         ForeColor(blackColor);                /* avoid CopyBits colourising */
         BackColor(whiteColor);
-        CopyBits((BitMap *)*pm, &((GrafPtr)w)->portBits,
-                 &r->bounds, &w->portRect, srcCopy, 0L);
+        /* Colour window (CGrafPort, e.g. at 8-bit): blit into its PixMap, not
+         * the overlapping old portBits. The rowBytes high bit marks a colour
+         * port. (Same idiom art.c uses for the off-screen destination.) */
+        if ((unsigned short)((GrafPtr)w)->portBits.rowBytes & 0x8000)
+            dst = (BitMap *)*(((CGrafPtr)w)->portPixMap);
+        else
+            dst = &((GrafPtr)w)->portBits;
+        CopyBits((BitMap *)*pm, dst, &r->bounds, &w->portRect, srcCopy, 0L);
         UnlockPixels(pm);
     }
     /* direct-to-window path: nothing to blit */

@@ -25,6 +25,8 @@ add_application(MacAtrium
     src/ui.c
     src/launch.c
     src/sysctl.c
+    src/display.c
+    src/sound.c
     TYPE "APPL"
     CREATOR "ATRM"
 )

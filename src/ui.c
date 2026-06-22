@@ -3,6 +3,8 @@
  */
 #include "ui.h"
 #include "art.h"
+#include "display.h"
+#include "sound.h"
 #include "mac_compat.h"
 
 #include <string.h>
@@ -60,6 +62,20 @@ void ui_init(Ui *u, Env *env, Render *r, Model *m, WindowPtr win, int safe)
     u->previewPic = 0;
     u->listArt = 0;
     u->artFor = 0;
+    u->settingsFocus = 0;
+    u->setSel = 0;
+    u->ndepths = display_depths(u->depths, UI_MAX_DEPTHS);
+    /* Cap the offered depths at 4-bit: the colour backend is verified at 1/2/4,
+     * but 8-bit+ has a colour-rendering defect (off-screen blit blanks; direct
+     * DrawPicture to an 8-bit screen hangs — docs/15). Keep it safe until that's
+     * fixed; the device may still boot at a higher depth. */
+    {
+        int i, n = 0;
+        for (i = 0; i < u->ndepths; i++)
+            if (u->depths[i] <= 4) u->depths[n++] = u->depths[i];
+        u->ndepths = n;
+    }
+    u->vol = sound_available() ? sound_get_vol() : -1;
 }
 
 void ui_set_status(Ui *u, const char *msg)
@@ -86,6 +102,29 @@ static Art *load_item_art(Ui *u, const char *image);   /* defined below */
 
 #define ART_PANE_W 176          /* right-hand art pane width when wide enough */
 #define ART_MIN_W  560          /* show the art pane only at this width or more */
+
+#define GEAR_X 8                /* settings affordance: left edge */
+#define GEAR_W 24               /* ...and reserved width (title starts after) */
+
+/* The Settings affordance at the header's left — a little 3-slider icon. A frame
+ * around it shows it's focused (reached by pressing Left at the first category;
+ * Enter then opens the Settings panel). */
+static void draw_settings_btn(Ui *u)
+{
+    Render *r = u->r;
+    Rect    box, knob;
+    short   x0 = GEAR_X, x1 = (short)(GEAR_X + 14);
+    render_hline(r, x0, x1, 10);
+    render_hline(r, x0, x1, 15);
+    render_hline(r, x0, x1, 20);
+    SetRect(&knob, (short)(x0 + 9), 8,  (short)(x0 + 12), 12); render_frame(r, &knob);
+    SetRect(&knob, (short)(x0 + 3), 13, (short)(x0 + 6),  17); render_frame(r, &knob);
+    SetRect(&knob, (short)(x0 + 8), 18, (short)(x0 + 11), 22); render_frame(r, &knob);
+    if (u->settingsFocus) {
+        SetRect(&box, (short)(GEAR_X - 4), 3, (short)(GEAR_X + GEAR_W - 4), (short)(HEADER_H - 4));
+        render_frame(r, &box);
+    }
+}
 
 static void draw_safe(Ui *u)
 {
@@ -153,9 +192,10 @@ static void draw_list(Ui *u)
 
     /* ---- header ---- */
     render_text_size(r, 12);
-    render_text(r, MARGIN, 20, "MacAtrium", INK_TITLE);
+    draw_settings_btn(u);
+    render_text(r, GEAR_X + GEAR_W, 20, "MacAtrium", INK_TITLE);
     if (cat) {
-        short x = (short)(MARGIN + render_text_width(r, "MacAtrium") + 20);
+        short x = (short)(GEAR_X + GEAR_W + render_text_width(r, "MacAtrium") + 20);
         render_text(r, x, 20, cat->name, INK_NORMAL);
     }
     if (cat) {
@@ -237,12 +277,83 @@ static void draw_list(Ui *u)
     /* ---- hint bar ---- */
     render_hline(r, 0, (short)W, (short)(H - HINT_H));
     {
-        const char *hint = narrow
-            ? "<> cat  ^v sel  Ret launch  P art  T theme  Esc menu"
-            : "<- ->  category    ^ v  select    Return  launch    P  art    T  theme    Esc  menu";
-        short x = (short)((W - render_text_width(r, hint)) / 2);
+        const char *hint;
+        short x;
+        if (u->settingsFocus)
+            hint = "Settings:   Return  open      ->  back";
+        else
+            hint = narrow
+                ? "<> cat  ^v sel  Ret launch  P art  Esc menu  < settings"
+                : "<- ->  category    ^ v  select    Return  launch    P  art    Esc  menu    <  settings";
+        x = (short)((W - render_text_width(r, hint)) / 2);
         if (x < MARGIN) x = MARGIN;
         render_text(r, x, (short)(H - 7), hint, INK_DIM);
+    }
+}
+
+/* The Settings panel: a list of adjustable rows (Theme / Color Depth / Volume).
+ * Up/Down move rows; Left/Right (and Return) change the selected row's value. */
+#define SET_N 3
+
+static void set_row_text(Ui *u, int row, char *out)
+{
+    char num[16];
+    switch (row) {
+        case 0:
+            strcpy(out, "Theme");
+            while (strlen(out) < 16) strcat(out, " ");
+            strcat(out, (u->r->theme == THEME_LIGHT) ? "Light" : "Dark");
+            break;
+        case 1:
+            strcpy(out, "Color Depth");
+            while (strlen(out) < 16) strcat(out, " ");
+            if (u->env->pixelSize >= 16) { strcat(out, "Thousands"); }
+            else { l2s(u->env->pixelSize, num); strcat(out, num); strcat(out, "-bit"); }
+            break;
+        default:
+            strcpy(out, "Volume");
+            while (strlen(out) < 16) strcat(out, " ");
+            if (u->vol < 0) { strcat(out, "n/a"); }
+            else { l2s(u->vol, num); strcat(out, num); strcat(out, " / 7"); }
+            break;
+    }
+}
+
+static void draw_settings(Ui *u)
+{
+    Render *r = u->r;
+    int     W = win_w(u), H = win_h(u);
+    int     pw = 320;
+    int     ph = SET_N * (ROW_H + 6) + 56;
+    short   px = (short)((W - pw) / 2);
+    short   py = (short)((H - ph) / 2);
+    Rect    panel, rr;
+    int     i;
+
+    SetRect(&panel, px, py, (short)(px + pw), (short)(py + ph));
+    render_fill(r, &panel, FILL_PANEL);
+    render_frame(r, &panel);
+
+    render_text_size(r, 12);
+    render_text(r, (short)(px + MARGIN), (short)(py + 22), "Settings", INK_TITLE);
+    render_hline(r, px, (short)(px + pw), (short)(py + 30));
+
+    for (i = 0; i < SET_N; i++) {
+        short y0   = (short)(py + 40 + i * (ROW_H + 6));
+        short base = (short)(y0 + ROW_H - 5);
+        int   sel  = (i == u->setSel);
+        char  line[48];
+        SetRect(&rr, (short)(px + 4), y0, (short)(px + pw - 4), (short)(y0 + ROW_H));
+        render_fill(r, &rr, sel ? FILL_SEL : FILL_PANEL);
+        set_row_text(u, i, line);
+        render_text(r, (short)(px + MARGIN), base, line, sel ? INK_SELECTED : INK_NORMAL);
+    }
+
+    render_hline(r, px, (short)(px + pw), (short)(py + ph - 22));
+    {
+        const char *hint = "^v row   <> change   Esc back";
+        short x = (short)(px + (pw - render_text_width(r, hint)) / 2);
+        render_text(r, x, (short)(py + ph - 7), hint, INK_DIM);
     }
 }
 
@@ -320,6 +431,8 @@ void ui_draw(Ui *u)
         }
         if (u->mode == UI_MODE_MENU)
             draw_menu(u);
+        else if (u->mode == UI_MODE_SETTINGS)
+            draw_settings(u);
     }
     render_end(u->r, u->win);
 }
@@ -406,6 +519,47 @@ static Art *load_item_art(Ui *u, const char *image)
     return art_load(buf);
 }
 
+/* Switch the screen to `depth` bits and re-fit our rendering to it. */
+static void apply_depth(Ui *u, short depth)
+{
+    if (display_set_depth(depth) != noErr) return;
+    u->env->pixelSize = display_current_depth();   /* re-read what we actually got */
+    u->env->useColor  = (u->env->hasColorQD && u->env->pixelSize >= 4);
+    render_reset_for_depth(u->r, u->env, u->env->pixelSize);
+    if (u->listArt) {                              /* art variant is depth-specific */
+        art_dispose(u->listArt); u->listArt = 0; u->artFor = 0;
+    }
+}
+
+/* Change the selected Settings row's value by `dir` (-1 / +1). */
+static void settings_adjust(Ui *u, int dir)
+{
+    switch (u->setSel) {
+        case 0:                                    /* Theme */
+            render_toggle_theme(u->r);
+            break;
+        case 1: {                                  /* Color Depth */
+            int i, cur = 0;
+            for (i = 0; i < u->ndepths; i++)
+                if (u->depths[i] == u->env->pixelSize) cur = i;
+            cur += dir;
+            if (cur < 0) cur = 0;
+            if (cur >= u->ndepths) cur = u->ndepths - 1;
+            if (u->ndepths > 0 && u->depths[cur] != u->env->pixelSize)
+                apply_depth(u, u->depths[cur]);
+            break;
+        }
+        default:                                   /* Volume */
+            if (u->vol >= 0) {
+                u->vol += dir;
+                if (u->vol < 0) u->vol = 0;
+                if (u->vol > SOUND_VOL_MAX) u->vol = SOUND_VOL_MAX;
+                sound_set_vol(u->vol);
+            }
+            break;
+    }
+}
+
 UiCommand ui_key(Ui *u, char ch)
 {
     UiCommand cmd = UI_NONE;
@@ -413,6 +567,33 @@ UiCommand ui_key(Ui *u, char ch)
     /* Theme toggle works in any mode (list / menu / safe / preview). */
     if (ch == 't' || ch == 'T') {
         render_toggle_theme(u->r);
+        ui_draw(u);
+        return UI_NONE;
+    }
+
+    /* Settings panel: rows adjusted with arrows, Esc returns to the list. */
+    if (u->mode == UI_MODE_SETTINGS) {
+        switch (ch) {
+            case kCharUp:    if (u->setSel > 0) u->setSel--; break;
+            case kCharDown:  if (u->setSel < SET_N - 1) u->setSel++; break;
+            case kCharLeft:  settings_adjust(u, -1); break;
+            case kCharRight: settings_adjust(u, +1); break;
+            case kCharReturn:
+            case kCharEnter: settings_adjust(u, +1); break;
+            case kCharEscape: u->mode = UI_MODE_LIST; break;   /* gear stays focused */
+        }
+        ui_draw(u);
+        return UI_NONE;
+    }
+
+    /* Gear focused on the list screen (reached by Left at the first category). */
+    if (u->mode == UI_MODE_LIST && u->settingsFocus) {
+        switch (ch) {
+            case kCharReturn:
+            case kCharEnter:  u->mode = UI_MODE_SETTINGS; u->setSel = 0; break;
+            case kCharEscape: u->settingsFocus = 0; u->mode = UI_MODE_MENU; u->menuSel = 0; break;
+            default:          u->settingsFocus = 0; break;   /* any other key unfocuses */
+        }
         ui_draw(u);
         return UI_NONE;
     }
@@ -446,7 +627,10 @@ UiCommand ui_key(Ui *u, char ch)
             break;
         case kCharUp:    if (!u->safe) model_move_item(u->m, -1); break;
         case kCharDown:  if (!u->safe) model_move_item(u->m, +1); break;
-        case kCharLeft:  if (!u->safe) model_move_cat(u->m, -1); break;
+        case kCharLeft:
+            /* Left past the first category focuses the Settings gear. */
+            if (!u->safe && !model_move_cat(u->m, -1)) u->settingsFocus = 1;
+            break;
         case kCharRight: if (!u->safe) model_move_cat(u->m, +1); break;
         case kCharReturn:
         case kCharEnter:

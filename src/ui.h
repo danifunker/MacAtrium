@@ -20,7 +20,9 @@ typedef enum {
     UI_SHUTDOWN
 } UiCommand;
 
-enum { UI_MODE_LIST = 0, UI_MODE_MENU, UI_MODE_PREVIEW };
+enum { UI_MODE_LIST = 0, UI_MODE_MENU, UI_MODE_PREVIEW, UI_MODE_SETTINGS };
+
+#define UI_MAX_DEPTHS 6
 
 typedef struct {
     Env       *env;
@@ -34,6 +36,11 @@ typedef struct {
     Art       *previewPic;    /* loaded art while in UI_MODE_PREVIEW  */
     Art       *listArt;       /* selected item's art for the inline pane */
     const CatItem *artFor;    /* item listArt was loaded for (NULL = none) */
+    int        settingsFocus; /* 1 = gear focused on the list screen (Left)   */
+    int        setSel;        /* selected row in the Settings panel           */
+    short      depths[UI_MAX_DEPTHS]; /* screen depths the device supports     */
+    int        ndepths;       /* count in depths[]                            */
+    int        vol;           /* speaker volume 0..SOUND_VOL_MAX (-1 = n/a)   */
 } Ui;
 
 void      ui_init(Ui *u, Env *env, Render *r, Model *m, WindowPtr win, int safe);

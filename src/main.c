@@ -61,6 +61,11 @@ static WindowPtr make_window(const Env *e)
 {
     Rect b = e->screen;
     b.top += e->mbarHeight;          /* sit below the menu bar (recoverable) */
+    /* A colour window (CGrafPort) when Color QD is present, so the off-screen
+     * GWorld blits correctly at >1-bit depths (and the user can switch depth at
+     * runtime); a plain B&W window otherwise. */
+    if (e->hasColorQD)
+        return NewCWindow(0L, &b, "\p", true, plainDBox, (WindowPtr)-1L, false, 0);
     return NewWindow(0L, &b, "\p", true, plainDBox, (WindowPtr)-1L, false, 0);
 }
 
