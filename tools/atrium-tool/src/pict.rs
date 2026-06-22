@@ -400,10 +400,9 @@ fn build_pict(w: u16, h: u16, rgba: &[u8], depth: Depth, pack: bool) -> (Vec<u8>
     (data, colors)
 }
 
-/// Convert an image file to a PICT file (512-byte header + picture data).
-/// `max` (if set) downscales so the longest side is at most `max` px (aspect
-/// preserved; never upscales) — docs/06 "sized to the target resolution".
-pub fn run(input: &Path, output: &Path, depth: Depth, pack: bool, max: Option<u32>) -> Result<Stats> {
+/// Decode an image file to RGBA8, optionally downscaling so the longest side is
+/// at most `max` px (aspect preserved; never upscales). Returns (w, h, rgba).
+fn load_rgba(input: &Path, max: Option<u32>) -> Result<(u16, u16, Vec<u8>)> {
     let mut dynimg = image::ImageReader::open(input)
         .with_context(|| format!("opening {}", input.display()))?
         .with_guessed_format()
@@ -417,19 +416,67 @@ pub fn run(input: &Path, output: &Path, depth: Depth, pack: bool, max: Option<u3
     }
     let img = dynimg.to_rgba8();
     let (w, h) = img.dimensions();
-    anyhow::ensure!(w <= 0x7FFF && h <= 0x7FFF, "image too large for PICT ({w}x{h})");
+    anyhow::ensure!(w <= 0x7FFF && h <= 0x7FFF, "image too large ({w}x{h})");
+    Ok((w as u16, h as u16, img.into_raw()))
+}
 
-    let (data, colors) = build_pict(w as u16, h as u16, img.as_raw(), depth, pack);
+/// Convert an image file to a PICT file (512-byte header + picture data).
+/// `max` (if set) downscales so the longest side is at most `max` px (aspect
+/// preserved; never upscales) — docs/06 "sized to the target resolution".
+pub fn run(input: &Path, output: &Path, depth: Depth, pack: bool, max: Option<u32>) -> Result<Stats> {
+    let (w, h, rgba) = load_rgba(input, max)?;
+    let (data, colors) = build_pict(w, h, &rgba, depth, pack);
 
     let mut bytes = vec![0u8; 512]; // PICT file header
     bytes.extend(&data);
     std::fs::write(output, &bytes).with_context(|| format!("writing {}", output.display()))?;
 
     Ok(Stats {
-        width: w as u16,
-        height: h as u16,
+        width: w,
+        height: h,
         depth: depth.bits(),
         colors,
+        bytes: bytes.len(),
+    })
+}
+
+/// Build the raw 1-bit bitmap sidecar body (12-byte header + MSB-first rows).
+/// Layout (all big-endian): magic 'A','B'; u16 version=1; u16 width; u16 height;
+/// u16 rowBytes (even); u16 depth=1; then `rowBytes*height` bytes of pixels
+/// (MSB-first, a set bit = black, matching the PICT 1-bit index where 1=black).
+/// The launcher CopyBits this straight into its off-screen GWorld, bypassing the
+/// PICT/DrawPicture opcode interpreter that faults Snow on some valid 1-bit art.
+pub const RAW1_HEADER_LEN: usize = 12;
+
+fn build_raw1(w: u16, h: u16, rgba: &[u8]) -> (Vec<u8>, usize) {
+    let (wi, hi) = (w as usize, h as usize);
+    let (idx, _palette) = quantize(rgba, wi, hi, Depth::One);
+    // Even rowBytes (QuickDraw requirement; see encode_indexed).
+    let rowbytes = ((wi + 7) / 8 + 1) & !1usize;
+
+    let mut out = Vec::with_capacity(RAW1_HEADER_LEN + rowbytes * hi);
+    out.extend(b"AB"); // magic
+    out.extend(be16(1)); // version
+    out.extend(be16(w));
+    out.extend(be16(h));
+    out.extend(be16(rowbytes as u16));
+    out.extend(be16(1)); // depth
+    for y in 0..hi {
+        out.extend(pack_row(&idx[y * wi..(y + 1) * wi], wi, 1, rowbytes));
+    }
+    (out, rowbytes)
+}
+
+/// Convert an image file to a raw 1-bit bitmap sidecar (see `build_raw1`).
+pub fn run_raw1(input: &Path, output: &Path, max: Option<u32>) -> Result<Stats> {
+    let (w, h, rgba) = load_rgba(input, max)?;
+    let (bytes, _rowbytes) = build_raw1(w, h, &rgba);
+    std::fs::write(output, &bytes).with_context(|| format!("writing {}", output.display()))?;
+    Ok(Stats {
+        width: w,
+        height: h,
+        depth: 1,
+        colors: 2,
         bytes: bytes.len(),
     })
 }
@@ -542,6 +589,36 @@ mod tests {
         let rb = u16::from_be_bytes([data[p + 2], data[p + 3]]) & 0x7FFF;
         assert_eq!(rb % 2, 0, "rowBytes must be even, got {rb}");
         assert_eq!(rb, 4);
+    }
+
+    #[test]
+    fn raw1_header_and_rows_are_well_formed() {
+        // 9px wide -> ceil(9/8)=2 bytes, already even -> rowBytes 2.
+        // Pure black image -> every bit set (index 1 = black).
+        let rgba = vec![0u8; 9 * 3 * 4];
+        let (bytes, rowbytes) = build_raw1(9, 3, &rgba);
+        assert_eq!(rowbytes, 2);
+        assert_eq!(&bytes[0..2], b"AB"); // magic
+        assert_eq!(&bytes[2..4], &[0, 1]); // version 1
+        assert_eq!(&bytes[4..6], &[0, 9]); // width
+        assert_eq!(&bytes[6..8], &[0, 3]); // height
+        assert_eq!(&bytes[8..10], &[0, 2]); // rowBytes (even)
+        assert_eq!(&bytes[10..12], &[0, 1]); // depth
+        assert_eq!(bytes.len(), RAW1_HEADER_LEN + 2 * 3);
+        // first row: 9 black pixels MSB-first -> 0xFF, then 0x80 (bit 8), pad bit clear
+        assert_eq!(bytes[12], 0xFF);
+        assert_eq!(bytes[13], 0x80);
+    }
+
+    #[test]
+    fn raw1_pads_odd_rowbytes_to_even() {
+        // 24px -> ceil(24/8)=3 (odd) -> pad to 4.
+        let rgba = vec![255u8; 24 * 2 * 4];
+        let (bytes, rowbytes) = build_raw1(24, 2, &rgba);
+        assert_eq!(rowbytes, 4);
+        assert_eq!(&bytes[8..10], &[0, 4]);
+        // pure white -> all index 0 -> all bits clear
+        assert!(bytes[RAW1_HEADER_LEN..].iter().all(|&b| b == 0));
     }
 
     #[test]

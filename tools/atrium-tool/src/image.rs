@@ -232,20 +232,33 @@ pub fn run(config: &Path) -> Result<()> {
                 let mut any = false;
                 for d in &depths {
                     let sfx = if multi { format!(".{}", d.bits()) } else { String::new() };
-                    let pictfile = stage.join(format!("{id}{sfx}.pict"));
-                    if pict::run(&src, &pictfile, *d, true, cfg.art_max).is_err() {
+                    // 1-bit art ships as a raw CopyBits-ready bitmap (.raw), not a
+                    // PICT: the launcher blits it directly, dodging the Snow
+                    // DrawPicture fault on some valid 1-bit art (docs/14). Colour
+                    // depths stay PICT (DrawPicture is fine there).
+                    let raw = *d == pict::Depth::One;
+                    let ext = if raw { "raw" } else { "pict" };
+                    let stagefile = stage.join(format!("{id}{sfx}.{ext}"));
+                    let ok = if raw {
+                        pict::run_raw1(&src, &stagefile, cfg.art_max).is_ok()
+                    } else {
+                        pict::run(&src, &stagefile, *d, true, cfg.art_max).is_ok()
+                    };
+                    if !ok {
                         continue; // skip art that won't decode rather than fail
                     }
-                    let dst = format!("{}/{}{}.pict", cfg.images_dir.trim_end_matches('/'), id, sfx);
-                    rb.put_typed(&cfg.out, &pictfile, &dst, "PICT", "ttxt")?;
+                    let dst = format!("{}/{}{}.{}", cfg.images_dir.trim_end_matches('/'), id, sfx, ext);
+                    let (ftype, creator) = if raw { ("ABMP", "ttxt") } else { ("PICT", "ttxt") };
+                    rb.put_typed(&cfg.out, &stagefile, &dst, ftype, creator)?;
                     any = true;
                 }
                 if any {
-                    // base path for variants; explicit .pict for the single case
+                    // base path for variants; explicit ext for the single case
                     let rel = if multi {
                         format!("{images_rel}/{id}")
                     } else {
-                        format!("{images_rel}/{id}.pict")
+                        let ext = if depths[0] == pict::Depth::One { "raw" } else { "pict" };
+                        format!("{images_rel}/{id}.{ext}")
                     };
                     overlay.push_str(&format!("{{\"id\":{id:?},\"image\":{rel:?}}}\n"));
                     n += 1;

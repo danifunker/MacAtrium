@@ -10,6 +10,7 @@
 #include "env.h"
 #include "render.h"
 #include "model.h"
+#include "art.h"
 
 typedef enum {
     UI_NONE = 0,
@@ -30,8 +31,8 @@ typedef struct {
     int        menuSel;
     int        safe;          /* 1 = "no catalog" recoverable screen */
     char       status[96];    /* transient line (e.g. launch error)  */
-    PicHandle  previewPic;    /* loaded art while in UI_MODE_PREVIEW  */
-    PicHandle  listArt;       /* selected item's art for the inline pane */
+    Art       *previewPic;    /* loaded art while in UI_MODE_PREVIEW  */
+    Art       *listArt;       /* selected item's art for the inline pane */
     const CatItem *artFor;    /* item listArt was loaded for (NULL = none) */
 } Ui;
 

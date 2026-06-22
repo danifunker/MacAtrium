@@ -151,6 +151,11 @@ enum Cmd {
         /// Store rows uncompressed (skip PackBits) for indexed depths.
         #[arg(long)]
         no_pack: bool,
+        /// Emit a raw 1-bit bitmap sidecar (CopyBits-ready) instead of a PICT.
+        /// Implies 1-bit; the launcher blits it directly, dodging the Snow
+        /// DrawPicture fault on some 1-bit art (docs/14).
+        #[arg(long)]
+        raw: bool,
         /// Downscale so the longest side is at most this many pixels (aspect kept).
         #[arg(long)]
         max: Option<u32>,
@@ -266,15 +271,19 @@ fn main() -> Result<()> {
             merge::run(&base, &overlay, &out, fill_missing)?;
         }
 
-        Cmd::Pict { input, out, depth, no_pack, max } => {
-            let d = pict::Depth::parse(&depth)?;
-            let s = pict::run(&input, &out, d, !no_pack, max)?;
+        Cmd::Pict { input, out, depth, no_pack, raw, max } => {
+            let s = if raw {
+                pict::run_raw1(&input, &out, max)?
+            } else {
+                let d = pict::Depth::parse(&depth)?;
+                pict::run(&input, &out, d, !no_pack, max)?
+            };
             eprintln!(
-                "pict: {}x{} {}-bit ({} colors) -> {} ({} bytes)",
+                "pict: {}x{} {}-bit ({}) -> {} ({} bytes)",
                 s.width,
                 s.height,
                 s.depth,
-                if s.colors > 0 { s.colors.to_string() } else { "direct".into() },
+                if raw { "raw bitmap".into() } else if s.colors > 0 { format!("{} colors", s.colors) } else { "direct".into() },
                 out.display(),
                 s.bytes
             );
