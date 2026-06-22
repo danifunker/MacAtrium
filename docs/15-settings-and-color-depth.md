@@ -84,6 +84,12 @@ Evidence: [evidence/color-art-4bit-pict.png](evidence/color-art-4bit-pict.png),
   `<id>.<N>.pict` (colour PICT, DrawPicture) on colour screens. `atrium image`
   default `art_depths` is `["1","8"]` (1-bit raw + 256-colour PICT); the picker
   offers whatever the device reports via `HasDepth` (no artificial cap).
+  **Changing depth at runtime re-colours the art immediately:** `apply_depth`
+  disposes the cached art so the next list draw reloads the variant for the new
+  depth — verified by switching a 1-bit screen up to 8-bit and watching the same
+  box art go from dithered B&W to full colour
+  ([evidence/depth-art-1bit-bw.png](evidence/depth-art-1bit-bw.png) →
+  [evidence/depth-art-8bit-color.png](evidence/depth-art-8bit-color.png)).
 - The off-screen GWorld at 8-bit needs more heap than the **1 MB** default app
   partition; this works in current testing, but a `SIZE (-1)` bump (preferred
   4 MB, `min` left at 1 MB for low-RAM B&W Macs) is the safe follow-up if 8-bit
