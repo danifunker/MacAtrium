@@ -7,6 +7,16 @@
 # **the executable that runs on the Mac (MacAtrium.bin) plus the build tools**.
 #
 # Every push builds + tests; the release is published on `main` and tag pushes.
+#
+# The MacAtrium Manager (egui GUI, tools/macatrium-mgmt-ui) ships alongside as a
+# Windows Inno-Setup installer, a macOS .dmg, and a Linux AppImage. macOS code
+# signing + notarization turn on automatically once these repo secrets exist
+# (until then the .app is ad-hoc signed and still runs locally):
+#   MACOS_CERTIFICATE        base64 of the Developer ID Application .p12
+#   MACOS_CERTIFICATE_PWD    its export password
+#   MACOS_TEAM_ID            Apple Developer Team ID
+#   MACOS_NOTARIZE_APPLE_ID  Apple ID for notarytool
+#   MACOS_NOTARIZE_PASSWORD  app-specific password for that Apple ID
 name: Release
 
 on:
@@ -130,6 +140,279 @@ jobs:
           name: MacAtrium-launcher-${{ needs.generate-version.outputs.version }}
           path: out/*
 
+  # ---- MacAtrium Manager (egui GUI over the atrium library) -----------------
+  # Shipped like rusty-backup's GUI: a signed macOS .dmg, a Windows Inno Setup
+  # installer, and a Linux AppImage. macOS signing/notarization activate only
+  # when the MACOS_* secrets are present (until then the .app is ad-hoc signed).
+
+  build-mgmt-ui-windows:
+    name: Manager GUI (windows-${{ matrix.arch }})
+    needs: generate-version
+    runs-on: ${{ matrix.runs-on }}
+    env:
+      RELEASE_VERSION: ${{ needs.generate-version.outputs.version }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { target: x86_64-pc-windows-msvc,  arch: x64,   runs-on: windows-latest }
+          - { target: aarch64-pc-windows-msvc, arch: arm64, runs-on: windows-11-arm }
+    steps:
+      - uses: actions/checkout@v6
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.target }}
+      - name: Cache cargo
+        uses: actions/cache@v5
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            tools/macatrium-mgmt-ui/target
+          key: ${{ runner.os }}-${{ matrix.target }}-mgmtui-${{ hashFiles('tools/macatrium-mgmt-ui/Cargo.lock') }}
+      - name: Build
+        working-directory: tools/macatrium-mgmt-ui
+        run: cargo build --release --target ${{ matrix.target }}
+      - name: Package (zip)
+        shell: bash
+        run: |
+          7z a "MacAtrium-Manager-windows-${{ matrix.arch }}-${RELEASE_VERSION}.zip" \
+            "./tools/macatrium-mgmt-ui/target/${{ matrix.target }}/release/macatrium-mgmt-ui.exe"
+      - uses: actions/upload-artifact@v7
+        with:
+          name: MacAtrium-Manager-windows-${{ matrix.arch }}-${{ needs.generate-version.outputs.version }}
+          path: MacAtrium-Manager-windows-${{ matrix.arch }}-*.zip
+      # Per-user Inno Setup installer (Setup.exe), into %LocalAppData% (no admin).
+      - name: Build installer (Inno Setup)
+        shell: pwsh
+        run: |
+          choco install innosetup --no-progress -y
+          $iscc = "C:\Program Files (x86)\Inno Setup 6\ISCC.exe"
+          if (-not (Test-Path $iscc)) { throw "ISCC.exe not found at $iscc" }
+          $version = "${{ needs.generate-version.outputs.version }}"
+          $src = "$env:GITHUB_WORKSPACE\tools\macatrium-mgmt-ui\target\${{ matrix.target }}\release"
+          $assets = "$env:GITHUB_WORKSPACE\assets\icons"
+          $base = "MacAtrium-Manager-Setup-windows-${{ matrix.arch }}-$version"
+          & $iscc "/DMyAppVersion=$version" "/DSourceDir=$src" "/DAssetsDir=$assets" "/F$base" installer\macatrium-mgmt-ui.iss
+          if ($LASTEXITCODE -ne 0) { throw "iscc failed with exit code $LASTEXITCODE" }
+      - uses: actions/upload-artifact@v7
+        with:
+          name: MacAtrium-Manager-Setup-windows-${{ matrix.arch }}-${{ needs.generate-version.outputs.version }}
+          path: installer\Output\MacAtrium-Manager-Setup-windows-${{ matrix.arch }}-*.exe
+
+  build-mgmt-ui-macos:
+    name: Manager GUI (macos-${{ matrix.arch }})
+    needs: generate-version
+    runs-on: ${{ matrix.runs-on }}
+    env:
+      HAS_SIGNING_CERT: ${{ secrets.MACOS_CERTIFICATE != '' }}
+      RELEASE_VERSION: ${{ needs.generate-version.outputs.version }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { target: aarch64-apple-darwin, arch: arm64, runs-on: macos-latest }
+          - { target: x86_64-apple-darwin,  arch: x64,   runs-on: macos-26-intel }
+    steps:
+      - uses: actions/checkout@v6
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.target }}
+      - name: Cache cargo
+        uses: actions/cache@v5
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            tools/macatrium-mgmt-ui/target
+          key: ${{ runner.os }}-${{ matrix.target }}-mgmtui-${{ hashFiles('tools/macatrium-mgmt-ui/Cargo.lock') }}
+      - name: Build
+        working-directory: tools/macatrium-mgmt-ui
+        run: cargo build --release --target ${{ matrix.target }}
+
+      - name: Import signing certificate
+        if: ${{ env.HAS_SIGNING_CERT == 'true' }}
+        env:
+          MACOS_CERTIFICATE: ${{ secrets.MACOS_CERTIFICATE }}
+          MACOS_CERTIFICATE_PWD: ${{ secrets.MACOS_CERTIFICATE_PWD }}
+        run: |
+          KEYCHAIN_PATH=$RUNNER_TEMP/app-signing.keychain-db
+          KEYCHAIN_PWD=$(openssl rand -base64 32)
+          security create-keychain -p "$KEYCHAIN_PWD" "$KEYCHAIN_PATH"
+          security set-keychain-settings -lut 21600 "$KEYCHAIN_PATH"
+          security unlock-keychain -p "$KEYCHAIN_PWD" "$KEYCHAIN_PATH"
+          CERT_PATH=$RUNNER_TEMP/certificate.p12
+          echo "$MACOS_CERTIFICATE" | base64 --decode > "$CERT_PATH"
+          security import "$CERT_PATH" -P "$MACOS_CERTIFICATE_PWD" -A -t cert -f pkcs12 -k "$KEYCHAIN_PATH"
+          rm "$CERT_PATH"
+          security set-key-partition-list -S apple-tool:,apple: -k "$KEYCHAIN_PWD" "$KEYCHAIN_PATH"
+          security list-keychains -d user -s "$KEYCHAIN_PATH" login.keychain-db
+
+      - name: Create app bundle + DMG (signed if cert present)
+        env:
+          MACOS_CERTIFICATE: ${{ secrets.MACOS_CERTIFICATE }}
+          MACOS_TEAM_ID: ${{ secrets.MACOS_TEAM_ID }}
+        run: |
+          APP_NAME="MacAtrium Manager"
+          BUNDLE="MacAtrium Manager.app"
+          VERSION="${{ needs.generate-version.outputs.version }}"
+          mkdir -p "${BUNDLE}/Contents/MacOS" "${BUNDLE}/Contents/Resources"
+          cp "tools/macatrium-mgmt-ui/target/${{ matrix.target }}/release/macatrium-mgmt-ui" "${BUNDLE}/Contents/MacOS/"
+          chmod +x "${BUNDLE}/Contents/MacOS/macatrium-mgmt-ui"
+
+          # Build an .icns from the PNG (best-effort; default icon if it fails).
+          if [ -f assets/icons/macatrium-256.png ]; then
+            mkdir -p icon.iconset
+            for s in 16 32 128 256; do
+              sips -z $s $s assets/icons/macatrium-256.png --out "icon.iconset/icon_${s}x${s}.png" >/dev/null 2>&1 || true
+              d=$((s*2)); sips -z $d $d assets/icons/macatrium-256.png --out "icon.iconset/icon_${s}x${s}@2x.png" >/dev/null 2>&1 || true
+            done
+            iconutil -c icns icon.iconset -o "${BUNDLE}/Contents/Resources/AppIcon.icns" 2>/dev/null || true
+          fi
+
+          cat > "${BUNDLE}/Contents/Info.plist" << 'PLIST'
+          <?xml version="1.0" encoding="UTF-8"?>
+          <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+          <plist version="1.0">
+          <dict>
+              <key>CFBundleName</key><string>MacAtrium Manager</string>
+              <key>CFBundleDisplayName</key><string>MacAtrium Manager</string>
+              <key>CFBundleIdentifier</key><string>io.github.danifunker.macatrium-mgmt-ui</string>
+              <key>CFBundleExecutable</key><string>macatrium-mgmt-ui</string>
+              <key>CFBundleIconFile</key><string>AppIcon</string>
+              <key>CFBundlePackageType</key><string>APPL</string>
+              <key>NSHighResolutionCapable</key><true/>
+              <key>LSMinimumSystemVersion</key><string>10.13</string>
+          </dict>
+          </plist>
+          PLIST
+          # Stamp the version (kept out of the heredoc so the shell expands it).
+          /usr/libexec/PlistBuddy -c "Add :CFBundleVersion string ${VERSION}" "${BUNDLE}/Contents/Info.plist"
+          /usr/libexec/PlistBuddy -c "Add :CFBundleShortVersionString string ${VERSION}" "${BUNDLE}/Contents/Info.plist"
+
+          if [ -n "$MACOS_CERTIFICATE" ] && [ -n "$MACOS_TEAM_ID" ]; then
+            IDENTITY=$(security find-identity -v -p codesigning "$RUNNER_TEMP/app-signing.keychain-db" | grep "Developer ID Application" | head -1 | sed 's/.*"\(.*\)".*/\1/')
+            echo "Signing with identity: $IDENTITY"
+            codesign --force --options runtime --timestamp --sign "$IDENTITY" "${BUNDLE}"
+          else
+            echo "No signing certificate — using ad-hoc signature."
+            codesign --force --deep --sign - "${BUNDLE}"
+          fi
+
+          DMG="MacAtrium-Manager-macos-${{ matrix.arch }}-${VERSION}.dmg"
+          STAGING=dmg-staging; rm -rf "$STAGING"; mkdir -p "$STAGING"
+          cp -R "${BUNDLE}" "$STAGING/"
+          ln -s /Applications "$STAGING/Applications"
+          hdiutil create -volname "${APP_NAME}" -srcfolder "$STAGING" -ov -format UDZO "$DMG"
+          if [ -n "$MACOS_CERTIFICATE" ] && [ -n "$MACOS_TEAM_ID" ]; then
+            codesign --force --sign "$IDENTITY" "$DMG"
+          fi
+
+      - name: Notarize DMG
+        if: ${{ env.HAS_SIGNING_CERT == 'true' }}
+        env:
+          MACOS_NOTARIZE_APPLE_ID: ${{ secrets.MACOS_NOTARIZE_APPLE_ID }}
+          MACOS_NOTARIZE_PASSWORD: ${{ secrets.MACOS_NOTARIZE_PASSWORD }}
+          MACOS_TEAM_ID: ${{ secrets.MACOS_TEAM_ID }}
+        run: |
+          DMG="MacAtrium-Manager-macos-${{ matrix.arch }}-${{ needs.generate-version.outputs.version }}.dmg"
+          xcrun notarytool submit "$DMG" --apple-id "$MACOS_NOTARIZE_APPLE_ID" \
+            --password "$MACOS_NOTARIZE_PASSWORD" --team-id "$MACOS_TEAM_ID" --wait
+          xcrun stapler staple "$DMG"
+
+      - name: Cleanup keychain
+        if: always()
+        run: |
+          KEYCHAIN_PATH=$RUNNER_TEMP/app-signing.keychain-db
+          [ -f "$KEYCHAIN_PATH" ] && security delete-keychain "$KEYCHAIN_PATH" || true
+
+      - uses: actions/upload-artifact@v7
+        with:
+          name: MacAtrium-Manager-macos-${{ matrix.arch }}-${{ needs.generate-version.outputs.version }}
+          path: MacAtrium-Manager-macos-${{ matrix.arch }}-*.dmg
+
+  build-mgmt-ui-linux:
+    name: Manager GUI (linux-${{ matrix.arch }} AppImage)
+    needs: generate-version
+    runs-on: ${{ matrix.runs-on }}
+    container: ghcr.io/pkgforge-dev/archlinux:latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { target: x86_64-unknown-linux-gnu,  arch: x64,   sharun_arch: x86_64,  runs-on: ubuntu-24.04 }
+          - { target: aarch64-unknown-linux-gnu, arch: arm64, sharun_arch: aarch64, runs-on: ubuntu-24.04-arm }
+    env:
+      # Pinned (matches rusty-backup's release pipeline).
+      ANYLINUX_REF: 2affcd69e3b3fccab4507dbdbaed5d1a04bedfa9
+      APPIMAGETOOL_VERSION: "0.3.0"
+      RELEASE_VERSION: ${{ needs.generate-version.outputs.version }}
+    steps:
+      - uses: actions/checkout@v6
+      - name: Install Arch build prerequisites
+        run: |
+          pacman -Syu --noconfirm base-devel cmake rust gtk3 openssl pkgconf wget curl git \
+            xorg-server-xvfb dbus file patchelf desktop-file-utils shared-mime-info zsync \
+            libxcb libxcursor libxi libxkbcommon libxkbcommon-x11 libxrandr libxtst mesa vulkan-icd-loader
+      - name: Cache cargo
+        uses: actions/cache@v5
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            tools/macatrium-mgmt-ui/target
+          key: ${{ runner.os }}-${{ matrix.target }}-anylinux-mgmtui-${{ hashFiles('tools/macatrium-mgmt-ui/Cargo.lock') }}
+      - name: Build
+        working-directory: tools/macatrium-mgmt-ui
+        run: cargo build --release --target ${{ matrix.target }}
+      - name: Install debloated runtime packages
+        run: |
+          wget --retry-connrefused --tries=30 \
+            "https://raw.githubusercontent.com/pkgforge-dev/Anylinux-AppImages/${ANYLINUX_REF}/useful-tools/get-debloated-pkgs.sh" -O ./get-debloated-pkgs.sh
+          chmod +x ./get-debloated-pkgs.sh
+          ./get-debloated-pkgs.sh --add-common --add-mesa --prefer-nano
+      - name: Stage AppDir inputs
+        run: |
+          VERSION="${{ needs.generate-version.outputs.version }}"
+          install -Dm755 tools/macatrium-mgmt-ui/target/${{ matrix.target }}/release/macatrium-mgmt-ui /usr/bin/macatrium-mgmt-ui
+          install -Dm644 assets/icons/macatrium-256.png /usr/share/icons/hicolor/256x256/apps/macatrium-mgmt-ui.png
+          install -d /usr/share/applications
+          cat > /usr/share/applications/macatrium-mgmt-ui.desktop <<EOF
+          [Desktop Entry]
+          Type=Application
+          Name=MacAtrium Manager
+          Comment=Build and manage MacAtrium appliance images
+          Exec=macatrium-mgmt-ui
+          Icon=macatrium-mgmt-ui
+          Categories=Utility;System;
+          Terminal=false
+          StartupNotify=true
+          X-AppImage-Version=${VERSION}
+          EOF
+      - name: Bundle with quick-sharun
+        run: |
+          VERSION="${{ needs.generate-version.outputs.version }}"
+          OUT="MacAtrium-Manager-linux-${{ matrix.arch }}-${VERSION}.AppImage"
+          wget --retry-connrefused --tries=30 \
+            "https://raw.githubusercontent.com/pkgforge-dev/Anylinux-AppImages/${ANYLINUX_REF}/useful-tools/quick-sharun.sh" -O ./quick-sharun
+          chmod +x ./quick-sharun
+          export ICON=/usr/share/icons/hicolor/256x256/apps/macatrium-mgmt-ui.png
+          export DESKTOP=/usr/share/applications/macatrium-mgmt-ui.desktop
+          export OUTPATH="$PWD/dist"
+          export OUTNAME="$OUT"
+          export VERSION
+          export APPIMAGETOOL_LINK="https://github.com/pkgforge-dev/appimagetool/releases/download/${APPIMAGETOOL_VERSION}/appimagetool-${{ matrix.sharun_arch }}-linux"
+          mkdir -p "$OUTPATH"
+          ./quick-sharun /usr/bin/macatrium-mgmt-ui
+          ./quick-sharun --make-appimage
+          ls -lh "$OUTPATH"
+      - uses: actions/upload-artifact@v7
+        with:
+          name: MacAtrium-Manager-linux-${{ matrix.arch }}-${{ needs.generate-version.outputs.version }}-appimage
+          path: dist/MacAtrium-Manager-linux-${{ matrix.arch }}-*.AppImage*
+
   release:
     name: Create release
     # Builds/tests run on every push; a release is PUBLISHED only when you push a
@@ -141,6 +424,9 @@ jobs:
       - test-core
       - build-tool
       - build-launcher
+      - build-mgmt-ui-windows
+      - build-mgmt-ui-macos
+      - build-mgmt-ui-linux
     runs-on: ubuntu-latest
     steps:
       - name: Download all artifacts
@@ -151,9 +437,12 @@ jobs:
       - name: Flatten release files
         run: |
           mkdir -p release-files
+          # CLI tarballs/zips + 68k launcher + Manager GUI (dmg / Setup.exe /
+          # AppImage[.zsync]). The Manager .zip is already caught by *.zip.
           find artifacts -type f \( \
             -name "*.tar.gz" -o -name "*.zip" \
             -o -name "MacAtrium.bin" -o -name "MacAtrium.APPL" \
+            -o -name "*.dmg" -o -name "*.exe" -o -name "*.AppImage" -o -name "*.AppImage.zsync" \
           \) -exec cp {} release-files/ \;
           ls -lh release-files/
 
