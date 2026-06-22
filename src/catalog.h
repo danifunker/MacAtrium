@@ -15,6 +15,8 @@
 #define ITEM_PATH_LEN   192
 #define ITEM_CAT_LEN    32
 #define ITEM_DESC_LEN   128
+#define ITEM_VENDOR_LEN 40
+#define ITEM_GENRE_LEN  64
 
 typedef struct {
     char id[ITEM_ID_LEN];
@@ -23,6 +25,8 @@ typedef struct {
     char cats[MAX_ITEM_CATS][ITEM_CAT_LEN];
     int  ncats;
     long year;                               /* 0 if absent */
+    char vendor[ITEM_VENDOR_LEN];            /* developer/publisher, "" if absent */
+    char genre[ITEM_GENRE_LEN];              /* genres joined for display, "" if absent */
     char type[8];                            /* OSType text, "" if absent */
     char creator[8];
     char desc[ITEM_DESC_LEN];

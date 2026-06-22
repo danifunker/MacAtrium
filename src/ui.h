@@ -21,7 +21,7 @@ typedef enum {
     UI_PREFS_DIRTY /* a persisted setting (theme/volume) changed; main saves */
 } UiCommand;
 
-enum { UI_MODE_LIST = 0, UI_MODE_MENU, UI_MODE_PREVIEW, UI_MODE_SETTINGS };
+enum { UI_MODE_LIST = 0, UI_MODE_MENU, UI_MODE_PREVIEW, UI_MODE_SETTINGS, UI_MODE_INFO };
 
 #define UI_MAX_DEPTHS 6
 

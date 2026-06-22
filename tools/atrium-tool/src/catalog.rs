@@ -23,6 +23,8 @@ const ITEM_NAME_LEN: usize = 63;
 const ITEM_PATH_LEN: usize = 191;
 const ITEM_CAT_LEN: usize = 31;
 const ITEM_DESC_LEN: usize = 127;
+const ITEM_VENDOR_LEN: usize = 39;
+const ITEM_GENRE_LEN: usize = 63;
 const MAX_CATS: usize = 64; // distinct named categories (excludes synthesized "All")
 
 /// One curated record from the source dataset. Only `id`, `name`, `app` are
@@ -70,6 +72,13 @@ struct OutItem {
     app: String,
     #[serde(skip_serializing_if = "Option::is_none")]
     year: Option<i64>,
+    /// Developer/publisher, shown in the launcher detail + More Info card.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    vendor: Option<String>,
+    /// Genres joined for display (e.g. "Action, Platformer"); navigation still
+    /// uses the `categories` array.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    genre: Option<String>,
     #[serde(rename = "type", skip_serializing_if = "Option::is_none")]
     type_: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -171,6 +180,11 @@ fn build(src_text: &str) -> Result<(Vec<OutItem>, Report)> {
                 warn(format!("desc longer than {ITEM_DESC_LEN} chars (will truncate on device)"));
             }
         }
+        if let Some(v) = &it.vendor {
+            if v.chars().count() > ITEM_VENDOR_LEN {
+                warn(format!("vendor longer than {ITEM_VENDOR_LEN} chars (will truncate on device)"));
+            }
+        }
         if let Some(prev) = seen_ids.insert(it.id.clone(), ln) {
             warn(format!("duplicate id (also on line {prev})"));
         }
@@ -198,12 +212,35 @@ fn build(src_text: &str) -> Result<(Vec<OutItem>, Report)> {
             *cat_counts.entry(c.clone()).or_insert(0) += 1;
         }
 
+        // Display-only fields: developer (vendor) and the genres joined for the
+        // detail line + More Info card. Navigation still uses `categories`.
+        let vendor = it
+            .vendor
+            .as_deref()
+            .map(str::trim)
+            .filter(|v| !v.is_empty())
+            .map(str::to_string);
+        let genre = {
+            let g: Vec<&str> = it.genre.iter().map(|s| s.trim()).filter(|s| !s.is_empty()).collect();
+            if g.is_empty() { None } else { Some(g.join(", ")) }
+        };
+        if let Some(g) = &genre {
+            if g.chars().count() > ITEM_GENRE_LEN {
+                warnings.push(format!(
+                    "line {ln} ({}): genre longer than {ITEM_GENRE_LEN} chars (will truncate on device)",
+                    it.id
+                ));
+            }
+        }
+
         out.push(OutItem {
             id: it.id,
             name: it.name,
             categories: cats,
             app: it.app,
             year: it.year,
+            vendor,
+            genre,
             type_: it.type_,
             creator: it.creator,
             desc: it.desc,
@@ -369,6 +406,19 @@ mod tests {
         // é encoded as MacRoman 0x8E, not UTF-8 0xC3 0xA9.
         assert!(bytes.windows(1).any(|w| w == [0x8E]));
         assert!(!bytes.windows(2).any(|w| w == [0xC3, 0xA9]));
+    }
+
+    #[test]
+    fn emits_vendor_and_genre_strings() {
+        let (items, _) = build(
+            r#"{"id":"dc","name":"Dark Castle","app":"a","vendor":"Silicon Beach Software","genre":["Action","Arcade"],"year":1986}"#,
+        )
+        .unwrap();
+        assert_eq!(items[0].vendor.as_deref(), Some("Silicon Beach Software"));
+        assert_eq!(items[0].genre.as_deref(), Some("Action, Arcade"));
+        // No vendor/genre -> omitted (None).
+        let (bare, _) = build(r#"{"id":"x","name":"X","app":"a"}"#).unwrap();
+        assert!(bare[0].vendor.is_none() && bare[0].genre.is_none());
     }
 
     #[test]

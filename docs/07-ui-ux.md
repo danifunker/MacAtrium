@@ -51,9 +51,20 @@ it and a real keyboard feels obvious:
 | **← / →** | Switch category (and/or page a long list — see below) |
 | **Return / Enter** | Launch the selected item |
 | **Esc** | Open/close the top-level menu (Launch Finder, Shutdown, Restart) |
+| **I** | **More Info** card for the selection (Return launches; any other key returns) |
+| **P** | Full-screen art preview |
+| **T** | Toggle Dark / Light theme |
 | **Page Up / Page Down** | Page through a long list |
-| Letter keys | Type-ahead jump to matching item (nice-to-have) |
+| Letter keys | Type-ahead jump to matching item (`T`/`P`/`I` are reserved) |
 | Mouse click / double-click | Select / launch (never required) |
+
+**Detail line & More Info.** On wide screens the bottom of the list shows two
+lines for the selection: a meta line (`year - developer - genre`) and the blurb
+(`desc`). **I** opens a full **More Info** card — title, year/developer, genre,
+the word-wrapped description, and the box art shown large. These read the new
+display fields the catalog now carries (`vendor`, `genre` string; see
+[06-content-pipeline.md](06-content-pipeline.md)) in addition to `desc`/`image`.
+Additional artwork beyond the box front (e.g. screenshots) is a follow-up.
 
 Left/Right doubles as category switch and, for very long single categories,
 paging — final mapping to settle during implementation. Keep **one consistent

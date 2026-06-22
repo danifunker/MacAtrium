@@ -36,6 +36,50 @@ static void l2s(long v, char *buf)               /* long -> C string */
 static int win_w(Ui *u) { return u->win->portRect.right - u->win->portRect.left; }
 static int win_h(Ui *u) { return u->win->portRect.bottom - u->win->portRect.top; }
 
+/* "1991 - Psygnosis - Puzzle, Strategy" from the item's display fields. ASCII
+ * separators only — the launcher renders MacRoman, so we avoid non-ASCII glyphs.
+ * `out` must hold >= ITEM_VENDOR_LEN + ITEM_GENRE_LEN + 32 bytes. */
+static void build_meta(const CatItem *it, char *out)
+{
+    char num[16];
+    out[0] = '\0';
+    if (it->year > 0) { l2s(it->year, num); strcat(out, num); }
+    if (it->vendor[0]) { if (out[0]) strcat(out, " - "); strcat(out, it->vendor); }
+    if (it->genre[0])  { if (out[0]) strcat(out, " - "); strcat(out, it->genre); }
+}
+
+/* Word-wrap `s` into `maxw` px, drawing each line from baseline `y` stepping by
+ * `dy`, up to `maxlines`. Returns the baseline after the last line drawn. */
+static short draw_wrapped(Render *r, short x, short y, short maxw, short dy,
+                          const char *s, int ink, int maxlines)
+{
+    char line[200], cand[200], word[80];
+    int  ll = 0, lines = 0, i = 0;
+    while (s[i] && lines < maxlines) {
+        int wl = 0, cl = 0;
+        while (s[i] == ' ') i++;                       /* skip run of spaces */
+        while (s[i] && s[i] != ' ' && wl < (int)sizeof word - 1) word[wl++] = s[i++];
+        word[wl] = '\0';
+        if (wl == 0) break;
+        if (ll > 0) { memcpy(cand, line, ll); cl = ll; cand[cl++] = ' '; }
+        memcpy(cand + cl, word, wl); cl += wl; cand[cl] = '\0';
+        if (ll > 0 && render_text_width(r, cand) > maxw) {
+            line[ll] = '\0';
+            render_text(r, x, y, line, ink);
+            y = (short)(y + dy); lines++;
+            memcpy(line, word, wl); ll = wl; line[ll] = '\0';
+        } else {
+            memcpy(line, cand, cl); ll = cl; line[ll] = '\0';
+        }
+    }
+    if (ll > 0 && lines < maxlines) {
+        line[ll] = '\0';
+        render_text(r, x, y, line, ink);
+        y = (short)(y + dy);
+    }
+    return y;
+}
+
 /* keep the selected row within the visible window */
 static int clamp_scroll(Ui *u, int visRows)
 {
@@ -158,7 +202,7 @@ static void draw_list(Ui *u)
     Rect      full = u->win->portRect;
     Rect      rr;
     char      num[16];
-    int       detailH = narrow ? 0 : ROW_H;
+    int       detailH = narrow ? 0 : 2 * ROW_H;   /* meta line + blurb */
     short     listTop = HEADER_H;
     short     listBot = (short)(H - HINT_H - detailH);
     int       showArt = (!narrow && W >= ART_MIN_W);
@@ -250,17 +294,20 @@ static void draw_list(Ui *u)
         }
     }
 
-    /* ---- detail line (selection desc / status) ---- */
+    /* ---- detail area: meta line (developer/year/genre) + blurb/status ---- */
     if (!narrow) {
-        short dy = (short)(listBot + ROW_H - 5);
+        const CatItem *it = model_cur_item(m);
+        short y1 = (short)(listBot + ROW_H - 5);
+        short y2 = (short)(listBot + 2 * ROW_H - 5);
+        if (it) {
+            char meta[ITEM_VENDOR_LEN + ITEM_GENRE_LEN + 32];
+            build_meta(it, meta);
+            if (meta[0]) render_text(r, MARGIN, y1, meta, INK_DIM);
+        }
         if (u->status[0]) {
-            render_text(r, MARGIN, dy, u->status, INK_NORMAL);
-        } else {
-            const CatItem *it = model_cur_item(m);
-            if (it && it->desc[0])
-                render_text(r, MARGIN, dy, it->desc, INK_DIM);
-            else if (it && it->name[0])
-                render_text(r, MARGIN, dy, it->name, INK_DIM);
+            render_text(r, MARGIN, y2, u->status, INK_NORMAL);
+        } else if (it && it->desc[0]) {
+            render_text(r, MARGIN, y2, it->desc, INK_NORMAL);
         }
     }
 
@@ -273,8 +320,8 @@ static void draw_list(Ui *u)
             hint = "Settings:   Return  open      ->  back";
         else
             hint = narrow
-                ? "<> cat  ^v sel  Ret launch  P art  Esc menu  < settings"
-                : "<- ->  category    ^ v  select    Return  launch    P  art    Esc  menu    <  settings";
+                ? "<> cat  ^v sel  Ret launch  I info  P art  Esc menu"
+                : "<- ->  category   ^ v  select   Return  launch   I  info   P  art   Esc  menu   <  settings";
         x = (short)((W - render_text_width(r, hint)) / 2);
         if (x < MARGIN) x = MARGIN;
         render_text(r, x, (short)(H - 7), hint, INK_DIM);
@@ -409,11 +456,74 @@ static void draw_preview(Ui *u)
     }
 }
 
+/* The More Info card (full screen): title, year/developer, genre, the wrapped
+ * description, and the box art shown large on the right. */
+static void draw_info(Ui *u)
+{
+    Render *r = u->r;
+    int     W = win_w(u), H = win_h(u);
+    Rect    full = u->win->portRect;
+    const CatItem *it = model_cur_item(u->m);
+    short   artW = (short)(W * 2 / 5);            /* right ~40% for the art */
+    short   textR = (short)(W - artW - 2 * MARGIN);
+    short   x = MARGIN, y;
+
+    render_fill(r, &full, FILL_BG);
+    render_text_size(r, 12);
+
+    if (!it) {
+        render_text(r, MARGIN, (short)(H / 2), "(no item selected)", INK_DIM);
+        render_hline(r, 0, (short)W, (short)(H - HINT_H));
+        return;
+    }
+
+    render_text(r, x, 24, it->name, INK_TITLE);
+    render_hline(r, 0, (short)W, (short)(HEADER_H - 1));
+
+    y = (short)(HEADER_H + 16);
+    {
+        char num[16], meta[ITEM_VENDOR_LEN + 24];
+        meta[0] = '\0';
+        if (it->year > 0) { l2s(it->year, num); strcat(meta, num); }
+        if (it->vendor[0]) { if (meta[0]) strcat(meta, " - "); strcat(meta, it->vendor); }
+        if (meta[0]) { render_text(r, x, y, meta, INK_NORMAL); y = (short)(y + ROW_H); }
+    }
+    if (it->genre[0]) {
+        char g[ITEM_GENRE_LEN + 8];
+        strcpy(g, "Genre: ");
+        strncat(g, it->genre, ITEM_GENRE_LEN);
+        render_text(r, x, y, g, INK_DIM);
+        y = (short)(y + ROW_H);
+    }
+    y = (short)(y + 8);
+    if (it->desc[0]) {
+        y = draw_wrapped(r, x, y, textR, ROW_H, it->desc, INK_NORMAL, 10);
+    }
+
+    if (u->previewPic) {
+        Rect ar;
+        SetRect(&ar, (short)(W - artW - MARGIN), (short)(HEADER_H + MARGIN),
+                (short)(W - MARGIN), (short)(H - HINT_H - MARGIN));
+        art_draw_fit(u->previewPic, &ar);
+    } else if (it->image[0] == '\0') {
+        render_text(r, (short)(W - artW), (short)(H / 2), "(no art)", INK_DIM);
+    }
+
+    render_hline(r, 0, (short)W, (short)(H - HINT_H));
+    {
+        const char *hint = "Return  launch        any other key  back";
+        short hx = (short)((W - render_text_width(r, hint)) / 2);
+        render_text(r, hx, (short)(H - 7), hint, INK_DIM);
+    }
+}
+
 void ui_draw(Ui *u)
 {
     render_begin(u->r, u->win);
     if (u->mode == UI_MODE_PREVIEW) {
         draw_preview(u);
+    } else if (u->mode == UI_MODE_INFO) {
+        draw_info(u);
     } else {
         if (u->safe) {
             draw_safe(u);
@@ -611,6 +721,20 @@ UiCommand ui_key(Ui *u, char ch)
         return UI_NONE;
     }
 
+    /* More Info: Return launches the title; any other key returns to the list. */
+    if (u->mode == UI_MODE_INFO) {
+        art_dispose(u->previewPic);
+        u->previewPic = 0;
+        u->mode = UI_MODE_LIST;
+        if ((ch == kCharReturn || ch == kCharEnter) && model_cur_item(u->m)) {
+            u->status[0] = '\0';
+            ui_draw(u);
+            return UI_LAUNCH;
+        }
+        ui_draw(u);
+        return UI_NONE;
+    }
+
     if (u->mode == UI_MODE_MENU) {
         switch (ch) {
             case kCharUp:    if (u->menuSel > 0) u->menuSel--; break;
@@ -650,6 +774,17 @@ UiCommand ui_key(Ui *u, char ch)
                 if (it && it->image[0]) {
                     u->previewPic = load_item_art(u, it->image);
                     u->mode = UI_MODE_PREVIEW;   /* draws "(no artwork)" if load failed */
+                }
+            }
+            break;
+        case 'i':
+        case 'I':
+            /* More Info card for the selection (loads its art, like preview). */
+            if (!u->safe) {
+                const CatItem *it = model_cur_item(u->m);
+                if (it) {
+                    if (it->image[0]) u->previewPic = load_item_art(u, it->image);
+                    u->mode = UI_MODE_INFO;
                 }
             }
             break;

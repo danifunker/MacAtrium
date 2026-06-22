@@ -49,6 +49,12 @@ static int item_from_object(const JsonObject *o, CatItem *it)
     f = json_get(o, "year");
     if (f && f->type == JT_NUM) it->year = f->num;
 
+    f = json_get(o, "vendor");
+    if (f && f->type == JT_STR) copy_field(it->vendor, sizeof it->vendor, f->str);
+
+    f = json_get(o, "genre");
+    if (f && f->type == JT_STR) copy_field(it->genre, sizeof it->genre, f->str);
+
     f = json_get(o, "type");
     if (f && f->type == JT_STR) copy_field(it->type, sizeof it->type, f->str);
 
