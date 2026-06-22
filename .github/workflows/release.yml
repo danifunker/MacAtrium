@@ -9,8 +9,10 @@
 # Every push builds + tests; the release is published on `main` and tag pushes.
 #
 # The MacAtrium Manager (egui GUI, tools/macatrium-mgmt-ui) ships alongside as a
-# Windows Inno-Setup installer, a macOS .dmg, and a Linux AppImage. macOS code
-# signing + notarization turn on automatically once these repo secrets exist
+# Windows Inno-Setup installer, a macOS .dmg, and a Linux AppImage. Each GUI
+# package also bundles the atrium CLI, so one download per platform delivers both
+# tools (the standalone atrium-* archives stay for headless/CLI-only use). macOS
+# code signing + notarization turn on automatically once these repo secrets exist
 # (until then the .app is ad-hoc signed and still runs locally):
 #   MACOS_CERTIFICATE        base64 of the Developer ID Application .p12
 #   MACOS_CERTIFICATE_PWD    its export password
@@ -142,8 +144,10 @@ jobs:
 
   # ---- MacAtrium Manager (egui GUI over the atrium library) -----------------
   # Shipped like rusty-backup's GUI: a signed macOS .dmg, a Windows Inno Setup
-  # installer, and a Linux AppImage. macOS signing/notarization activate only
-  # when the MACOS_* secrets are present (until then the .app is ad-hoc signed).
+  # installer, and a Linux AppImage. Each of these also bundles the atrium CLI
+  # built from the same target, so the GUI package delivers both tools. macOS
+  # signing/notarization activate only when the MACOS_* secrets are present
+  # (until then the .app is ad-hoc signed).
 
   build-mgmt-ui-windows:
     name: Manager GUI (windows-${{ matrix.arch }})
@@ -170,20 +174,32 @@ jobs:
             ~/.cargo/registry
             ~/.cargo/git
             tools/macatrium-mgmt-ui/target
-          key: ${{ runner.os }}-${{ matrix.target }}-mgmtui-${{ hashFiles('tools/macatrium-mgmt-ui/Cargo.lock') }}
-      - name: Build
+            tools/atrium-tool/target
+          key: ${{ runner.os }}-${{ matrix.target }}-mgmtui-${{ hashFiles('tools/macatrium-mgmt-ui/Cargo.lock', 'tools/atrium-tool/Cargo.lock') }}
+      - name: Build GUI
         working-directory: tools/macatrium-mgmt-ui
         run: cargo build --release --target ${{ matrix.target }}
+      - name: Build atrium CLI
+        working-directory: tools/atrium-tool
+        run: cargo build --release --target ${{ matrix.target }}
+      # Stage both binaries side by side so the zip and the installer ship them together.
+      - name: Stage binaries (GUI + CLI)
+        shell: bash
+        run: |
+          mkdir -p stage
+          cp "tools/macatrium-mgmt-ui/target/${{ matrix.target }}/release/macatrium-mgmt-ui.exe" stage/
+          cp "tools/atrium-tool/target/${{ matrix.target }}/release/atrium.exe" stage/
       - name: Package (zip)
         shell: bash
         run: |
-          7z a "MacAtrium-Manager-windows-${{ matrix.arch }}-${RELEASE_VERSION}.zip" \
-            "./tools/macatrium-mgmt-ui/target/${{ matrix.target }}/release/macatrium-mgmt-ui.exe"
+          cd stage
+          7z a "$GITHUB_WORKSPACE/MacAtrium-Manager-windows-${{ matrix.arch }}-${RELEASE_VERSION}.zip" ./*
       - uses: actions/upload-artifact@v7
         with:
           name: MacAtrium-Manager-windows-${{ matrix.arch }}-${{ needs.generate-version.outputs.version }}
           path: MacAtrium-Manager-windows-${{ matrix.arch }}-*.zip
       # Per-user Inno Setup installer (Setup.exe), into %LocalAppData% (no admin).
+      # SourceDir is the staging folder, so the installer picks up both exes.
       - name: Build installer (Inno Setup)
         shell: pwsh
         run: |
@@ -191,7 +207,7 @@ jobs:
           $iscc = "C:\Program Files (x86)\Inno Setup 6\ISCC.exe"
           if (-not (Test-Path $iscc)) { throw "ISCC.exe not found at $iscc" }
           $version = "${{ needs.generate-version.outputs.version }}"
-          $src = "$env:GITHUB_WORKSPACE\tools\macatrium-mgmt-ui\target\${{ matrix.target }}\release"
+          $src = "$env:GITHUB_WORKSPACE\stage"
           $assets = "$env:GITHUB_WORKSPACE\assets\icons"
           $base = "MacAtrium-Manager-Setup-windows-${{ matrix.arch }}-$version"
           & $iscc "/DMyAppVersion=$version" "/DSourceDir=$src" "/DAssetsDir=$assets" "/F$base" installer\macatrium-mgmt-ui.iss
@@ -227,9 +243,13 @@ jobs:
             ~/.cargo/registry
             ~/.cargo/git
             tools/macatrium-mgmt-ui/target
-          key: ${{ runner.os }}-${{ matrix.target }}-mgmtui-${{ hashFiles('tools/macatrium-mgmt-ui/Cargo.lock') }}
-      - name: Build
+            tools/atrium-tool/target
+          key: ${{ runner.os }}-${{ matrix.target }}-mgmtui-${{ hashFiles('tools/macatrium-mgmt-ui/Cargo.lock', 'tools/atrium-tool/Cargo.lock') }}
+      - name: Build GUI
         working-directory: tools/macatrium-mgmt-ui
+        run: cargo build --release --target ${{ matrix.target }}
+      - name: Build atrium CLI
+        working-directory: tools/atrium-tool
         run: cargo build --release --target ${{ matrix.target }}
 
       - name: Import signing certificate
@@ -261,6 +281,9 @@ jobs:
           mkdir -p "${BUNDLE}/Contents/MacOS" "${BUNDLE}/Contents/Resources"
           cp "tools/macatrium-mgmt-ui/target/${{ matrix.target }}/release/macatrium-mgmt-ui" "${BUNDLE}/Contents/MacOS/"
           chmod +x "${BUNDLE}/Contents/MacOS/macatrium-mgmt-ui"
+          # Ship the atrium CLI inside the same bundle (reachable at Contents/MacOS/atrium).
+          cp "tools/atrium-tool/target/${{ matrix.target }}/release/atrium" "${BUNDLE}/Contents/MacOS/"
+          chmod +x "${BUNDLE}/Contents/MacOS/atrium"
 
           # Build an .icns from the PNG (best-effort; default icon if it fails).
           if [ -f assets/icons/macatrium-256.png ]; then
@@ -295,6 +318,8 @@ jobs:
           if [ -n "$MACOS_CERTIFICATE" ] && [ -n "$MACOS_TEAM_ID" ]; then
             IDENTITY=$(security find-identity -v -p codesigning "$RUNNER_TEMP/app-signing.keychain-db" | grep "Developer ID Application" | head -1 | sed 's/.*"\(.*\)".*/\1/')
             echo "Signing with identity: $IDENTITY"
+            # Sign nested code (the bundled atrium CLI) before the enclosing bundle.
+            codesign --force --options runtime --timestamp --sign "$IDENTITY" "${BUNDLE}/Contents/MacOS/atrium"
             codesign --force --options runtime --timestamp --sign "$IDENTITY" "${BUNDLE}"
           else
             echo "No signing certificate — using ad-hoc signature."
@@ -363,9 +388,13 @@ jobs:
             ~/.cargo/registry
             ~/.cargo/git
             tools/macatrium-mgmt-ui/target
-          key: ${{ runner.os }}-${{ matrix.target }}-anylinux-mgmtui-${{ hashFiles('tools/macatrium-mgmt-ui/Cargo.lock') }}
-      - name: Build
+            tools/atrium-tool/target
+          key: ${{ runner.os }}-${{ matrix.target }}-anylinux-mgmtui-${{ hashFiles('tools/macatrium-mgmt-ui/Cargo.lock', 'tools/atrium-tool/Cargo.lock') }}
+      - name: Build GUI
         working-directory: tools/macatrium-mgmt-ui
+        run: cargo build --release --target ${{ matrix.target }}
+      - name: Build atrium CLI
+        working-directory: tools/atrium-tool
         run: cargo build --release --target ${{ matrix.target }}
       - name: Install debloated runtime packages
         run: |
@@ -377,6 +406,8 @@ jobs:
         run: |
           VERSION="${{ needs.generate-version.outputs.version }}"
           install -Dm755 tools/macatrium-mgmt-ui/target/${{ matrix.target }}/release/macatrium-mgmt-ui /usr/bin/macatrium-mgmt-ui
+          # Ship the atrium CLI in the same AppImage (sharun bundles it below).
+          install -Dm755 tools/atrium-tool/target/${{ matrix.target }}/release/atrium /usr/bin/atrium
           install -Dm644 assets/icons/macatrium-256.png /usr/share/icons/hicolor/256x256/apps/macatrium-mgmt-ui.png
           install -d /usr/share/applications
           cat > /usr/share/applications/macatrium-mgmt-ui.desktop <<EOF
@@ -405,7 +436,9 @@ jobs:
           export VERSION
           export APPIMAGETOOL_LINK="https://github.com/pkgforge-dev/appimagetool/releases/download/${APPIMAGETOOL_VERSION}/appimagetool-${{ matrix.sharun_arch }}-linux"
           mkdir -p "$OUTPATH"
-          ./quick-sharun /usr/bin/macatrium-mgmt-ui
+          # Bundle both the GUI and the atrium CLI; sharun dispatches on argv0, so
+          # the CLI is reachable by symlinking the AppImage to `atrium`.
+          ./quick-sharun /usr/bin/macatrium-mgmt-ui /usr/bin/atrium
           ./quick-sharun --make-appimage
           ls -lh "$OUTPATH"
       - uses: actions/upload-artifact@v7

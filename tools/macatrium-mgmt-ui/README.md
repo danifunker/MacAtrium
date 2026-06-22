@@ -26,17 +26,26 @@ cargo run --release      # opens a window (needs a display — not the headless 
 
 ## Releases
 
-The Manager ships in the release pipeline (`.github/workflows/release.yml`)
-alongside the CLI, mirroring how rusty-backup packages its GUI:
+The Manager ships in the release pipeline (`.github/workflows/release.yml`),
+mirroring how rusty-backup packages its GUI. **Each GUI package also bundles the
+[`atrium`](../atrium-tool/) CLI** built from the same target, so one download per
+platform delivers both tools:
 
 - **Windows** (x64 + arm64) — a per-user Inno Setup installer
   (`MacAtrium-Manager-Setup.exe`) that installs into `%LocalAppData%` without
-  admin rights, plus a plain `.zip`. Script: `installer/macatrium-mgmt-ui.iss`.
+  admin rights, plus a plain `.zip`. Both carry `macatrium-mgmt-ui.exe` and
+  `atrium.exe` side by side. Script: `installer/macatrium-mgmt-ui.iss`.
 - **macOS** (arm64 + x64) — a `MacAtrium Manager.app` bundle wrapped in a
-  `.dmg`. Developer ID codesigning + notarization activate only when the
+  `.dmg`. The CLI lives at `Contents/MacOS/atrium` (signed inside-out with the
+  bundle). Developer ID codesigning + notarization activate only when the
   `MACOS_*` repo secrets are present; otherwise the `.app` is ad-hoc signed and
   still runs locally.
-- **Linux** (x64 + arm64) — a portable `.AppImage` (Anylinux / quick-sharun).
+- **Linux** (x64 + arm64) — a portable `.AppImage` (Anylinux / quick-sharun)
+  that bundles both binaries. sharun dispatches on `argv0`, so the CLI is
+  reachable by symlinking the AppImage to `atrium`.
+
+The standalone `atrium-<platform>` archives (from the `build-tool` job) stay for
+headless / CLI-only use.
 
 App icons live in `assets/icons/macatrium-*` (placeholders for now — swap in a
 real one later).

@@ -1,11 +1,11 @@
 ; Inno Setup script for the MacAtrium Manager (Windows, per-user install).
 ;
-; Produces a per-user Setup.exe that installs the egui management GUI into
-; %LocalAppData% (no admin needed). The atrium CLI ships separately as its own
-; archive; this installer covers only the GUI front-end.
+; Produces a per-user Setup.exe that installs the egui management GUI **and the
+; atrium CLI** into %LocalAppData% (no admin needed) — both land in the same
+; install dir. CI stages both exes into one SourceDir before invoking this.
 ;
 ; Build (CI passes these /D defines):
-;   iscc /DMyAppVersion=2026-06-22-07-30 /DSourceDir=path\to\release \
+;   iscc /DMyAppVersion=2026-06-22-07-30 /DSourceDir=path\to\stage \
 ;        /DAssetsDir=path\to\assets\icons /FMacAtrium-Manager-Setup installer\macatrium-mgmt-ui.iss
 
 #ifndef MyAppVersion
@@ -21,6 +21,14 @@
 #ifndef AssetsDir
   #define AssetsDir "..\assets\icons"
 #endif
+
+; The atrium CLI installs in the same dir as the GUI. By default it lives
+; alongside the GUI exe (CI stages both into one SourceDir); override CliSourceDir
+; to point elsewhere. skipifsourcedoesntexist keeps GUI-only local builds working.
+#ifndef CliSourceDir
+  #define CliSourceDir SourceDir
+#endif
+#define CliExeName "atrium.exe"
 
 #define MyAppName "MacAtrium Manager"
 #define MyAppPublisher "Dani Sarfati"
@@ -58,6 +66,8 @@ Name: "desktopicon"; Description: "Create a &desktop shortcut"; GroupDescription
 
 [Files]
 Source: "{#SourceDir}\{#MyAppExeName}"; DestDir: "{app}"; Flags: ignoreversion
+; The atrium CLI, shipped in the same package — skip cleanly for GUI-only builds.
+Source: "{#CliSourceDir}\{#CliExeName}"; DestDir: "{app}"; Flags: ignoreversion skipifsourcedoesntexist
 ; Icon is optional — skip cleanly if assets aren't present in this build.
 Source: "{#AssetsDir}\macatrium.ico"; DestDir: "{app}"; Flags: ignoreversion skipifsourcedoesntexist
 
