@@ -29,6 +29,7 @@ Read in order for the full picture; jump by topic once oriented.
 | — | [12-mvp-handoff.md](12-mvp-handoff.md) | The original "build the MVP" prompt (done) |
 | — | [13-handoff.md](13-handoff.md) | **Start here to resume** — post-MVP status, environment, and the build-out (image tooling, GUI, CI, then full 7.x) |
 | — | [13-iterate-session.md](13-iterate-session.md) | Paste-in prompt for a **sustained, fast-iterating** session there (one-command loop + autonomy) |
+| — | [14-art-render-snow-bug.md](14-art-render-snow-bug.md) | **Resume prompt** — in-launcher art `DrawPicture` crashes Snow on some valid art; fix via CopyBits |
 
 Spikes (focused experiments) live in [`../spikes/`](../spikes/) — currently
 `launch-return/`, the keystone test that proves resident launch returns control.
