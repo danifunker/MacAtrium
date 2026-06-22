@@ -64,17 +64,7 @@ void ui_init(Ui *u, Env *env, Render *r, Model *m, WindowPtr win, int safe)
     u->artFor = 0;
     u->settingsFocus = 0;
     u->setSel = 0;
-    u->ndepths = display_depths(u->depths, UI_MAX_DEPTHS);
-    /* Cap the offered depths at 4-bit: the colour backend is verified at 1/2/4,
-     * but 8-bit+ has a colour-rendering defect (off-screen blit blanks; direct
-     * DrawPicture to an 8-bit screen hangs — docs/15). Keep it safe until that's
-     * fixed; the device may still boot at a higher depth. */
-    {
-        int i, n = 0;
-        for (i = 0; i < u->ndepths; i++)
-            if (u->depths[i] <= 4) u->depths[n++] = u->depths[i];
-        u->ndepths = n;
-    }
+    u->ndepths = display_depths(u->depths, UI_MAX_DEPTHS);   /* all OS-supported depths */
     u->vol = sound_available() ? sound_get_vol() : -1;
 }
 
@@ -307,7 +297,8 @@ static void set_row_text(Ui *u, int row, char *out)
         case 1:
             strcpy(out, "Color Depth");
             while (strlen(out) < 16) strcat(out, " ");
-            if (u->env->pixelSize >= 16) { strcat(out, "Thousands"); }
+            if      (u->env->pixelSize >= 32) { strcat(out, "Millions"); }
+            else if (u->env->pixelSize >= 16) { strcat(out, "Thousands"); }
             else { l2s(u->env->pixelSize, num); strcat(out, num); strcat(out, "-bit"); }
             break;
         default:
@@ -495,6 +486,10 @@ static Art *load_item_art(Ui *u, const char *image)
         (n >= 4 && strcmp(image + n - 4, ".raw") == 0))
         return art_load(image);
 
+    /* Depth-matched art: a colour screen draws the matching colour PICT (now that
+     * the encoder word-aligns PICT opcodes — the missing pad byte was what made
+     * DrawPicture fault; docs/15), a 1-bit screen uses the raw bitmap. Falls back
+     * through shallower depths to the 1-bit raw. */
     depth = u->env->pixelSize;
     if      (depth <= 1) { cand[nc++] = 1; }
     else if (depth <= 4) { cand[nc++] = 4;  cand[nc++] = 1; }

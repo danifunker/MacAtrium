@@ -147,7 +147,7 @@ int main(void)
     int loaded;
 
     toolbox_init();
-    env_probe(&gEnv);
+    env_probe(&gEnv);                 /* match whatever depth the OS is set to */
 
     gWin = make_window(&gEnv);
     render_init(&gRender, &gEnv);

@@ -1,5 +1,12 @@
 # 14 — in-launcher art rendering crashes Snow on some art
 
+> **ROOT CAUSE FOUND LATER (2026-06-22) — see docs/15.** This was **not** a Snow
+> `DrawPicture` bug. Our PICT encoder omitted the PICT-v2 word-alignment pad byte
+> after odd-size PackBitsRect data, leaving `OpEndPic` misaligned so `DrawPicture`
+> mis-parsed it. With the encoder fixed, `DrawPicture` renders our PICTs at every
+> depth (1/4/8/24-bit colour). The CopyBits-raw-bitmap path below still ships as
+> the 1-bit art path, but the "Snow bug" framing in this doc was wrong.
+>
 > **RESOLVED (2026-06-21).** Fix #1 below — render 1-bit art via `CopyBits` of a
 > raw bitmap instead of `DrawPicture` of a PICT — landed and is **verified in
 > Snow**. Shufflepuck Café (the canonical crasher, 194×256 1-bit) now renders

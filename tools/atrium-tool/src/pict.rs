@@ -391,6 +391,13 @@ fn build_pict(w: u16, h: u16, rgba: &[u8], depth: Depth, pack: bool) -> (Vec<u8>
     body.extend(be16(10)); // rgnSize
     rect(&mut body, 0, 0, h, w); // rgnBBox
     body.extend(&pixdata);
+    // PICT v2 opcodes must be word-aligned: "a byte of 0 is added after odd-size
+    // data" (Imaging With QuickDraw, App. A). The PackBitsRect pixel data can be
+    // odd; without this pad OpEndPic lands on an odd offset and DrawPicture
+    // mis-parses it (blank/crash at 1/4/8-bit). Pad so OpEndPic is word-aligned.
+    if body.len() % 2 == 1 {
+        body.push(0);
+    }
     body.extend(be16(0x00FF)); // OpEndPic
 
     let total = 2 + body.len();
@@ -535,6 +542,27 @@ mod tests {
         let idx = [3u8, 7, 9];
         let row = pack_row(&idx, 3, 8, 3);
         assert_eq!(row, vec![3, 7, 9]);
+    }
+
+    #[test]
+    fn pict_opcodes_are_word_aligned() {
+        // Every depth must produce word-aligned opcodes: the picture data length
+        // must be even so the trailing OpEndPic sits on a word boundary (else
+        // DrawPicture mis-parses — the 1/4/8-bit blank/crash bug).
+        for (w, h) in [(7u16, 5u16), (13, 9), (31, 17), (130, 97)] {
+            let rgba = vec![0x80u8; w as usize * h as usize * 4];
+            for depth in [Depth::One, Depth::Four, Depth::Eight, Depth::Sixteen] {
+                // build_pict returns the picture data (no 512-byte file header).
+                let (data, _) = build_pict(w, h, &rgba, depth, true);
+                assert_eq!(
+                    data.len() % 2,
+                    0,
+                    "{w}x{h} {:?}: picture data must be even-length (word-aligned OpEndPic)",
+                    depth
+                );
+                assert_eq!(&data[data.len() - 2..], &[0x00, 0xFF], "must end with OpEndPic");
+            }
+        }
     }
 
     #[test]

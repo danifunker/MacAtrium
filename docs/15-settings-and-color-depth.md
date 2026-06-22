@@ -43,60 +43,51 @@ theme in colour ([evidence/settings-color-4bit.png](evidence/settings-color-4bit
 1-bit panel: [evidence/settings-panel-1bit.png](evidence/settings-panel-1bit.png)).
 This is the colour-backend verification deferred since docs/13 §5.
 
-## Known limitation — 8-bit / 24-bit deferred (capped at 4-bit)
+## Colour at every depth — root cause was our PICT encoder (RESOLVED)
 
-The picker is **capped at 4-bit**. 1/2/4-bit are flawless (colour verified at
-4-bit); **every** ≥8-bit rendering approach tried either blanks or crashes, and
-the *only* variable is the screen depth. The hardware/card itself isn't the
-limit — the MDC 8•24 does 1/2/4/**8** (indexed) + **24** (direct); **16-bit**
-("thousands") isn't on this card at all.
+All depths now render in colour — **1 / 2 / 4 / 8 (256) / 24-bit (Millions)** —
+with depth-matched colour art via `DrawPicture`, runtime depth-switching, and no
+crashes. Verified in Snow on a Mac II.
 
-### What was tried (2026-06-21), all at an 8-bit screen
+**The bug was ours, not Snow's, and not `DrawPicture`.** Our PICT encoder
+violated a PICT-format rule: *"Because opcodes must be word-aligned in version 2
+and extended version 2 pictures, a byte of 0 is added after odd-size data"*
+(Imaging With QuickDraw, Appendix A). PackBitsRect pixel data is frequently
+odd-length; we appended `OpEndPic` straight after it with **no pad byte**, so the
+final opcode sat on an odd offset and `DrawPicture` mis-parsed it. Fix: pad the
+picture data to even before `OpEndPic` (one `if` in `pict.rs::build_pict`, plus a
+unit test that every depth yields even-length picture data).
 
-| Off-screen GWorld | blit destination | result |
-|---|---|---|
-| 8-bit, default CLUT | window PixMap | blank |
-| 8-bit, default CLUT | live device PixMap | blank |
-| 8-bit, **screen's** CLUT | either | **crash** |
-| **4-bit** (valid; renders at a 4-bit screen) | live device PixMap | blank |
-| 4-bit (valid) | window PixMap | **crash** |
-| direct draw (no GWorld) | screen | **crash** |
+This single one-byte-per-picture fault produced *every* symptom we'd chased and
+mis-blamed on the emulator:
+- the original **1-bit PICT crash** (docs/14 — worked around with the raw bitmap),
+- the **4-bit blank**, the **8-bit blank/crash**, and
+- the **"8-bit chrome blank" on a runtime depth switch** — the misaligned
+  `.8.pict` `DrawPicture` was corrupting the shared off-screen GWorld, taking the
+  whole frame (chrome included) down with it. With aligned PICTs it renders.
 
-Key isolation: a 4-bit GWorld that renders perfectly on a 4-bit *screen* goes
-**blank** when the identical blit targets an 8-bit *screen*. So the source is
-valid and the defect is on the 8-bit screen side (the displayed framebuffer the
-driver/QuickDraw writes to ≠ what the emulator scans out).
+16-bit happened to be even-length already (DirectBitsRect, 2 bytes/pixel,
+unpacked), which is why docs/13 once saw 16-bit "work" while indexed depths
+didn't — a clue we initially mis-read.
 
-### Two signatures, both pointing at the emulator at ≥8-bit
+Evidence: [evidence/color-art-4bit-pict.png](evidence/color-art-4bit-pict.png),
+[evidence/color-art-8bit-pict.png](evidence/color-art-8bit-pict.png).
 
-1. **Blank** — `CopyBits` to the 8-bit screen lands in a VRAM region the card
-   isn't displaying. Snow's `core/src/mac/nubus/mdc12.rs` even carries an admitted
-   `// not sure why this is off by 2 scanlines` fudge in its framebuffer-base
-   maths, so its MDC base handling is known-imperfect at higher depths.
-2. **Crash** — *deterministic*: every time the **same** instruction (`RTD` at
-   `PC 0x0001CDB6`) returns to the **same** garbage PC (`0x11111129`), halting
-   with *"I-cache enabled but PC unaligned"*. Random stack corruption would vary;
-   an identical address every run smells like a Snow 68020 I-cache emulation edge
-   triggered by the 8-bit colour-draw path.
+### Architecture (per the depth design)
 
-### Real fixes found along the way (not yet shipped)
-
-- The default app partition is **1 MB** (Retro68APPL.r) — too small for 8-bit
-  colour (256-entry inverse tables, DrawPicture buffers). A `SIZE (-1)` override
-  to 4 MB removed several of the crashes. (Reverted with the rest; 2 MB minimum is
-  risky for low-RAM B&W Macs, so a shipped bump needs `min` left at 1 MB.)
-- **Clamp the off-screen GWorld to ≤4-bit** regardless of screen depth — the UI
-  needs only a few colours and a 4-bit GWorld depth-promotes onto a deeper screen.
-  Good idea, but doesn't help while the 8-bit *screen* blit itself is broken.
-
-### Conclusion / next step
-
-The 8/24-bit blockers are in **Snow's MDC framebuffer-base + 68020 I-cache
-emulation at ≥8-bit**, not the launcher. Needs Snow-side tracing (the displayed
-`base`/`stride` vs `gdPMap.baseAddr` at 8-bit; the deterministic RTD→`0x11111129`
-I-cache halt) or a real-hardware / other-emulator check. The 4-bit cap keeps the
-appliance safe; a higher *boot* depth only blanks, never (in the shipped path)
-hangs.
+- **Startup matches the OS depth** (`env_probe` → `render_init`); we never force a
+  depth at launch. Set the screen via the Monitors control panel and the launcher
+  follows.
+- **Runtime change recalculates** (`render_reset_for_depth` rebuilds the GWorld +
+  reselects colour/B&W; `apply_depth` updates `env`).
+- **Art** is depth-matched: `<id>.1.raw` (raw bitmap, CopyBits) on a 1-bit screen,
+  `<id>.<N>.pict` (colour PICT, DrawPicture) on colour screens. `atrium image`
+  default `art_depths` is `["1","8"]` (1-bit raw + 256-colour PICT); the picker
+  offers whatever the device reports via `HasDepth` (no artificial cap).
+- The off-screen GWorld at 8-bit needs more heap than the **1 MB** default app
+  partition; this works in current testing, but a `SIZE (-1)` bump (preferred
+  4 MB, `min` left at 1 MB for low-RAM B&W Macs) is the safe follow-up if 8-bit
+  ever runs short.
 
 ## Note: theme/volume aren't persisted
 
