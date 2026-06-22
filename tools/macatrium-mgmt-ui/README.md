@@ -24,7 +24,24 @@ cargo run --release      # opens a window (needs a display — not the headless 
 5. **Build image** assembles a bootable `.hda` (`atrium::image`) from the base
    system + launcher + dataset + overrides.
 
-Long operations run inline for now (a brief freeze); moving them to a worker
-thread, and box-art thumbnails (`egui_extras` image loaders), are follow-ups.
-It builds for the same modern targets as the CLI; wiring it into the release
-pipeline is optional (it pulls eframe/winit and needs display libs at runtime).
+## Releases
+
+The Manager ships in the release pipeline (`.github/workflows/release.yml`)
+alongside the CLI, mirroring how rusty-backup packages its GUI:
+
+- **Windows** (x64 + arm64) — a per-user Inno Setup installer
+  (`MacAtrium-Manager-Setup.exe`) that installs into `%LocalAppData%` without
+  admin rights, plus a plain `.zip`. Script: `installer/macatrium-mgmt-ui.iss`.
+- **macOS** (arm64 + x64) — a `MacAtrium Manager.app` bundle wrapped in a
+  `.dmg`. Developer ID codesigning + notarization activate only when the
+  `MACOS_*` repo secrets are present; otherwise the `.app` is ad-hoc signed and
+  still runs locally.
+- **Linux** (x64 + arm64) — a portable `.AppImage` (Anylinux / quick-sharun).
+
+App icons live in `assets/icons/macatrium-*` (placeholders for now — swap in a
+real one later).
+
+## Follow-ups
+
+Long operations run inline (a brief freeze); moving them to a worker thread, and
+box-art thumbnails (`egui_extras` image loaders), are still pending.
