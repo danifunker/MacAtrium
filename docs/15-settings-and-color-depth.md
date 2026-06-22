@@ -43,23 +43,60 @@ theme in colour ([evidence/settings-color-4bit.png](evidence/settings-color-4bit
 1-bit panel: [evidence/settings-panel-1bit.png](evidence/settings-panel-1bit.png)).
 This is the colour-backend verification deferred since docs/13 §5.
 
-## Known limitation — 8-bit deferred (capped at 4-bit)
+## Known limitation — 8-bit / 24-bit deferred (capped at 4-bit)
 
-The picker is **capped at 4-bit** for now. At 8-bit the colour path has two
-distinct defects, both 8-bit-specific (1/2/4-bit are clean):
+The picker is **capped at 4-bit**. 1/2/4-bit are flawless (colour verified at
+4-bit); **every** ≥8-bit rendering approach tried either blanks or crashes, and
+the *only* variable is the screen depth. The hardware/card itself isn't the
+limit — the MDC 8•24 does 1/2/4/**8** (indexed) + **24** (direct); **16-bit**
+("thousands") isn't on this card at all.
 
-1. **Off-screen GWorld blanks.** A 256-colour GWorld created with the default
-   colour table doesn't line up with the screen's CLUT, so the blit comes out
-   white. Giving the GWorld the screen's `pmTable` instead made it **hang**.
-2. **Direct draw hangs.** Bypassing the GWorld to draw straight to the 8-bit
-   screen hangs on the inline art's `DrawPicture` of the `.8.pict` — the same
-   DrawPicture-to-screen unreliability documented in docs/14.
+### What was tried (2026-06-21), all at an 8-bit screen
 
-A proper 8-bit path needs: art via CopyBits of a colour raw bitmap (extend the
-docs/14 `.raw` format to 8-bit + CLUT, never DrawPicture) **and** a GWorld whose
-colour table matches the screen without the hang. Until then the cap keeps the
-appliance safe (16-colour is real colour and fully verified). The device may
-still *boot* at a higher depth; that path only blanks (offscreen), never hangs.
+| Off-screen GWorld | blit destination | result |
+|---|---|---|
+| 8-bit, default CLUT | window PixMap | blank |
+| 8-bit, default CLUT | live device PixMap | blank |
+| 8-bit, **screen's** CLUT | either | **crash** |
+| **4-bit** (valid; renders at a 4-bit screen) | live device PixMap | blank |
+| 4-bit (valid) | window PixMap | **crash** |
+| direct draw (no GWorld) | screen | **crash** |
+
+Key isolation: a 4-bit GWorld that renders perfectly on a 4-bit *screen* goes
+**blank** when the identical blit targets an 8-bit *screen*. So the source is
+valid and the defect is on the 8-bit screen side (the displayed framebuffer the
+driver/QuickDraw writes to ≠ what the emulator scans out).
+
+### Two signatures, both pointing at the emulator at ≥8-bit
+
+1. **Blank** — `CopyBits` to the 8-bit screen lands in a VRAM region the card
+   isn't displaying. Snow's `core/src/mac/nubus/mdc12.rs` even carries an admitted
+   `// not sure why this is off by 2 scanlines` fudge in its framebuffer-base
+   maths, so its MDC base handling is known-imperfect at higher depths.
+2. **Crash** — *deterministic*: every time the **same** instruction (`RTD` at
+   `PC 0x0001CDB6`) returns to the **same** garbage PC (`0x11111129`), halting
+   with *"I-cache enabled but PC unaligned"*. Random stack corruption would vary;
+   an identical address every run smells like a Snow 68020 I-cache emulation edge
+   triggered by the 8-bit colour-draw path.
+
+### Real fixes found along the way (not yet shipped)
+
+- The default app partition is **1 MB** (Retro68APPL.r) — too small for 8-bit
+  colour (256-entry inverse tables, DrawPicture buffers). A `SIZE (-1)` override
+  to 4 MB removed several of the crashes. (Reverted with the rest; 2 MB minimum is
+  risky for low-RAM B&W Macs, so a shipped bump needs `min` left at 1 MB.)
+- **Clamp the off-screen GWorld to ≤4-bit** regardless of screen depth — the UI
+  needs only a few colours and a 4-bit GWorld depth-promotes onto a deeper screen.
+  Good idea, but doesn't help while the 8-bit *screen* blit itself is broken.
+
+### Conclusion / next step
+
+The 8/24-bit blockers are in **Snow's MDC framebuffer-base + 68020 I-cache
+emulation at ≥8-bit**, not the launcher. Needs Snow-side tracing (the displayed
+`base`/`stride` vs `gdPMap.baseAddr` at 8-bit; the deterministic RTD→`0x11111129`
+I-cache halt) or a real-hardware / other-emulator check. The 4-bit cap keeps the
+appliance safe; a higher *boot* depth only blanks, never (in the shipped path)
+hangs.
 
 ## Note: theme/volume aren't persisted
 
