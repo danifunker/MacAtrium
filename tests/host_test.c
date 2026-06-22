@@ -204,6 +204,20 @@ static void test_model_nav(void)
     CHECK(m.curItem == 0, "cat switch resets selection");
 }
 
+static void test_model_type_ahead(void)
+{
+    Catalog c; Model m;
+    catalog_parse(SAMPLE, (long)strlen(SAMPLE), &c);
+    model_build(&m, &c);
+
+    /* "All" sorts alphabetically: Dark Castle(0), Lemmings(1), Prince of Persia(2) */
+    m.curCat = 0; m.curItem = 0;
+    CHECK(model_type_ahead(&m, 'l') == 1 && m.curItem == 1, "type-ahead l -> Lemmings");
+    CHECK(model_type_ahead(&m, 'P') == 1 && m.curItem == 2, "type-ahead P (case-insensitive) -> Prince");
+    CHECK(model_type_ahead(&m, 'd') == 1 && m.curItem == 0, "type-ahead d wraps -> Dark Castle");
+    CHECK(model_type_ahead(&m, 'z') == 0 && m.curItem == 0, "type-ahead no match -> no-op");
+}
+
 int main(void)
 {
     test_json_scalars();
@@ -217,6 +231,7 @@ int main(void)
     test_model_sort();
     test_model_list_ordered();
     test_model_nav();
+    test_model_type_ahead();
 
     printf("\n%d/%d checks passed\n", g_total - g_fail, g_total);
     return g_fail ? 1 : 0;

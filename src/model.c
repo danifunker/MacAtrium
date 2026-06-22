@@ -134,6 +134,27 @@ int model_move_item(Model *m, int delta)
     return 1;
 }
 
+int model_type_ahead(Model *m, char ch)
+{
+    ModelCat *c = model_cur_cat(m);
+    int k, lo;
+    if (!c || c->count == 0) return 0;
+
+    lo = (unsigned char)ch;
+    if (lo >= 'A' && lo <= 'Z') lo += 32;
+
+    for (k = 1; k <= c->count; k++) {
+        int idx = (m->curItem + k) % c->count;
+        int n0  = (unsigned char)m->cat->items[c->idx[idx]].name[0];
+        if (n0 >= 'A' && n0 <= 'Z') n0 += 32;
+        if (n0 == lo) {
+            m->curItem = idx;        /* clamp_scroll brings it into view on redraw */
+            return 1;
+        }
+    }
+    return 0;
+}
+
 int model_move_cat(Model *m, int delta)
 {
     if (m->ncats == 0) return 0;

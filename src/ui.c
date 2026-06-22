@@ -439,6 +439,14 @@ UiCommand ui_key(Ui *u, char ch)
                 }
             }
             break;
+        default:
+            /* Type-ahead: any other printable key jumps to the next matching
+             * item. ('t'/'p' stay reserved for theme/preview above.) */
+            if (!u->safe &&
+                ((ch >= 'a' && ch <= 'z') || (ch >= 'A' && ch <= 'Z') ||
+                 (ch >= '0' && ch <= '9')))
+                model_type_ahead(u->m, ch);
+            break;
     }
     ui_draw(u);
     return cmd;

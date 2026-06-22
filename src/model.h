@@ -40,6 +40,11 @@ const CatItem  *model_cur_item(Model *m);
 int model_move_item(Model *m, int delta);   /* up/down within category */
 int model_move_cat(Model *m, int delta);    /* left/right between categories */
 
+/* Type-ahead: select the next item in the current category whose name starts
+ * with `ch` (case-insensitive), searching forward from the current selection and
+ * wrapping — so repeated presses cycle. Returns 1 if a match was selected. */
+int model_type_ahead(Model *m, char ch);
+
 /* True if a category name is recommendation-style (preserves dataset order). */
 int model_is_list_ordered(const char *name);
 
