@@ -90,23 +90,31 @@ Evidence: [evidence/color-art-4bit-pict.png](evidence/color-art-4bit-pict.png),
   box art go from dithered B&W to full colour
   ([evidence/depth-art-1bit-bw.png](evidence/depth-art-1bit-bw.png) →
   [evidence/depth-art-8bit-color.png](evidence/depth-art-8bit-color.png)).
-- **One file for all depths? (down-conversion).** A single *higher*-depth PICT
-  also renders on a *shallower* screen — `DrawPicture`/`CopyBits` down-convert
-  automatically. Verified: a single 8-bit (indexed PackBits) **and** a single
-  16-bit (direct DirectBits) PICT both draw on a 1-bit screen with no crash
-  (`art_depths: []` → one `<id>.pict`, used at every depth). So per-depth *colour*
-  files aren't required for correctness. The catch is **quality**: QuickDraw's
-  automatic 1-bit conversion is a coarse threshold
-  ([evidence/depth-art-8bit-pict-downconverted-to-1bit.png](evidence/depth-art-8bit-pict-downconverted-to-1bit.png))
-  versus the ordered-dither `<id>.1.raw`
-  ([evidence/depth-art-1bit-bw.png](evidence/depth-art-1bit-bw.png)) — so we keep
-  the dedicated 1-bit raw for the B&W look. The encoder tops out at **16-bit**
-  (Thousands; `pict::Depth` = 1/4/8/16) — 24-bit would need new DirectBits work
-  and buys nothing for box art. Practical `art_depths`: `["1","8"]` (default) or
-  `["1","8","16"]` for richer colour on Thousands/Millions. **Caveat:** the
-  launcher's `load_item_art` fallback only steps *down*, so a screen depth with
-  no variant at or below it (e.g. a 4-bit screen given only `1/8/16`) falls back
-  to the 1-bit raw rather than up to 8-bit.
+- **Depths the encoder produces:** `pict::Depth` = **1 / 4 / 8** (indexed,
+  adaptive median-cut palettes; 1-bit via ordered Bayer dither) and **16 / 24**
+  (direct — 16-bit 1-5-5-5 "Thousands", 24-bit 8-8-8 "Millions" in 32-bit pixels).
+  Verified across depths in Snow (each frame self-labels via the Settings panel):
+  [1-bit](evidence/depth-compare-1bit.png) · [4-bit](evidence/depth-compare-4bit.png)
+  · [8-bit](evidence/depth-compare-8bit.png) ·
+  [24-bit/Millions](evidence/depth-compare-24bit-millions.png).
+- **Best-variant selection + down-conversion.** `load_item_art` picks the best
+  available variant for the screen: the native depth, then *higher* depths
+  (QuickDraw down-converts a deeper PICT to the screen — verified, no crash), then
+  *lower* colour depths, with the 1-bit raw last. So:
+    - a **single deep master** (`["1","24"]`) covers every colour screen — the
+      24-bit PICT down-converts to 8/4/2-bit, and 1-bit uses the dithered raw.
+      Simplest/fewest files; the catch is that QuickDraw maps indexed screens to
+      the *system* CLUT, so an 8-bit screen looks slightly worse than a native
+      adaptive-palette `.8.pict`.
+    - **per-depth colour variants** (`["1","8","24"]` or `["1","4","8","24"]`) give
+      each indexed screen its own adaptive palette (best quality) plus true colour
+      on Millions; more/larger files. `load_item_art` still down-converts to fill
+      any depth without an exact variant (e.g. a 4-bit screen with only `1/8/24`
+      now uses 8→4 down-convert, not the 1-bit raw).
+  1-bit always prefers the ordered-dither `<id>.1.raw`
+  ([evidence/depth-art-1bit-bw.png](evidence/depth-art-1bit-bw.png)) over QuickDraw's
+  coarse threshold down-convert
+  ([evidence/depth-art-8bit-pict-downconverted-to-1bit.png](evidence/depth-art-8bit-pict-downconverted-to-1bit.png)).
 - The off-screen GWorld at 8-bit needs more heap than the **1 MB** default app
   partition; this works in current testing, but a `SIZE (-1)` bump (preferred
   4 MB, `min` left at 1 MB for low-RAM B&W Macs) is the safe follow-up if 8-bit

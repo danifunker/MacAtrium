@@ -145,7 +145,7 @@ enum Cmd {
         /// Output .pict file.
         #[arg(long)]
         out: PathBuf,
-        /// Pixel depth: 1, 4, 8 (indexed) or 16 (direct). Default 8.
+        /// Pixel depth: 1, 4, 8 (indexed) or 16/24 (direct). Default 8.
         #[arg(long, default_value = "8")]
         depth: String,
         /// Store rows uncompressed (skip PackBits) for indexed depths.

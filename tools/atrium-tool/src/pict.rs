@@ -3,11 +3,13 @@
 //! QuickDraw can `DrawPicture` a PICT directly; there's no PNG/JPEG decoder on
 //! 68k. We emit **PICT v2** (a 512-byte file header + the picture data):
 //!   • 1/4/8-bit → indexed `PackBitsRect` (0x0098) with an embedded colour table
-//!     (PackBits-compressed rows), and
-//!   • 16-bit → `DirectBitsRect` (0x009A), 1-5-5-5 "thousands" pixels.
-//! Indexed depths use fixed palettes (B/W; the classic Mac 16-colour CLUT; a
-//! 6×6×6 cube + greys for 8-bit); 1-bit uses an ordered (Bayer) dither.
-//! Adaptive (median-cut) palettes are a future quality pass.
+//!     (PackBits-compressed rows),
+//!   • 16-bit → `DirectBitsRect` (0x009A), 1-5-5-5 "thousands" pixels, and
+//!   • 24-bit → `DirectBitsRect` (0x009A), 8-8-8 "millions" in 32-bit pixels.
+//! Indexed depths use adaptive median-cut palettes (B/W for 1-bit via an ordered
+//! Bayer dither). A single higher-depth file can serve shallower screens too —
+//! QuickDraw down-converts at draw time (the launcher picks the best variant; see
+//! docs/15) — so a 24-bit master + a 1-bit raw covers everything.
 
 use anyhow::{Context, Result};
 use std::path::Path;
@@ -18,6 +20,9 @@ pub enum Depth {
     Four,
     Eight,
     Sixteen,
+    /// "Millions": a 32-bit-pixelSize DirectBits pixmap carrying 24 bits of real
+    /// colour (cmpCount 3 × cmpSize 8; the high byte is unused). Exposed as "24".
+    TwentyFour,
 }
 
 impl Depth {
@@ -27,15 +32,38 @@ impl Depth {
             "4" => Depth::Four,
             "8" => Depth::Eight,
             "16" => Depth::Sixteen,
-            _ => anyhow::bail!("depth must be 1, 4, 8, or 16"),
+            "24" | "32" => Depth::TwentyFour,
+            _ => anyhow::bail!("depth must be 1, 4, 8, 16, or 24"),
         })
     }
+    /// Logical depth used for labels and the `<id>.<bits>.pict` variant suffix.
     pub fn bits(self) -> u16 {
         match self {
             Depth::One => 1,
             Depth::Four => 4,
             Depth::Eight => 8,
             Depth::Sixteen => 16,
+            Depth::TwentyFour => 24,
+        }
+    }
+    /// 1/4/8-bit are indexed (PackBitsRect + colour table); 16/24-bit are direct.
+    fn is_indexed(self) -> bool {
+        matches!(self, Depth::One | Depth::Four | Depth::Eight)
+    }
+    /// PixMap `pixelSize` — note 24-bit "Millions" is stored in 32-bit pixels.
+    fn pixel_size(self) -> u16 {
+        match self {
+            Depth::TwentyFour => 32,
+            d => d.bits(),
+        }
+    }
+    /// PixMap (cmpCount, cmpSize): indexed = (1, bits); 16-bit = (3, 5) for
+    /// 1-5-5-5; 24-bit = (3, 8) for 8-8-8.
+    fn components(self) -> (u16, u16) {
+        match self {
+            Depth::Sixteen => (3, 5),
+            Depth::TwentyFour => (3, 8),
+            d => (1, d.bits()),
         }
     }
 }
@@ -179,7 +207,7 @@ fn quantize(rgba: &[u8], w: usize, h: usize, depth: Depth) -> (Vec<u8>, Vec<(u8,
         // Adaptive median-cut palette built from the image's own colours.
         Depth::Four => map_to_palette(rgba, w, h, &median_cut(sample_rgb(rgba, w * h), 16)),
         Depth::Eight => map_to_palette(rgba, w, h, &median_cut(sample_rgb(rgba, w * h), 256)),
-        Depth::Sixteen => unreachable!("16-bit is direct, not indexed"),
+        Depth::Sixteen | Depth::TwentyFour => unreachable!("16/24-bit are direct, not indexed"),
     }
 }
 
@@ -276,7 +304,8 @@ fn median_cut(mut px: Vec<[u8; 3]>, n: usize) -> Vec<(u8, u8, u8)> {
 }
 
 // ---- picture assembly ------------------------------------------------------
-fn write_pixmap_fields(out: &mut Vec<u8>, rowbytes: u16, w: u16, h: u16, depth: Depth, pack_type: u16, indexed: bool) {
+fn write_pixmap_fields(out: &mut Vec<u8>, rowbytes: u16, w: u16, h: u16, depth: Depth, pack_type: u16) {
+    let (cmp_count, cmp_size) = depth.components();
     out.extend(be16(rowbytes | 0x8000)); // high bit => PixMap (not old BitMap)
     rect(out, 0, 0, h, w); // bounds
     out.extend(be16(0)); // pmVersion
@@ -284,9 +313,8 @@ fn write_pixmap_fields(out: &mut Vec<u8>, rowbytes: u16, w: u16, h: u16, depth: 
     out.extend(be32(0)); // packSize
     out.extend(be32(0x0048_0000)); // hRes 72.0
     out.extend(be32(0x0048_0000)); // vRes 72.0
-    out.extend(be16(if indexed { 0 } else { 16 })); // pixelType: 0=indexed,16=RGBDirect
-    out.extend(be16(depth.bits())); // pixelSize
-    let (cmp_count, cmp_size) = if indexed { (1, depth.bits()) } else { (3, 5) };
+    out.extend(be16(if depth.is_indexed() { 0 } else { 16 })); // pixelType: 0=indexed,16=RGBDirect
+    out.extend(be16(depth.pixel_size())); // pixelSize (32 for 24-bit "Millions")
     out.extend(be16(cmp_count));
     out.extend(be16(cmp_size));
     out.extend(be32(0)); // planeBytes
@@ -320,7 +348,7 @@ fn encode_indexed(w: u16, h: u16, rgba: &[u8], depth: Depth, pack: bool) -> (Vec
 
     let mut out = Vec::new();
     out.extend(be16(0x0098)); // PackBitsRect
-    write_pixmap_fields(&mut out, rowbytes as u16, w, h, depth, if do_pack { 0 } else { 1 }, true);
+    write_pixmap_fields(&mut out, rowbytes as u16, w, h, depth, if do_pack { 0 } else { 1 });
     write_color_table(&mut out, &palette);
     rect(&mut out, 0, 0, h, w); // srcRect
     rect(&mut out, 0, 0, h, w); // dstRect
@@ -343,26 +371,39 @@ fn encode_indexed(w: u16, h: u16, rgba: &[u8], depth: Depth, pack: bool) -> (Vec
     (out, palette.len())
 }
 
-fn encode_direct16(w: u16, h: u16, rgba: &[u8]) -> (Vec<u8>, usize) {
+/// Direct (true-colour) PixMap: 16-bit 1-5-5-5 ("Thousands") or 24-bit 8-8-8 in
+/// 32-bit pixels ("Millions"). packType=1 (unpacked) raw rows — the launcher's
+/// off-screen GWorld down-converts to whatever the screen depth is.
+fn encode_direct(w: u16, h: u16, rgba: &[u8], depth: Depth) -> (Vec<u8>, usize) {
     let (wi, hi) = (w as usize, h as usize);
-    let rowbytes = wi * 2;
+    let bytes_pp = if depth == Depth::TwentyFour { 4 } else { 2 };
+    let rowbytes = wi * bytes_pp;
 
     let mut out = Vec::new();
     out.extend(be16(0x009A)); // DirectBitsRect
     out.extend(be32(0x0000_00FF)); // pseudo baseAddr for DirectBits
-    write_pixmap_fields(&mut out, rowbytes as u16, w, h, Depth::Sixteen, 1, false);
+    write_pixmap_fields(&mut out, rowbytes as u16, w, h, depth, 1);
     rect(&mut out, 0, 0, h, w); // srcRect
     rect(&mut out, 0, 0, h, w); // dstRect
     out.extend(be16(0)); // mode = srcCopy
 
-    // packType=1 (unpacked): raw rows, no count. 1-5-5-5 big-endian words.
+    // packType=1 (unpacked): raw rows, no count.
     for y in 0..hi {
         for x in 0..wi {
             let o = (y * wi + x) * 4;
-            let r5 = (rgba[o] >> 3) as u16;
-            let g5 = (rgba[o + 1] >> 3) as u16;
-            let b5 = (rgba[o + 2] >> 3) as u16;
-            out.extend(be16((r5 << 10) | (g5 << 5) | b5));
+            if depth == Depth::TwentyFour {
+                // 32-bit pixel: unused high byte, then R, G, B (8-8-8).
+                out.push(0);
+                out.push(rgba[o]);
+                out.push(rgba[o + 1]);
+                out.push(rgba[o + 2]);
+            } else {
+                // 16-bit 1-5-5-5 big-endian word.
+                let r5 = (rgba[o] >> 3) as u16;
+                let g5 = (rgba[o + 1] >> 3) as u16;
+                let b5 = (rgba[o + 2] >> 3) as u16;
+                out.extend(be16((r5 << 10) | (g5 << 5) | b5));
+            }
         }
     }
     (out, 0)
@@ -370,10 +411,10 @@ fn encode_direct16(w: u16, h: u16, rgba: &[u8]) -> (Vec<u8>, usize) {
 
 /// Build the PICT v2 picture data (no 512-byte file header).
 fn build_pict(w: u16, h: u16, rgba: &[u8], depth: Depth, pack: bool) -> (Vec<u8>, usize) {
-    let (pixdata, colors) = if depth == Depth::Sixteen {
-        encode_direct16(w, h, rgba)
-    } else {
+    let (pixdata, colors) = if depth.is_indexed() {
         encode_indexed(w, h, rgba, depth, pack)
+    } else {
+        encode_direct(w, h, rgba, depth)
     };
 
     let mut body = Vec::new();
@@ -551,7 +592,7 @@ mod tests {
         // DrawPicture mis-parses — the 1/4/8-bit blank/crash bug).
         for (w, h) in [(7u16, 5u16), (13, 9), (31, 17), (130, 97)] {
             let rgba = vec![0x80u8; w as usize * h as usize * 4];
-            for depth in [Depth::One, Depth::Four, Depth::Eight, Depth::Sixteen] {
+            for depth in [Depth::One, Depth::Four, Depth::Eight, Depth::Sixteen, Depth::TwentyFour] {
                 // build_pict returns the picture data (no 512-byte file header).
                 let (data, _) = build_pict(w, h, &rgba, depth, true);
                 assert_eq!(
@@ -585,6 +626,25 @@ mod tests {
         assert_eq!(colors, 0); // direct: no colour table
         // find the DirectBitsRect opcode (0x009A) after the header/clip
         assert!(data.windows(2).any(|w| w == [0x00, 0x9A]));
+    }
+
+    #[test]
+    fn twentyfour_bit_is_direct_32bit_pixels() {
+        // 2x2 solid red. 24-bit -> DirectBitsRect, pixelSize 32, cmpCount/size 3/8,
+        // and 4 bytes/pixel of 0,R,G,B unpacked data.
+        let mut rgba = vec![0u8; 2 * 2 * 4];
+        for p in rgba.chunks_mut(4) {
+            p[0] = 0xFF; // R
+            p[3] = 0xFF; // A
+        }
+        let (data, colors) = build_pict(2, 2, &rgba, Depth::TwentyFour, true);
+        assert_eq!(colors, 0); // direct: no colour table
+        let op = data.windows(2).position(|w| w == [0x00, 0x9A]).expect("DirectBitsRect");
+        // rowBytes(2, with 0x8000) + bounds(8) -> then pmVersion... pixelType at +24,
+        // pixelSize at +26 from the rowBytes word (op + 2 baseAddr(4) + rowBytes).
+        // Simpler: assert the unpacked pixel bytes (0,FF,0,0) appear for a red pixel.
+        assert!(data.windows(4).any(|w| w == [0x00, 0xFF, 0x00, 0x00]), "32-bit 0,R,G,B pixel");
+        let _ = op;
     }
 
     #[test]

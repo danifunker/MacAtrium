@@ -480,21 +480,24 @@ static Art *load_item_art(Ui *u, const char *image)
     int n = (int)strlen(image);
     char buf[208];
     Art *p;
-    int cand[4], nc = 0, i, depth;
+    int cand[5], nc = 0, i, depth;
 
     if ((n >= 5 && strcmp(image + n - 5, ".pict") == 0) ||
         (n >= 4 && strcmp(image + n - 4, ".raw") == 0))
         return art_load(image);
 
-    /* Depth-matched art: a colour screen draws the matching colour PICT (now that
-     * the encoder word-aligns PICT opcodes — the missing pad byte was what made
-     * DrawPicture fault; docs/15), a 1-bit screen uses the raw bitmap. Falls back
-     * through shallower depths to the 1-bit raw. */
+    /* Pick the best available variant for the screen depth: the native depth
+     * first, then *higher* depths (QuickDraw down-converts a deeper PICT to the
+     * screen — docs/15, verified), then *lower* colour depths, and the 1-bit raw
+     * last. So a single deep master (e.g. `<id>.24.pict`) covers every colour
+     * screen, while a 1-bit screen still prefers the ordered-dither `<id>.1.raw`.
+     * (Encoder depths: 1/4/8 indexed, 16/24 direct.) */
     depth = u->env->pixelSize;
-    if      (depth <= 1) { cand[nc++] = 1; }
-    else if (depth <= 4) { cand[nc++] = 4;  cand[nc++] = 1; }
-    else if (depth <= 8) { cand[nc++] = 8;  cand[nc++] = 4;  cand[nc++] = 1; }
-    else                 { cand[nc++] = 16; cand[nc++] = 8;  cand[nc++] = 1; }
+    if      (depth <= 1)  { cand[nc++]=1;  cand[nc++]=8;  cand[nc++]=16; cand[nc++]=24; cand[nc++]=4; }
+    else if (depth <= 4)  { cand[nc++]=4;  cand[nc++]=8;  cand[nc++]=16; cand[nc++]=24; cand[nc++]=1; }
+    else if (depth <= 8)  { cand[nc++]=8;  cand[nc++]=16; cand[nc++]=24; cand[nc++]=4;  cand[nc++]=1; }
+    else if (depth <= 16) { cand[nc++]=16; cand[nc++]=24; cand[nc++]=8;  cand[nc++]=4;  cand[nc++]=1; }
+    else                  { cand[nc++]=24; cand[nc++]=16; cand[nc++]=8;  cand[nc++]=4;  cand[nc++]=1; }
 
     for (i = 0; i < nc; i++) {
         p = load_variant(image, cand[i]);
