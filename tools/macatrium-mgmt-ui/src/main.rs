@@ -5,7 +5,9 @@
 //! way to drive it. Workflow: pick an `.hda`, extract its catalog with rb-cli,
 //! toggle the **Color/B&W** and **Mouse** facets LaunchBox can't provide (plus
 //! fix metadata), enrich from LaunchBox, save your edits to `overrides.jsonl`,
-//! and build a bootable image.
+//! and build a bootable image. The **Build image** panel exposes the full
+//! `atrium image` config — every option the CLI's JSON config takes, including
+//! the art-depth variants to bake (default 1/8/24; pick one for a single depth).
 //!
 //! GUI-specific concern only: it renders the table and shells the same atrium
 //! calls. Long operations run inline for now (a brief freeze) — threading them
@@ -20,7 +22,7 @@ use std::path::PathBuf;
 
 fn main() -> eframe::Result<()> {
     let opts = eframe::NativeOptions {
-        viewport: egui::ViewportBuilder::default().with_inner_size([980.0, 640.0]),
+        viewport: egui::ViewportBuilder::default().with_inner_size([1000.0, 860.0]),
         ..Default::default()
     };
     eframe::run_native(
@@ -42,18 +44,47 @@ struct Row {
     dirty: bool, // touched since last save
 }
 
+/// One harvest source for `atrium image`: a donor disk image plus the app
+/// folders to pull from it (one path per line), or a `scan` glob.
+#[derive(Default)]
+struct HarvestUi {
+    image: String,
+    apps: String, // one app/folder path per line
+    scan: String, // optional glob, e.g. "/Games/**"
+}
+
 struct App {
+    // shared paths / dataset editing
     rb_cli: String,
     metadata: String, // LaunchBox Metadata.xml
-    image_path: String, // selected .hda
+    image_path: String, // selected .hda (for Extract catalog)
     dataset: String, // working dataset / extracted catalog (JSONL)
     overrides: String,
     rows: Vec<Row>,
     status: String,
-    // build fields
+    // ---- build image config (mirrors atrium image's Config) ----
     base_system: String,
     launcher: String,
     out_image: String,
+    startup_items: String,
+    platform: String,
+    detect_color: bool,
+    download_art: bool,
+    art_dir: String,
+    art_max: String,
+    // art-depth variants to bake; default 1/8/24
+    d1: bool,
+    d4: bool,
+    d8: bool,
+    d16: bool,
+    d24: bool,
+    harvest: Vec<HarvestUi>,
+    // advanced (sensible defaults; rarely changed)
+    apps_root: String,
+    metadata_dir: String,
+    images_dir: String,
+    stage: String,
+    curl: String,
 }
 
 impl Default for App {
@@ -69,8 +100,55 @@ impl Default for App {
             base_system: String::new(),
             launcher: "build/MacAtrium.bin".into(),
             out_image: "/tmp/macatrium.hda".into(),
+            startup_items: "/System Folder/Startup Items".into(),
+            platform: "Apple Mac OS".into(),
+            detect_color: false,
+            download_art: false,
+            art_dir: String::new(),
+            art_max: "256".into(),
+            d1: true,
+            d4: false,
+            d8: true,
+            d16: false,
+            d24: true,
+            harvest: Vec::new(),
+            apps_root: "/MacAtrium/Apps".into(),
+            metadata_dir: "/MacAtrium/metadata".into(),
+            images_dir: "/MacAtrium/images".into(),
+            stage: String::new(),
+            curl: "curl".into(),
         }
     }
+}
+
+/// Kind of file dialog for a path field's Browse button.
+enum Pick {
+    File,
+    Folder,
+    Save,
+}
+
+/// A "label · text field · Browse…" row that fills `value` from a file dialog.
+fn path_row(ui: &mut egui::Ui, label: &str, value: &mut String, kind: Pick) {
+    ui.horizontal(|ui| {
+        ui.label(label);
+        ui.add(egui::TextEdit::singleline(value).desired_width(380.0));
+        if ui.button("Browse…").clicked() {
+            let dlg = rfd::FileDialog::new();
+            let picked = match kind {
+                Pick::File => dlg.pick_file(),
+                Pick::Folder => dlg.pick_folder(),
+                Pick::Save => dlg.save_file(),
+            };
+            if let Some(p) = picked {
+                *value = p.to_string_lossy().into_owned();
+            }
+        }
+    });
+}
+
+fn put(m: &mut Map<String, Value>, k: &str, v: &str) {
+    m.insert(k.to_string(), Value::String(v.to_string()));
 }
 
 fn as_bool(m: &Map<String, Value>, k: &str, default: bool) -> bool {
@@ -169,7 +247,7 @@ impl App {
             return;
         }
         let p = PathBuf::from(&self.dataset);
-        match enrich::run(&p, PathBuf::from(&self.metadata).as_path(), &p, "Apple Mac OS", false, None, false, "curl") {
+        match enrich::run(&p, PathBuf::from(&self.metadata).as_path(), &p, &self.platform, false, None, self.detect_color, &self.curl) {
             Ok(()) => {
                 self.reload();
             }
@@ -177,34 +255,99 @@ impl App {
         }
     }
 
+    /// The checked art-depth variants, ascending (e.g. ["1","8","24"]).
+    fn art_depths(&self) -> Vec<String> {
+        let mut v = Vec::new();
+        if self.d1 { v.push("1".to_string()); }
+        if self.d4 { v.push("4".to_string()); }
+        if self.d8 { v.push("8".to_string()); }
+        if self.d16 { v.push("16".to_string()); }
+        if self.d24 { v.push("24".to_string()); }
+        v
+    }
+
     fn build_image(&mut self) {
-        if self.base_system.is_empty() || self.out_image.is_empty() {
+        if self.base_system.trim().is_empty() || self.out_image.trim().is_empty() {
             self.status = "Set base system + output paths first.".into();
             return;
         }
-        // Assemble a config and call the same orchestrator the CLI uses.
-        let cfg = serde_json::json!({
-            "system": self.base_system,
-            "out": self.out_image,
-            "launcher": self.launcher,
-            "dataset": self.dataset,
-            "overrides": self.overrides,
-            "rb_cli": self.rb_cli,
-        });
+        let depths = self.art_depths();
+        if depths.is_empty() {
+            self.status = "Select at least one art depth (1/4/8/16/24).".into();
+            return;
+        }
+
+        // Assemble the same JSON config the CLI's `atrium image --config` takes.
+        // Optional fields are only emitted when set, so defaults apply otherwise.
+        let mut cfg = Map::new();
+        put(&mut cfg, "system", &self.base_system);
+        put(&mut cfg, "out", &self.out_image);
+        put(&mut cfg, "launcher", &self.launcher);
+        put(&mut cfg, "dataset", &self.dataset);
+        if !self.overrides.trim().is_empty() { put(&mut cfg, "overrides", &self.overrides); }
+        if !self.metadata.trim().is_empty() { put(&mut cfg, "metadata", &self.metadata); }
+        put(&mut cfg, "platform", &self.platform);
+        cfg.insert("detect_color".into(), Value::Bool(self.detect_color));
+        cfg.insert("download_art".into(), Value::Bool(self.download_art));
+        if !self.art_dir.trim().is_empty() { put(&mut cfg, "art_dir", &self.art_dir); }
+        cfg.insert(
+            "art_depths".into(),
+            Value::Array(depths.iter().map(|d| Value::String(d.clone())).collect()),
+        );
+        if let Ok(m) = self.art_max.trim().parse::<u64>() {
+            cfg.insert("art_max".into(), Value::from(m));
+        }
+        put(&mut cfg, "startup_items", &self.startup_items);
+        put(&mut cfg, "rb_cli", &self.rb_cli);
+        put(&mut cfg, "apps_root", &self.apps_root);
+        put(&mut cfg, "metadata_dir", &self.metadata_dir);
+        put(&mut cfg, "images_dir", &self.images_dir);
+        if !self.stage.trim().is_empty() { put(&mut cfg, "stage", &self.stage); }
+        put(&mut cfg, "curl", &self.curl);
+
+        let harvest: Vec<Value> = self
+            .harvest
+            .iter()
+            .filter(|h| !h.image.trim().is_empty())
+            .map(|h| {
+                let mut o = Map::new();
+                o.insert("image".into(), Value::String(h.image.trim().to_string()));
+                let apps: Vec<Value> = h
+                    .apps
+                    .lines()
+                    .map(str::trim)
+                    .filter(|s| !s.is_empty())
+                    .map(|s| Value::String(s.to_string()))
+                    .collect();
+                if !apps.is_empty() {
+                    o.insert("apps".into(), Value::Array(apps));
+                }
+                if !h.scan.trim().is_empty() {
+                    o.insert("scan".into(), Value::String(h.scan.trim().to_string()));
+                }
+                Value::Object(o)
+            })
+            .collect();
+        if !harvest.is_empty() {
+            cfg.insert("harvest".into(), Value::Array(harvest));
+        }
+
         let cfg_path = std::env::temp_dir().join("macatrium-mgmt-build.json");
-        if let Err(e) = std::fs::write(&cfg_path, serde_json::to_string_pretty(&cfg).unwrap()) {
+        if let Err(e) = std::fs::write(&cfg_path, serde_json::to_string_pretty(&Value::Object(cfg)).unwrap()) {
             self.status = format!("Config write failed: {e}");
             return;
         }
         match image::run(&cfg_path) {
-            Ok(()) => self.status = format!("Built image -> {}", self.out_image),
+            Ok(()) => self.status = format!("Built image -> {}  (art depths {})", self.out_image, depths.join("/")),
             Err(e) => self.status = format!("Build failed: {e}"),
         }
     }
 }
 
 impl eframe::App for App {
-    // eframe 0.34 hands us a root Ui (no panels); we lay out controls + table in it.
+    // eframe 0.34 hands us a root Ui (no panels). Layout is intentionally flat —
+    // top-level sibling widgets/closures — so each closure borrows only the
+    // fields it touches (no nested whole-`self` captures to fight the borrowck).
     fn ui(&mut self, ui: &mut egui::Ui, _frame: &mut eframe::Frame) {
         ui.heading("MacAtrium Management UI");
         ui.horizontal(|ui| {
@@ -236,10 +379,10 @@ impl eframe::App for App {
 
         ui.separator();
 
-        // Table — reserve room below for the action bar + status.
-        let table_h = (ui.available_height() - 120.0).max(120.0);
+        // Dataset table (its own scroll; kept compact to leave room for Build).
         egui::ScrollArea::vertical()
-            .max_height(table_h)
+            .id_salt("rows")
+            .max_height(200.0)
             .auto_shrink([false, false])
             .show(ui, |ui| {
                 egui::Grid::new("catalog")
@@ -258,7 +401,6 @@ impl eframe::App for App {
                             ui.label(&row.year);
                             ui.label(&row.vendor);
                             ui.label(&row.genre);
-                            // labels computed before the &mut borrow
                             let clabel = if row.color { "Color" } else { "B&W" };
                             let c = ui.checkbox(&mut row.color, clabel);
                             let mlabel = if row.mouse { "Required" } else { "No mouse" };
@@ -282,17 +424,94 @@ impl eframe::App for App {
                 self.run_enrich();
             }
         });
+
+        ui.separator();
+        ui.heading("Build image");
+        path_row(ui, "base system:", &mut self.base_system, Pick::File);
+        path_row(ui, "launcher:", &mut self.launcher, Pick::File);
+        path_row(ui, "output .hda:", &mut self.out_image, Pick::Save);
+        path_row(ui, "dataset:", &mut self.dataset, Pick::File);
+        path_row(ui, "overrides:", &mut self.overrides, Pick::File);
+        path_row(ui, "metadata (LaunchBox):", &mut self.metadata, Pick::File);
         ui.horizontal(|ui| {
-            ui.label("base system:");
-            ui.text_edit_singleline(&mut self.base_system);
-            ui.label("launcher:");
-            ui.text_edit_singleline(&mut self.launcher);
-            ui.label("out:");
-            ui.text_edit_singleline(&mut self.out_image);
-            if ui.button("Build image").clicked() {
-                self.build_image();
+            ui.label("platform:");
+            ui.add(egui::TextEdit::singleline(&mut self.platform).desired_width(160.0));
+            ui.label("startup items:");
+            ui.add(egui::TextEdit::singleline(&mut self.startup_items).desired_width(240.0));
+        });
+        ui.horizontal(|ui| {
+            ui.checkbox(&mut self.download_art, "download box art (LaunchBox)");
+            ui.checkbox(&mut self.detect_color, "auto-detect Color / B&W");
+        });
+        path_row(ui, "local art dir:", &mut self.art_dir, Pick::Folder);
+        ui.horizontal(|ui| {
+            ui.label("art depths:");
+            ui.checkbox(&mut self.d1, "1");
+            ui.checkbox(&mut self.d4, "4");
+            ui.checkbox(&mut self.d8, "8");
+            ui.checkbox(&mut self.d16, "16");
+            ui.checkbox(&mut self.d24, "24");
+            ui.separator();
+            ui.label("max px:");
+            ui.add(egui::TextEdit::singleline(&mut self.art_max).desired_width(56.0));
+        });
+        ui.label(
+            egui::RichText::new(
+                "Default 1/8/24 = dithered B&W + 256-colour + Millions; a deeper variant \
+                 down-converts to shallower screens. Tick a single box for one depth only.",
+            )
+            .small()
+            .weak(),
+        );
+
+        ui.collapsing("Harvest sources (donor disks)", |ui| {
+            let mut remove = None;
+            for (i, h) in self.harvest.iter_mut().enumerate() {
+                ui.group(|ui| {
+                    path_row(ui, "donor image:", &mut h.image, Pick::File);
+                    ui.label("apps (one path per line):");
+                    ui.add(egui::TextEdit::multiline(&mut h.apps).desired_rows(2).desired_width(440.0));
+                    ui.horizontal(|ui| {
+                        ui.label("scan glob (optional):");
+                        ui.text_edit_singleline(&mut h.scan);
+                        if ui.button("Remove").clicked() {
+                            remove = Some(i);
+                        }
+                    });
+                });
+            }
+            if let Some(i) = remove {
+                self.harvest.remove(i);
+            }
+            if ui.button("Add harvest source").clicked() {
+                self.harvest.push(HarvestUi::default());
             }
         });
+
+        ui.collapsing("Advanced", |ui| {
+            ui.horizontal(|ui| {
+                ui.label("apps root:");
+                ui.text_edit_singleline(&mut self.apps_root);
+            });
+            ui.horizontal(|ui| {
+                ui.label("metadata dir:");
+                ui.text_edit_singleline(&mut self.metadata_dir);
+            });
+            ui.horizontal(|ui| {
+                ui.label("images dir:");
+                ui.text_edit_singleline(&mut self.images_dir);
+            });
+            path_row(ui, "stage dir:", &mut self.stage, Pick::Folder);
+            ui.horizontal(|ui| {
+                ui.label("curl:");
+                ui.text_edit_singleline(&mut self.curl);
+            });
+        });
+
+        if ui.button("Build image").clicked() {
+            self.build_image();
+        }
+
         ui.separator();
         ui.label(&self.status);
     }

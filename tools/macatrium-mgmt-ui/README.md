@@ -21,8 +21,21 @@ cargo run --release      # opens a window (needs a display — not the headless 
    (`atrium::enrich`).
 4. Toggle the checkboxes, then **Save overrides** writes them to
    `data/overrides.jsonl` (`atrium::merge::set`).
-5. **Build image** assembles a bootable `.hda` (`atrium::image`) from the base
-   system + launcher + dataset + overrides.
+5. **Build image** assembles a bootable `.hda` (`atrium::image`). The panel
+   exposes the **full `atrium image` config** — every option the CLI's JSON
+   config takes: base system / launcher / dataset / overrides / metadata, platform,
+   download-art, auto-detect colour, a local art dir, **art-depth variants**, art
+   max-px, harvest sources (donor disk + app paths), and an **Advanced** group
+   (apps/metadata/images dirs, stage, curl). Optional fields are omitted when
+   blank so the CLI defaults apply.
+
+### Art depths
+
+The **art depths** checkboxes choose which PICT variants get baked per title —
+`1` (dithered B&W raw), `4`/`8` (indexed, adaptive palette), `16` (Thousands),
+`24` (Millions). The default is **1 / 8 / 24**; a deeper variant down-converts to
+shallower screens at draw time, so the launcher always has something to show.
+Tick a single box to bake just that one depth.
 
 ## Releases
 
