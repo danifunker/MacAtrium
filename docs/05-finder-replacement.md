@@ -24,8 +24,9 @@ There are a few ways to put ourselves in that seat, in increasing intrusiveness:
 **Decision (from [01-decisions.md](01-decisions.md)):** keep the Finder
 installed; auto-launch ours. We use **A** for development and **B/C** for the
 "real" appliance experience. We do **not** delete or overwrite the Finder (avoid
-**D**). 🔬 Which of **B** vs **C** becomes the default shipping mechanism is to
-be settled empirically per system/emulator — see Open Questions.
+**D**). ✅ **Settled for 7.x: B (Startup Items) is the shipping default** — proven
+end-to-end (M1). **C** (boot-block swap) is deferred to a later "pure appliance"
+build / System 6. Install details: [16-startup-items.md](16-startup-items.md).
 
 ### Why B (Startup Items) is attractive first
 

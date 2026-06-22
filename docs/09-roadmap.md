@@ -37,12 +37,14 @@ Cmd-Q quit it → back in the shell with selection intact → Restart reboots. �
 
 ## Milestone 2 — actually the boot shell
 
-- [ ] Startup-Items auto-launch (approach B) on a **copy** image; full-screen
-      over the Finder, hide/cover the desktop.
+- [x] Startup-Items auto-launch (approach B) on a **copy** image; full-screen
+      over the Finder, hide/cover the desktop. (Proven in M1.)
+- [x] **Decided & documented the default shipping mechanism: Startup Items (B)
+      is the 7.x default**; boot-block swap (C) deferred to a later "pure
+      appliance" build / System 6. See [16-startup-items.md](16-startup-items.md).
 - [ ] **Launch Finder** action (resident bring-to-front + reboot fallback).
 - [ ] Settings menu: enumerate Control Panels, launch the app-like ones, flag
       the `cdev`-only ones ([08](08-launching-system.md)).
-- [ ] Decide & document the default shipping mechanism (B vs boot-block swap C).
 
 ## Milestone 3 — visuals & breadth
 

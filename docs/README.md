@@ -30,6 +30,8 @@ Read in order for the full picture; jump by topic once oriented.
 | — | [13-handoff.md](13-handoff.md) | **Start here to resume** — post-MVP status, environment, and the build-out (image tooling, GUI, CI, then full 7.x) |
 | — | [13-iterate-session.md](13-iterate-session.md) | Paste-in prompt for a **sustained, fast-iterating** session there (one-command loop + autonomy) |
 | — | [14-art-render-snow-bug.md](14-art-render-snow-bug.md) | **Resume prompt** — in-launcher art `DrawPicture` crashes Snow on some valid art; fix via CopyBits |
+| — | [15-settings-and-color-depth.md](15-settings-and-color-depth.md) | Settings panel (theme/depth/volume), runtime colour depth, the PICT word-align fix |
+| — | [16-startup-items.md](16-startup-items.md) | **Locked: Startup Items (B) is the 7.x shipping default** + how to install MacAtrium there |
 
 Spikes (focused experiments) live in [`../spikes/`](../spikes/) — currently
 `launch-return/`, the keystone test that proves resident launch returns control.
