@@ -247,6 +247,15 @@ roughly highest-leverage first:
   machines fall back to direct drawing; a classic off-screen-BitMap path is the
   Milestone-4 follow-up.
 - The **harness duplication** between this repo and the `snow` repo (see §2).
+- **Guest disk *writes* freeze the headless Snow harness** (reads are fine — boot,
+  catalog, art all work). Verified 2026-06-21: a launcher that does
+  `FSpCreate`/`FSWrite` to a Preferences file wedges the whole machine (menu-bar
+  clock stops) the instant it writes; reads of the same File-Manager path at
+  startup work. So **any write-dependent feature can't be verified here** and
+  would hang the app on Snow: theme persistence (a prefs file) was implemented
+  and reverted for this reason. Needs either a Snow SCSI-write fix or
+  verification on another emulator / real hardware before retrying. Affects:
+  prefs/theme persistence, high-scores, anything that saves state.
 
 ---
 
