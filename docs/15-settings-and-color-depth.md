@@ -99,8 +99,10 @@ Evidence: [evidence/color-art-4bit-pict.png](evidence/color-art-4bit-pict.png),
   palettes are coarse in the dark range, so the dark theme leans on grey frames
   for structure rather than subtle panel-fill differences.
 
-## Note: theme/volume aren't persisted
+## Note: theme/volume/selection now persist
 
-Both reset on reboot. Persisting them needs a prefs file; guest disk *writes*
-work (verified — see docs/13 §6 correction) but the headless harness doesn't sync
-them back to the `.hda`, so cross-boot persistence can't be verified here yet.
+Implemented in Track B — see [17-prefs-persistence.md](17-prefs-persistence.md).
+Theme, alert volume, and the last selection are written to a `MacAtrium Prefs`
+file in the Preferences folder and restored at startup (load+apply and the
+no-freeze save path are both verified in Snow). Colour depth is deliberately
+*not* persisted — startup matches the OS depth, per the architecture above.

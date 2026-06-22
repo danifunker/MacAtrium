@@ -167,3 +167,28 @@ int model_move_cat(Model *m, int delta)
     m->topRow  = 0;
     return 1;
 }
+
+int model_select(Model *m, const char *catName, const char *itemId)
+{
+    int i, r;
+    ModelCat *c;
+
+    if (!catName || !catName[0]) return 0;
+
+    /* category by name (case-insensitive, matching build-time naming) */
+    for (i = 0; i < m->ncats; i++)
+        if (ci_cmp(m->cats[i].name, catName) == 0) { m->curCat = i; break; }
+    /* not found -> leave curCat as-is (default 0 = "All") */
+    m->curItem = 0;
+    m->topRow  = 0;
+
+    if (!itemId || !itemId[0]) return 0;
+
+    c = &m->cats[m->curCat];
+    for (r = 0; r < c->count; r++)
+        if (strcmp(m->cat->items[c->idx[r]].id, itemId) == 0) {
+            m->curItem = r;          /* clamp_scroll brings it into view */
+            return 1;
+        }
+    return 0;                        /* item gone -> first row */
+}

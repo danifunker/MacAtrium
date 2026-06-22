@@ -526,14 +526,17 @@ static void apply_depth(Ui *u, short depth)
     }
 }
 
-/* Change the selected Settings row's value by `dir` (-1 / +1). */
-static void settings_adjust(Ui *u, int dir)
+/* Change the selected Settings row's value by `dir` (-1 / +1). Returns 1 if a
+ * *persisted* preference (theme / volume) changed, so main can save prefs.
+ * Color Depth is deliberately not persisted (docs/16: startup matches the OS
+ * depth), so it returns 0. */
+static int settings_adjust(Ui *u, int dir)
 {
     switch (u->setSel) {
-        case 0:                                    /* Theme */
+        case 0:                                    /* Theme (persisted) */
             render_toggle_theme(u->r);
-            break;
-        case 1: {                                  /* Color Depth */
+            return 1;
+        case 1: {                                  /* Color Depth (not persisted) */
             int i, cur = 0;
             for (i = 0; i < u->ndepths; i++)
                 if (u->depths[i] == u->env->pixelSize) cur = i;
@@ -542,16 +545,18 @@ static void settings_adjust(Ui *u, int dir)
             if (cur >= u->ndepths) cur = u->ndepths - 1;
             if (u->ndepths > 0 && u->depths[cur] != u->env->pixelSize)
                 apply_depth(u, u->depths[cur]);
-            break;
+            return 0;
         }
-        default:                                   /* Volume */
+        default:                                   /* Volume (persisted) */
             if (u->vol >= 0) {
+                int old = u->vol;
                 u->vol += dir;
                 if (u->vol < 0) u->vol = 0;
                 if (u->vol > SOUND_VOL_MAX) u->vol = SOUND_VOL_MAX;
                 sound_set_vol(u->vol);
+                return (u->vol != old);
             }
-            break;
+            return 0;
     }
 }
 
@@ -563,22 +568,23 @@ UiCommand ui_key(Ui *u, char ch)
     if (ch == 't' || ch == 'T') {
         render_toggle_theme(u->r);
         ui_draw(u);
-        return UI_NONE;
+        return UI_PREFS_DIRTY;                      /* theme changed -> persist */
     }
 
     /* Settings panel: rows adjusted with arrows, Esc returns to the list. */
     if (u->mode == UI_MODE_SETTINGS) {
+        int dirty = 0;
         switch (ch) {
             case kCharUp:    if (u->setSel > 0) u->setSel--; break;
             case kCharDown:  if (u->setSel < SET_N - 1) u->setSel++; break;
-            case kCharLeft:  settings_adjust(u, -1); break;
-            case kCharRight: settings_adjust(u, +1); break;
+            case kCharLeft:  dirty = settings_adjust(u, -1); break;
+            case kCharRight: dirty = settings_adjust(u, +1); break;
             case kCharReturn:
-            case kCharEnter: settings_adjust(u, +1); break;
+            case kCharEnter: dirty = settings_adjust(u, +1); break;
             case kCharEscape: u->mode = UI_MODE_LIST; break;   /* gear stays focused */
         }
         ui_draw(u);
-        return UI_NONE;
+        return dirty ? UI_PREFS_DIRTY : UI_NONE;
     }
 
     /* Gear focused on the list screen (reached by Left at the first category). */

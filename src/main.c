@@ -22,6 +22,8 @@
 #include "ui.h"
 #include "launch.h"
 #include "sysctl.h"
+#include "sound.h"
+#include "prefs.h"
 #include "mac_compat.h"
 
 #include <string.h>
@@ -37,6 +39,7 @@ static Env       gEnv;
 static Render    gRender;
 static Ui        gUi;
 static WindowPtr gWin;
+static Prefs     gPrefs;
 
 static void toolbox_init(void)
 {
@@ -101,6 +104,35 @@ static void append_long(char *dst, long v)
     dst[k] = '\0';
 }
 
+/* Snapshot the current persisted prefs (theme / volume / selection) and write
+ * them. Called whenever a persisted setting changes and before we hand control
+ * away (launch / restart / shutdown), so the next boot restores them. */
+static void save_prefs(void)
+{
+    Prefs          p;
+    ModelCat      *c  = model_cur_cat(&gModel);
+    const CatItem *it = model_cur_item(&gModel);
+
+    p.theme = gRender.theme;
+    p.haveTheme = 1;
+    if (gUi.vol >= 0) { p.vol = gUi.vol; p.haveVol = 1; }
+    else              { p.vol = 0;       p.haveVol = 0; }
+
+    p.category[0] = '\0';
+    p.item[0]     = '\0';
+    p.haveSel     = 0;
+    if (c) {
+        strncpy(p.category, c->name, sizeof p.category - 1);
+        p.category[sizeof p.category - 1] = '\0';
+        p.haveSel = 1;
+    }
+    if (it) {
+        strncpy(p.item, it->id, sizeof p.item - 1);
+        p.item[sizeof p.item - 1] = '\0';
+    }
+    (void)prefs_save(&p);
+}
+
 static void do_launch(void)
 {
     const char  *app  = ui_current_app(&gUi);
@@ -148,12 +180,16 @@ int main(void)
 
     toolbox_init();
     env_probe(&gEnv);                 /* match whatever depth the OS is set to */
+    prefs_load(&gPrefs);              /* saved theme / volume / selection */
 
     gWin = make_window(&gEnv);
     render_init(&gRender, &gEnv);
+    if (gPrefs.haveTheme) render_set_theme(&gRender, gPrefs.theme);
+    if (gPrefs.haveVol && sound_available()) sound_apply_vol(gPrefs.vol);  /* no boot beep */
 
     loaded = load_catalog();
     model_build(&gModel, &gCat);     /* empty catalog -> just "All" with 0 items */
+    if (gPrefs.haveSel) model_select(&gModel, gPrefs.category, gPrefs.item);
 
     ui_init(&gUi, &gEnv, &gRender, &gModel, gWin, loaded ? 0 : 1);
 
@@ -169,15 +205,16 @@ int main(void)
                     char c = (char)(evt.message & charCodeMask);
                     UiCommand cmd = ui_key(&gUi, c);
                     switch (cmd) {
-                        case UI_LAUNCH:   do_launch(); break;
+                        case UI_LAUNCH:   do_launch(); save_prefs(); break;
                         case UI_FINDER:
                             if (!sysctl_launch_finder()) {
                                 ui_set_status(&gUi, "Finder not resident - use Restart.");
                                 ui_draw(&gUi);
                             }
                             break;
-                        case UI_RESTART:  sysctl_restart();  break;
-                        case UI_SHUTDOWN: sysctl_shutdown(); break;
+                        case UI_RESTART:  save_prefs(); sysctl_restart();  break;
+                        case UI_SHUTDOWN: save_prefs(); sysctl_shutdown(); break;
+                        case UI_PREFS_DIRTY: save_prefs(); break;
                         default: break;
                     }
                     break;

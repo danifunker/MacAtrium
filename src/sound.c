@@ -37,7 +37,7 @@ int sound_get_vol(void)
     return (int)((lvl * SOUND_VOL_MAX + FULL / 2) / FULL);
 }
 
-void sound_set_vol(int v)
+void sound_apply_vol(int v)
 {
     long lvl;
     check();
@@ -46,5 +46,10 @@ void sound_set_vol(int v)
     if (v > SOUND_VOL_MAX) v = SOUND_VOL_MAX;
     lvl = ((long)v * FULL) / SOUND_VOL_MAX;
     (void)SetSysBeepVolume(lvl);
-    SysBeep(1);                                     /* feedback at the new level */
+}
+
+void sound_set_vol(int v)
+{
+    sound_apply_vol(v);
+    if (gAvail) SysBeep(1);                         /* feedback at the new level */
 }

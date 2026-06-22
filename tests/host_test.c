@@ -218,6 +218,39 @@ static void test_model_type_ahead(void)
     CHECK(model_type_ahead(&m, 'z') == 0 && m.curItem == 0, "type-ahead no match -> no-op");
 }
 
+static void test_model_select(void)
+{
+    Catalog c; Model m;
+    int ai;
+    catalog_parse(SAMPLE, (long)strlen(SAMPLE), &c);
+    model_build(&m, &c);
+    ai = cat_index(&m, "Action");   /* Action sorts: Dark Castle(0), Prince(1) */
+
+    /* exact restore by category name + item id */
+    CHECK(model_select(&m, "Action", "prince-of-persia") == 1, "select exact returns 1");
+    CHECK(m.curCat == ai, "select set category to Action");
+    CHECK(strcmp(c.items[m.cats[m.curCat].idx[m.curItem]].id, "prince-of-persia") == 0,
+          "select landed on Prince of Persia");
+
+    /* category match is case-insensitive (mirrors build-time naming) */
+    CHECK(model_select(&m, "action", "dark-castle") == 1, "select case-insensitive category");
+    CHECK(strcmp(c.items[m.cats[m.curCat].idx[m.curItem]].id, "dark-castle") == 0,
+          "select landed on Dark Castle");
+
+    /* missing item -> keep category, fall back to first row, return 0 */
+    CHECK(model_select(&m, "Action", "lemmings") == 0, "select missing item returns 0");
+    CHECK(m.curCat == ai && m.curItem == 0, "select missing item -> first row");
+
+    /* missing category -> cursor stays put (default All), return 0 */
+    m.curCat = 0; m.curItem = 2;
+    CHECK(model_select(&m, "Nope", "x") == 0, "select missing category returns 0");
+    CHECK(m.curCat == 0 && m.curItem == 0, "select missing category -> All, first row");
+
+    /* empty / null args are no-ops */
+    CHECK(model_select(&m, "", "x") == 0, "select empty category no-op");
+    CHECK(model_select(&m, 0, 0) == 0, "select null no-op");
+}
+
 int main(void)
 {
     test_json_scalars();
@@ -232,6 +265,7 @@ int main(void)
     test_model_list_ordered();
     test_model_nav();
     test_model_type_ahead();
+    test_model_select();
 
     printf("\n%d/%d checks passed\n", g_total - g_fail, g_total);
     return g_fail ? 1 : 0;

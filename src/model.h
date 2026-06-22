@@ -40,6 +40,12 @@ const CatItem  *model_cur_item(Model *m);
 int model_move_item(Model *m, int delta);   /* up/down within category */
 int model_move_cat(Model *m, int delta);    /* left/right between categories */
 
+/* Restore a saved selection: select the category named `catName`, then the item
+ * with id `itemId` within it. Robust to catalog changes — a missing category
+ * leaves the cursor on "All", a missing item falls back to the first row.
+ * Returns 1 only if the exact item was found. NULL/empty `catName` is a no-op. */
+int model_select(Model *m, const char *catName, const char *itemId);
+
 /* Type-ahead: select the next item in the current category whose name starts
  * with `ch` (case-insensitive), searching forward from the current selection and
  * wrapping — so repeated presses cycle. Returns 1 if a match was selected. */

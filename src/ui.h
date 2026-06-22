@@ -17,7 +17,8 @@ typedef enum {
     UI_LAUNCH,     /* launch the current item   */
     UI_FINDER,     /* Launch Finder             */
     UI_RESTART,
-    UI_SHUTDOWN
+    UI_SHUTDOWN,
+    UI_PREFS_DIRTY /* a persisted setting (theme/volume) changed; main saves */
 } UiCommand;
 
 enum { UI_MODE_LIST = 0, UI_MODE_MENU, UI_MODE_PREVIEW, UI_MODE_SETTINGS };

@@ -227,7 +227,9 @@ roughly highest-leverage first:
       lazy-loaded; wire into the UI. (M3)
 - [ ] **UI polish** — type-ahead jump, per-item hotkeys, detail/art pane at
       800×600 & 1024×768, tune layouts incl. 512×342. (M3)
-      (dark/light **theme** is done — `T` toggles; persist it via a prefs file next.)
+      (dark/light **theme** is done — `T` toggles. **Prefs persistence done**:
+      theme/volume/selection survive reboot via a `MacAtrium Prefs` file, both
+      halves verified in Snow — see [17-prefs-persistence.md](17-prefs-persistence.md).)
 - [ ] **16-bit / thousands** backend variant. (M3)
 - [ ] **7.6.1 run** to finish the L1 matrix (needs a 7.6.1 disk — not on this box).
 

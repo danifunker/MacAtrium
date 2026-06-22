@@ -17,4 +17,8 @@ int  sound_get_vol(void);
 /* Set volume 0..SOUND_VOL_MAX (clamped) and beep once at the new level. */
 void sound_set_vol(int v);
 
+/* Set volume 0..SOUND_VOL_MAX (clamped) WITHOUT the feedback beep — used to
+ * restore a saved volume at startup (a boot-time beep would be obnoxious). */
+void sound_apply_vol(int v);
+
 #endif /* MACATRIUM_SOUND_H */
