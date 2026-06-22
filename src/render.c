@@ -48,13 +48,22 @@ static void c2p(const char *s, Str255 out)
 void render_begin(Render *r, WindowPtr w)
 {
     if (r->useOffscreen && !r->offscreen) {
-        Rect  b = w->portRect;
+        Rect       b = w->portRect;
+        CTabHandle ctab = 0L;
+        GDHandle   gd = GetMainDevice();
+        QDErr      err;
+        /* Give the GWorld the *screen's* colour table at indexed depths so our RGB
+         * theme colours map straight to the screen's palette indices — one
+         * translation, not the GWorld-default-then-remap two — which keeps greys
+         * clean instead of washed-out/brown. Direct depths (16/24/32) carry RGB
+         * per pixel and need no table. */
+        if (gd && (**gd).gdPMap && r->depth <= 8) ctab = (**(**gd).gdPMap).pmTable;
         /* A 640x480 GWorld is ~38 KB at 1-bit but ~300 KB at 8-bit, which won't
          * fit the default app partition. Allocate from temp (MultiFinder) memory
          * first; fall back to the app heap, then to direct drawing. */
-        QDErr err = NewGWorld(&r->offscreen, r->depth, &b, 0L, 0L, useTempMem);
+        err = NewGWorld(&r->offscreen, r->depth, &b, ctab, 0L, useTempMem);
         if (err != noErr || !r->offscreen)
-            err = NewGWorld(&r->offscreen, r->depth, &b, 0L, 0L, 0);
+            err = NewGWorld(&r->offscreen, r->depth, &b, ctab, 0L, 0);
         if (err != noErr || !r->offscreen) {
             r->useOffscreen = 0;          /* fall back to direct drawing */
             r->offscreen    = 0;

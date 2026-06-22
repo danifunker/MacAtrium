@@ -88,6 +88,16 @@ Evidence: [evidence/color-art-4bit-pict.png](evidence/color-art-4bit-pict.png),
   partition; this works in current testing, but a `SIZE (-1)` bump (preferred
   4 MB, `min` left at 1 MB for low-RAM B&W Macs) is the safe follow-up if 8-bit
   ever runs short.
+- **Colour fidelity.** The off-screen GWorld is created with the *screen's*
+  colour table (`render.c` passes `gdPMap.pmTable` to `NewGWorld` at indexed
+  depths) so theme colours map through one translation, not two — the GWorld
+  default table mapped our greys washed-out at 8-bit and brown at 4-bit. Theme
+  palettes (`render_cqd.c`) use neutral greys that land on the system grey ramp:
+  a near-black dark theme and a platinum light theme, both with an azure
+  selection ([evidence/theme-dark-8bit.png](evidence/theme-dark-8bit.png),
+  [evidence/theme-light-8bit.png](evidence/theme-light-8bit.png)). Indexed
+  palettes are coarse in the dark range, so the dark theme leans on grey frames
+  for structure rather than subtle panel-fill differences.
 
 ## Note: theme/volume aren't persisted
 

@@ -17,28 +17,29 @@ typedef struct {
     RGBColor line;      /* frames + divider hlines      */
 } ThemePalette;
 
-/* Dark (default): charcoal desktop, slightly-lighter panel so it reads as a
- * raised list, a bright blue selection, near-white text, a visible grey rule. */
+/* Dark (default): near-black desktop, a slightly-raised charcoal panel, an azure
+ * selection, off-white text, muted-grey dim, a soft rule. Greys are neutral so
+ * they land on the system grey ramp (no brown tint) at indexed depths. */
 static ThemePalette kDark = {
-    { 0x1C1C, 0x1C1C, 0x1C1C },   /* bg      #1c1c1c */
-    { 0x2C2C, 0x2C2C, 0x2C2C },   /* panel   #2c2c2c */
-    { 0x3333, 0x6666, 0xEEEE },   /* sel     bright blue */
-    { 0xECEC, 0xECEC, 0xECEC },   /* text    #ececec */
-    { 0x9999, 0x9999, 0x9999 },   /* dim     #999999 */
-    { 0xFFFF, 0xFFFF, 0xFFFF },   /* selText white   */
-    { 0x5555, 0x5555, 0x5555 }    /* line    #555555 */
+    { 0x0000, 0x0000, 0x0000 },   /* bg      black              */
+    { 0x1C1C, 0x1C1C, 0x1C1C },   /* panel   #1c1c1c near-black  */
+    { 0x2D2D, 0x6A6A, 0xE0E0 },   /* sel     #2d6ae0 azure       */
+    { 0xECEC, 0xECEC, 0xECEC },   /* text    #ececec off-white   */
+    { 0x9C9C, 0x9C9C, 0x9C9C },   /* dim     #9c9c9c             */
+    { 0xFFFF, 0xFFFF, 0xFFFF },   /* selText white               */
+    { 0x5555, 0x5555, 0x5555 }    /* line    #555555 grey rule   */
 };
 
-/* Light ("Platinum"): grey desktop, white list area, classic blue selection,
- * black text, mid-grey dim, black rules. */
+/* Light ("Platinum"): platinum desktop, white list area, system-blue selection,
+ * near-black text, mid-grey dim, light rule. */
 static ThemePalette kLight = {
-    { 0xCCCC, 0xCCCC, 0xCCCC },   /* bg      platinum grey */
-    { 0xFFFF, 0xFFFF, 0xFFFF },   /* panel   white         */
-    { 0x0000, 0x0000, 0xCCCC },   /* sel     selection blue */
-    { 0x0000, 0x0000, 0x0000 },   /* text    black         */
-    { 0x7777, 0x7777, 0x7777 },   /* dim     grey          */
-    { 0xFFFF, 0xFFFF, 0xFFFF },   /* selText white         */
-    { 0x0000, 0x0000, 0x0000 }    /* line    black         */
+    { 0xDCDC, 0xDCDC, 0xDCDC },   /* bg      #dcdcdc platinum   */
+    { 0xFFFF, 0xFFFF, 0xFFFF },   /* panel   white              */
+    { 0x2C2C, 0x6B6B, 0xDDDD },   /* sel     #2c6bdd system blue*/
+    { 0x1A1A, 0x1A1A, 0x1A1A },   /* text    #1a1a1a near-black */
+    { 0x6C6C, 0x6C6C, 0x6C6C },   /* dim     #6c6c6c            */
+    { 0xFFFF, 0xFFFF, 0xFFFF },   /* selText white              */
+    { 0xB4B4, 0xB4B4, 0xB4B4 }    /* line    #b4b4b4 light rule */
 };
 
 static ThemePalette *pal(const Render *r)
