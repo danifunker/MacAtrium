@@ -14,11 +14,11 @@
 
 typedef enum {
     UI_NONE = 0,
-    UI_LAUNCH,     /* launch the current item   */
-    UI_FINDER,     /* Launch Finder             */
+    UI_LAUNCH,       /* launch the current item            */
+    UI_SHOW_FINDER,  /* bring the resident Finder to front */
     UI_RESTART,
     UI_SHUTDOWN,
-    UI_PREFS_DIRTY /* a persisted setting (theme/volume) changed; main saves */
+    UI_PREFS_DIRTY   /* a persisted setting (theme/volume) changed; main saves */
 } UiCommand;
 
 enum { UI_MODE_LIST = 0, UI_MODE_MENU, UI_MODE_PREVIEW, UI_MODE_SETTINGS, UI_MODE_INFO };

@@ -82,6 +82,24 @@ static void hide_menu_bar(void)
     }
 }
 
+/* Give the system menu bar back its original height — for Show Finder and Quit,
+ * so the Finder has its menus. (We leave the reclaimed GrayRgn strip alone; the
+ * Finder redraws its own bar over it on activation.) */
+static void restore_menu_bar(void)
+{
+    LMSetMBarHeight(gEnv.mbarHeight);
+}
+
+/* Quit the launcher entirely and hand the machine back to the Finder (the
+ * resident boot shell) — Cmd-Option-Q. Restores the menu bar first so the Finder
+ * comes up with its menus. Does not return. */
+static void quit_to_finder(void)
+{
+    restore_menu_bar();
+    (void)sysctl_show_finder();   /* front the Finder (best-effort) */
+    ExitToShell();                /* terminate us; the Finder becomes the shell */
+}
+
 static WindowPtr make_window(const Env *e)
 {
     Rect b = e->screen;              /* full screen — the menu bar is hidden    */
@@ -232,15 +250,23 @@ int main(void)
                 case keyDown:
                 case autoKey: {
                     char c = (char)(evt.message & charCodeMask);
+                    /* Cmd-Option-Q quits the launcher back to the Finder. Match the
+                     * virtual key CODE (Q = 0x0C), not the char: Option mangles the
+                     * character (Option-Q yields the "oe" ligature, not 'q'). */
+                    short keyCode = (short)((evt.message >> 8) & 0xFF);
+                    if ((evt.modifiers & cmdKey) && (evt.modifiers & optionKey) &&
+                        keyCode == 0x0C) {
+                        quit_to_finder();          /* does not return */
+                    }
                     UiCommand cmd = ui_key(&gUi, c);
                     switch (cmd) {
                         case UI_LAUNCH:   do_launch(); save_prefs(); break;
-                        case UI_FINDER:
-                            /* Restore the menu bar so the Finder has its menus. */
-                            LMSetMBarHeight(gEnv.mbarHeight);
-                            if (!sysctl_launch_finder()) {
+                        case UI_SHOW_FINDER:
+                            restore_menu_bar();    /* the Finder needs its menus */
+                            if (!sysctl_show_finder()) {
                                 ui_set_status(&gUi, "Finder not resident - use Restart.");
-                                LMSetMBarHeight(0);   /* stayed put -> hide again */
+                                hide_menu_bar();   /* stayed put -> full-screen again */
+                                CalcVis((WindowPeek)gWin);
                                 ui_draw(&gUi);
                             }
                             break;

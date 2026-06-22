@@ -50,13 +50,20 @@ it and a real keyboard feels obvious:
 | **↑ / ↓** | Move selection within the current category |
 | **← / →** | Switch category (and/or page a long list — see below) |
 | **Return / Enter** | Launch the selected item |
-| **Esc** | Open/close the top-level menu (Launch Finder, Shutdown, Restart) |
+| **Esc** | Open/close the top-level menu (Show Finder, Restart, Shut Down) |
 | **I** | **More Info** card for the selection (Return launches; any other key returns) |
 | **P** | Full-screen art preview |
 | **T** | Toggle Dark / Light theme |
+| **Cmd-Option-Q** | **Quit** the launcher entirely, returning exclusively to the Finder (kiosk-style hidden shortcut) |
 | **Page Up / Page Down** | Page through a long list |
 | Letter keys | Type-ahead jump to matching item (`T`/`P`/`I` are reserved) |
 | Mouse click / double-click | Select / launch (never required) |
+
+**Show Finder vs. Quit.** *Show Finder* (Esc menu) brings the resident Finder to
+the front while MacAtrium keeps running underneath (and restores the menu bar so
+the Finder is usable). *Cmd-Option-Q* fully **quits** the launcher (`ExitToShell`)
+so the Finder becomes the sole shell — matched on the virtual key code (not the
+char, which Option mangles).
 
 **Detail line & More Info.** On wide screens the bottom of the list shows two
 lines for the selection: a meta line (`year - developer - genre`) and the blurb
@@ -76,7 +83,7 @@ A small centered panel:
 
 ```
         ┌────────────────────────┐
-        │  Launch Finder         │
+        │  Show Finder           │
         │  Restart               │
         │  Shut Down             │
         │  ── Settings ──        │

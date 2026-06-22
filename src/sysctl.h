@@ -9,6 +9,6 @@ void sysctl_shutdown(void);   /* ShutDwnPower — power off              */
 
 /* Bring the resident Finder (creator 'MACS') to the front. Returns 1 if found
  * and switched, 0 otherwise (caller should then offer Restart). */
-int  sysctl_launch_finder(void);
+int  sysctl_show_finder(void);
 
 #endif /* MACATRIUM_SYSCTL_H */

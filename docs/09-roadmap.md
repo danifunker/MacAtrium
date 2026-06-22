@@ -42,7 +42,8 @@ Cmd-Q quit it → back in the shell with selection intact → Restart reboots. �
 - [x] **Decided & documented the default shipping mechanism: Startup Items (B)
       is the 7.x default**; boot-block swap (C) deferred to a later "pure
       appliance" build / System 6. See [16-startup-items.md](16-startup-items.md).
-- [ ] **Launch Finder** action (resident bring-to-front + reboot fallback).
+- [x] **Show Finder** action (resident bring-to-front, restores the menu bar) +
+      **Quit to Finder** (`Cmd-Option-Q`, `ExitToShell`). Restart is the fallback.
 - [ ] Settings menu: enumerate Control Panels, launch the app-like ones, flag
       the `cdev`-only ones ([08](08-launching-system.md)).
 

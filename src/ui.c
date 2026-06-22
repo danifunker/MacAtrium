@@ -15,7 +15,7 @@
 #define ROW_H    18
 #define NARROW_W 420
 
-static const char *kMenuItems[] = { "Launch Finder", "Restart", "Shut Down" };
+static const char *kMenuItems[] = { "Show Finder", "Restart", "Shut Down" };
 #define MENU_N 3
 
 /* ---- small helpers -------------------------------------------------------- */
@@ -544,7 +544,7 @@ static UiCommand menu_select(Ui *u)
 {
     u->mode = UI_MODE_LIST;
     switch (u->menuSel) {
-        case 0: return UI_FINDER;
+        case 0: return UI_SHOW_FINDER;
         case 1: return UI_RESTART;
         case 2: return UI_SHUTDOWN;
     }

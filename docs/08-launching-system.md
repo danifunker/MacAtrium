@@ -74,14 +74,20 @@ shutdown procs, flushes volumes, etc.):
   they aren't hit by accident from a controller. (Place them in the Esc menu,
   not on a stray keypress.)
 
-## Launch Finder
+## Show Finder / Quit
 
-The escape hatch (detail in [05-finder-replacement.md](05-finder-replacement.md)):
+Two escape hatches (detail in [05-finder-replacement.md](05-finder-replacement.md)):
 
-- If the Finder is resident (Startup-Items approach), bring it forward via
-  `SetFrontProcess` after locating its `ProcessSerialNumber` (creator `MACS`).
-- If we fully replaced the shell, **launch** the Finder app through the standard
-  sub-launch path.
+- **Show Finder** (Esc menu): if the Finder is resident (Startup-Items approach),
+  bring it forward via `SetFrontProcess` after locating its `ProcessSerialNumber`
+  (creator `MACS`), restoring the menu bar so its menus work. MacAtrium keeps
+  running underneath. (`sysctl_show_finder`.)
+- **Quit to Finder** (`Cmd-Option-Q`): fully quit the launcher with `ExitToShell`
+  so the Finder becomes the sole shell. Restores the menu bar first; matched on
+  the virtual key code (Option mangles the character). A deliberately hidden,
+  kiosk-style shortcut.
+- If we ever fully replaced the shell, Show Finder would instead **launch** the
+  Finder app through the standard sub-launch path.
 - Always offer **Restart** as the universal fallback to get a normal boot.
 
 ## Summary of guarded capabilities

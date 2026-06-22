@@ -8,7 +8,7 @@
 void sysctl_restart(void)  { ShutDwnStart(); }
 void sysctl_shutdown(void) { ShutDwnPower(); }
 
-int sysctl_launch_finder(void)
+int sysctl_show_finder(void)
 {
     ProcessSerialNumber psn;
     ProcessInfoRec      info;

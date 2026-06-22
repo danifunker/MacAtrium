@@ -76,10 +76,20 @@ fn main() -> Result<()> {
             "--wall-secs"  => { wall_secs  = a[i + 1].parse()?; i += 2; }
             "--keys" => {
                 const CMD: u8 = 0x37; // Command (universal scancode)
+                const OPT: u8 = 0x3A; // Option
                 for tok in a[i + 1].split(';').filter(|s| !s.is_empty()) {
                     let (c, k) = tok.split_once(':').expect("CYCLE:KEY");
                     let cyc: u64 = c.parse()?;
-                    if let Some(base) = k.strip_prefix("cmd-") {
+                    if let Some(base) = k.strip_prefix("cmd-opt-") {
+                        // Cmd+Option chord: both modifiers down, key tap, both up.
+                        let sc = scancode(base).unwrap_or_else(|| panic!("unknown key {base}"));
+                        schedule.entry(cyc).or_default().push((CMD, true));
+                        schedule.entry(cyc).or_default().push((OPT, true));
+                        schedule.entry(cyc + 1_000_000).or_default().push((sc, true));
+                        schedule.entry(cyc + 3_000_000).or_default().push((sc, false));
+                        schedule.entry(cyc + 4_000_000).or_default().push((OPT, false));
+                        schedule.entry(cyc + 4_000_000).or_default().push((CMD, false));
+                    } else if let Some(base) = k.strip_prefix("cmd-") {
                         // Command-modified chord: Cmd down, key tap, Cmd up.
                         let sc = scancode(base).unwrap_or_else(|| panic!("unknown key {base}"));
                         schedule.entry(cyc).or_default().push((CMD, true));
