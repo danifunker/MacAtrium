@@ -33,6 +33,7 @@ Read in order for the full picture; jump by topic once oriented.
 | — | [15-settings-and-color-depth.md](15-settings-and-color-depth.md) | Settings panel (theme/depth/volume), runtime colour depth, the PICT word-align fix |
 | — | [16-startup-items.md](16-startup-items.md) | **Locked: Startup Items (B) is the 7.x shipping default** + how to install MacAtrium there |
 | — | [17-prefs-persistence.md](17-prefs-persistence.md) | Theme / volume / last-selection persist across reboot (`MacAtrium Prefs` file) |
+| — | [18-resume.md](18-resume.md) | **Start here to resume** — current state, environment, gotchas, what's left, 30-sec resume |
 
 Spikes (focused experiments) live in [`../spikes/`](../spikes/) — currently
 `launch-return/`, the keystone test that proves resident launch returns control.
