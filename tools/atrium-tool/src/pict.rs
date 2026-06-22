@@ -310,7 +310,10 @@ fn encode_indexed(w: u16, h: u16, rgba: &[u8], depth: Depth, pack: bool) -> (Vec
     let (wi, hi) = (w as usize, h as usize);
     let (idx, palette) = quantize(rgba, wi, hi, depth);
     let bits = depth.bits();
-    let rowbytes = (wi * bits as usize + 7) / 8;
+    // Classic QuickDraw requires EVEN rowBytes for a (Pix)Map; an odd value
+    // (e.g. a 180px-wide 1-bit image -> 23) makes DrawPicture hang. Pad to even;
+    // the extra byte is unused padding (bounds width is unchanged).
+    let rowbytes = ((wi * bits as usize + 7) / 8 + 1) & !1usize;
     // PackBitsRect rows are packed only when rowBytes >= 8 AND packing is on;
     // packType 0 = (default) PackBits, 1 = unpacked raw rows.
     let do_pack = pack && rowbytes >= 8;
@@ -527,6 +530,18 @@ mod tests {
         let pal = median_cut(vec![[100, 100, 100]; 50], 16);
         assert_eq!(pal.len(), 1);
         assert_eq!(pal[0], (100, 100, 100));
+    }
+
+    #[test]
+    fn rowbytes_padded_even_for_odd_widths() {
+        // 24px 1-bit -> ceil(24/8)=3 (odd); QuickDraw needs even -> must pad to 4.
+        let rgba = vec![0u8; 24 * 2 * 4];
+        let (data, _) = build_pict(24, 2, &rgba, Depth::One, true);
+        // search past the header/clip so we don't match picSize/coords by accident
+        let p = 50 + data[50..].windows(2).position(|w| w == [0x00, 0x98]).unwrap();
+        let rb = u16::from_be_bytes([data[p + 2], data[p + 3]]) & 0x7FFF;
+        assert_eq!(rb % 2, 0, "rowBytes must be even, got {rb}");
+        assert_eq!(rb, 4);
     }
 
     #[test]
