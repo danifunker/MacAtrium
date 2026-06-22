@@ -191,10 +191,16 @@ bundle `rb-cli` per-platform into the release.
 - **Inline box-art pane — done.** Wide screens show the selected title's box art
   (depth-matched, lazy-loaded) beside the list; verified in Snow
   ([evidence/inline-art-pane.png](evidence/inline-art-pane.png)).
-- **True full-screen (hide menu bar) — attempted, reverted/deferred.** A naive
-  `LMSetMBarHeight(0)` regressed: a resident sub-launched app's menu bar persists
-  on return (its MenuList isn't cleared). Needs proper MenuList save/restore +
-  bar-region redraw across launches. Reverted to the proven below-menu-bar window.
+- **True full-screen (hide menu bar) — DONE.** The fix the first attempt missed
+  wasn't MenuList save/restore — it was that `LMSetMBarHeight(0)` alone leaves the
+  old bar strip out of the desktop region, so the Window Manager keeps clipping a
+  full-screen window's top. `hide_menu_bar()` now drops the bar height AND unions
+  its strip back into `GrayRgn`, then `CalcVis` lets our full-screen window own the
+  top; the full-frame redraw paints over any bar a sub-launched app left behind.
+  Re-applied on return from a launch; restored (`LMSetMBarHeight(gEnv.mbarHeight)`)
+  for Launch Finder. Verified in Snow on 7.1 — boot, launch+return, and Launch
+  Finder ([evidence/fullscreen-no-menubar.png](evidence/fullscreen-no-menubar.png),
+  [evidence/launch-finder-restores-menubar.png](evidence/launch-finder-restores-menubar.png)).
 - Next candidates (§5): type-ahead jump (needs rebinding the `T`/`P` letter keys),
   Settings menu (Control Panels via FindFolder + `odoc` AppleEvent), aliases for
   launch targets, per-item display depth, finish Launch Finder / boot-shell.
@@ -217,8 +223,9 @@ roughly highest-leverage first:
 - [ ] **Per-item display depth via `SetDepth`/`HasDepth`** (the "fullscreen"
       lever from the chat): optional catalog `depth`; set before `Launch`,
       restore on return. Guarded by Color QD. (docs/01 deferred item)
-- [ ] **Hide the launcher's own menu bar** for true full-screen
-      (`LMSetMBarHeight 0`, restore on Launch Finder). (S1/S2)
+- [x] **Hide the launcher's own menu bar** for true full-screen — DONE
+      (`hide_menu_bar()`: drop the bar + reclaim its strip into `GrayRgn` +
+      `CalcVis`; restore on Launch Finder). Verified in Snow.
 - [ ] **Settings menu** — enumerate Control Panels (`FindFolder`), open the
       `cdev`s via an `odoc` AppleEvent to the resident Finder (C1, M2).
 - [ ] **Aliases for launch targets** — `ResolveAliasFile` so moved/aliased apps

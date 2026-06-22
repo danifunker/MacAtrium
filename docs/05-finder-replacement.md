@@ -50,10 +50,12 @@ build / System 6. Install details: [16-startup-items.md](16-startup-items.md).
 
 When launched as the shell-on-top we want to look like *the* environment:
 
-- Open a window covering the whole `GetMainDevice()` bounds (or draw to the
-  screen under the menu bar). Decide whether to **hide the menu bar** (
-  `LMSetMBarHeight(0)` style tricks) or keep a minimal one. 🔬 menu-bar hiding is
-  fiddly and version-sensitive — verify.
+- ✅ **Done:** a full-screen window covers the whole screen and the **menu bar is
+  hidden** (`hide_menu_bar()` in `main.c`): set `LMSetMBarHeight(0)` *and* union
+  the old bar strip back into `GrayRgn`, then `CalcVis` so the window owns the top
+  (the missing step that broke an earlier attempt). Re-applied on return from a
+  sub-launch; restored for Launch Finder. Verified in Snow on 7.1 — see
+  [13-handoff.md](13-handoff.md) §5.
 - Under MultiFinder/Process Manager, optionally hide other layers so the Finder
   desktop isn't visible behind us.
 - Pull keyboard focus and run our event loop as the foreground app.

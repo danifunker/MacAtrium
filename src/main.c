@@ -60,10 +60,32 @@ static void bring_self_front(void)
         SetFrontProcess(&psn);
 }
 
+/* True full-screen: drop the menu bar to 0 height AND cede its strip back to the
+ * desktop (GrayRgn), so a full-screen window's visible region actually owns the
+ * top — otherwise the Window Manager keeps clipping that strip and our header
+ * never paints there. Called at startup and again after a sub-launch (the child
+ * restores the bar). Restored for Launch Finder. */
+static void hide_menu_bar(void)
+{
+    RgnHandle mbRgn;
+    LMSetMBarHeight(0);
+    mbRgn = NewRgn();
+    if (mbRgn) {
+        RgnHandle gray = LMGetGrayRgn();
+        Rect mb = gEnv.screen;
+        mb.bottom = (short)(mb.top + gEnv.mbarHeight);
+        if (gray) {
+            RectRgn(mbRgn, &mb);
+            UnionRgn(gray, mbRgn, gray);
+        }
+        DisposeRgn(mbRgn);
+    }
+}
+
 static WindowPtr make_window(const Env *e)
 {
-    Rect b = e->screen;
-    b.top += e->mbarHeight;          /* sit below the menu bar (recoverable) */
+    Rect b = e->screen;              /* full screen — the menu bar is hidden    */
+                                     /* (LMSetMBarHeight 0), so we own y = 0..top */
     /* A colour window (CGrafPort) when Color QD is present, so the off-screen
      * GWorld blits correctly at >1-bit depths (and the user can switch depth at
      * runtime); a plain B&W window otherwise. */
@@ -146,8 +168,11 @@ static void do_launch(void)
     lr = launch_app(app, gEnv.canLaunchReturn, &lerr);
 
     /* We are back: the child quit (launchContinue honoured). Pull ourselves
-     * forward and redraw with selection intact. */
+     * forward and redraw with selection intact. The child drew its own menu bar,
+     * so re-hide ours; our full-screen redraw below paints over the old bar. */
     bring_self_front();
+    hide_menu_bar();                  /* child restored the bar; re-hide + reclaim */
+    CalcVis((WindowPeek)gWin);
     SelectWindow(gWin);
     SetPort(gWin);
 
@@ -179,10 +204,14 @@ int main(void)
     int loaded;
 
     toolbox_init();
-    env_probe(&gEnv);                 /* match whatever depth the OS is set to */
+    env_probe(&gEnv);                 /* match whatever depth the OS is set to;
+                                         saves the original menu-bar height       */
     prefs_load(&gPrefs);              /* saved theme / volume / selection */
+    hide_menu_bar();                  /* true full-screen (restored for Launch
+                                         Finder; gEnv keeps the original height) */
 
     gWin = make_window(&gEnv);
+    CalcVis((WindowPeek)gWin);         /* claim the reclaimed top strip */
     render_init(&gRender, &gEnv);
     if (gPrefs.haveTheme) render_set_theme(&gRender, gPrefs.theme);
     if (gPrefs.haveVol && sound_available()) sound_apply_vol(gPrefs.vol);  /* no boot beep */
@@ -207,8 +236,11 @@ int main(void)
                     switch (cmd) {
                         case UI_LAUNCH:   do_launch(); save_prefs(); break;
                         case UI_FINDER:
+                            /* Restore the menu bar so the Finder has its menus. */
+                            LMSetMBarHeight(gEnv.mbarHeight);
                             if (!sysctl_launch_finder()) {
                                 ui_set_status(&gUi, "Finder not resident - use Restart.");
+                                LMSetMBarHeight(0);   /* stayed put -> hide again */
                                 ui_draw(&gUi);
                             }
                             break;
