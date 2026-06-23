@@ -4,8 +4,11 @@
  * GetSysBeepVolume is also our availability probe.
  */
 #include "sound.h"
+#include "macfs.h"     /* macfs_make_spec */
 
 #include <Sound.h>     /* shims to Multiverse: Get/SetSysBeepVolume, SysBeep */
+#include <Resources.h> /* FSpOpenResFile, Get1Resource, DetachResource        */
+#include <Files.h>
 
 #define FULL  0x0100L  /* SysBeepVolume full-scale level */
 
@@ -52,4 +55,41 @@ void sound_set_vol(int v)
 {
     sound_apply_vol(v);
     if (gAvail) SysBeep(1);                         /* feedback at the new level */
+}
+
+/* One persistent channel for async (startup) playback; the OS frees it at exit.
+ * Synchronous (shutdown) playback passes a NULL channel and lets SndPlay manage
+ * its own. */
+static SndChannelPtr gChan = 0;
+
+void sound_play_file(const char *relToRoot, int async)
+{
+    FSSpec spec;
+    short  refNum;
+    Handle h;
+
+    check();
+    if (!gAvail) return;                            /* no Sound Manager */
+    if (macfs_make_spec(relToRoot, &spec) != noErr) return;
+
+    refNum = FSpOpenResFile(&spec, fsRdPerm);
+    if (refNum == -1) return;                       /* no such sound file */
+
+    h = Get1Resource('snd ', 128);
+    if (h) {
+        DetachResource(h);                          /* survive CloseResFile below */
+        HLock(h);
+        if (async) {
+            if (!gChan)
+                if (SndNewChannel(&gChan, sampledSynth, 0, 0L) != noErr) gChan = 0;
+            /* Keep the handle locked for the channel's lifetime — a one-shot
+             * boot chime, so the small retained block is acceptable. */
+            if (gChan) (void)SndPlay(gChan, h, true);
+            else { DisposeHandle(h); }              /* couldn't get a channel */
+        } else {
+            (void)SndPlay(0, h, false);             /* blocks until done */
+            DisposeHandle(h);
+        }
+    }
+    CloseResFile(refNum);
 }

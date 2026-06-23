@@ -10,7 +10,7 @@
 //! stubs that describe their planned behaviour.
 
 use anyhow::Result;
-use atrium::{catalog, enrich, harvest, icons, image, merge, pict};
+use atrium::{catalog, enrich, harvest, icons, image, merge, pict, snd};
 use clap::{Parser, Subcommand};
 use std::path::PathBuf;
 
@@ -172,6 +172,19 @@ enum Cmd {
         out: PathBuf,
     },
 
+    /// Bake a PCM WAV chime into a Mac sound file's resource fork (a `snd `
+    /// resource id 128), for the launcher's startup/shutdown sound. Capped at
+    /// 7 seconds. Write it to the volume with `rb-cli setrsrc` (`atrium image`
+    /// does this for `startup_sound` / `shutdown_sound`).
+    Snd {
+        /// Source PCM WAV (8/16-bit, mono or stereo).
+        #[arg(long)]
+        wav: PathBuf,
+        /// Output resource-fork file.
+        #[arg(long)]
+        out: PathBuf,
+    },
+
     /// Harvest apps out of a donor HFS image (a MacPack .vhd) into the
     /// /MacAtrium tree: extract both forks, stage them, emit dataset stubs.
     Harvest {
@@ -308,6 +321,9 @@ fn main() -> Result<()> {
                 }
                 None => anyhow::bail!("no usable ICN# in {}", hqx.display()),
             }
+        }
+        Cmd::Snd { wav, out } => {
+            snd::run(&wav, &out)?;
         }
         Cmd::Harvest {
             image,

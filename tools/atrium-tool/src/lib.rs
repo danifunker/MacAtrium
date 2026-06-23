@@ -13,3 +13,4 @@ pub mod macroman;
 pub mod merge;
 pub mod pict;
 pub mod rbcli;
+pub mod snd;

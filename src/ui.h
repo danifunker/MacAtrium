@@ -43,6 +43,8 @@ typedef struct {
     int        ndepths;       /* count in depths[]                            */
     int        vol;           /* speaker volume 0..SOUND_VOL_MAX (-1 = n/a)   */
     int        artPref;       /* 0 = Box Art, 1 = Screenshot (the `shot` field) */
+    int        sndStartup;    /* 1 = play the startup sound on launch          */
+    int        sndShutdown;   /* 1 = play the shutdown sound on Shut Down      */
     Art       *rowIcon[MAX_ITEMS]; /* lazily-loaded list-row icons, by catalog idx */
 } Ui;
 

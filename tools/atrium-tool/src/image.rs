@@ -11,7 +11,7 @@
 //! curated `data/library.jsonl`. Run with `atrium image --config build.json`.
 
 use crate::rbcli::RbCli;
-use crate::{catalog, enrich, harvest, icons, merge, pict};
+use crate::{catalog, enrich, harvest, icons, merge, pict, snd};
 use anyhow::{Context, Result};
 use serde::Deserialize;
 use serde_json::Value;
@@ -25,6 +25,7 @@ fn d_metadir() -> String { "/MacAtrium/metadata".into() }
 fn d_imagesdir() -> String { "/MacAtrium/images".into() }
 fn d_artdepth() -> String { "8".into() }
 fn d_curl() -> String { "curl".into() }
+fn d_sounds_dir() -> String { "/MacAtrium/sounds".into() }
 
 #[derive(Deserialize)]
 struct HarvestSrc {
@@ -91,6 +92,17 @@ struct Config {
     /// Staging dir for intermediates (default: a temp dir).
     #[serde(default)]
     stage: Option<PathBuf>,
+    /// Optional startup chime (PCM WAV) baked into the image; the launcher plays
+    /// it on launch when the user turns Startup Sound on. Capped at 7 seconds.
+    #[serde(default)]
+    startup_sound: Option<PathBuf>,
+    /// Optional shutdown chime (PCM WAV) — played on Shut Down when enabled.
+    #[serde(default)]
+    shutdown_sound: Option<PathBuf>,
+    /// Where the chimes live on the volume (the launcher reads sounds/startup,
+    /// sounds/shutdown under /MacAtrium).
+    #[serde(default = "d_sounds_dir")]
+    sounds_dir: String,
 }
 
 /// (id, app-path) for every dataset record with an id. `app` is the launcher
@@ -216,6 +228,30 @@ fn bake_variants(
         let ext = if depths[0] == pict::Depth::One { "raw" } else { "pict" };
         format!("{images_rel}/{name}.{ext}")
     }))
+}
+
+/// Bake one WAV chime into a sound file (`<sounds_dir>/<name>`) on the volume:
+/// an empty data fork plus a resource fork holding a `snd ` resource. Warns when
+/// the clip is over the 7-second cap (it's truncated).
+fn bake_sound(rb: &RbCli, cfg: &Config, stage: &Path, wav: &Path, name: &str) -> Result<()> {
+    let (rsrc, secs) = snd::build_resfork_from_wav(wav)
+        .with_context(|| format!("encoding sound {}", wav.display()))?;
+    if secs > snd::MAX_SECS {
+        eprintln!(
+            "  warning: {} is {:.1}s; truncated to {:.0}s",
+            wav.display(),
+            secs,
+            snd::MAX_SECS
+        );
+    }
+    let rfile = stage.join(format!("{name}.snd.rsrc"));
+    std::fs::write(&rfile, &rsrc)?;
+    let empty = stage.join(format!("{name}.snd.empty"));
+    std::fs::write(&empty, b"")?;
+    let dst = format!("{}/{}", cfg.sounds_dir.trim_end_matches('/'), name);
+    rb.put_typed(&cfg.out, &empty, &dst, "sfil", "movr")?; // data fork (type: System sound)
+    rb.set_rsrc(&cfg.out, &dst, &rfile)?; // then the snd resource fork
+    Ok(())
 }
 
 pub fn run(config: &Path) -> Result<()> {
@@ -391,6 +427,18 @@ pub fn run(config: &Path) -> Result<()> {
     eprintln!("[7/7] launcher     install into {}", cfg.startup_items);
     rb.mkdir_p(&cfg.out, &cfg.startup_items)?;
     rb.put_macbinary(&cfg.out, &cfg.launcher, &cfg.startup_items)?;
+
+    // Optional startup / shutdown chimes (WAV -> snd resource on the volume).
+    if cfg.startup_sound.is_some() || cfg.shutdown_sound.is_some() {
+        rb.mkdir_p(&cfg.out, &cfg.sounds_dir)?;
+        if let Some(w) = &cfg.startup_sound {
+            bake_sound(&rb, &cfg, &stage, w, "startup")?;
+        }
+        if let Some(w) = &cfg.shutdown_sound {
+            bake_sound(&rb, &cfg, &stage, w, "shutdown")?;
+        }
+        eprintln!("[snd] startup/shutdown chimes -> {}", cfg.sounds_dir);
+    }
 
     eprintln!(
         "\nimage built: {} ({} items, {} categories)",

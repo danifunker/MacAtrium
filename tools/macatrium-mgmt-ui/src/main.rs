@@ -68,6 +68,8 @@ struct App {
     launcher: String,
     out_image: String,
     startup_items: String,
+    startup_sound: String, // optional WAV chime baked into the image
+    shutdown_sound: String,
     platform: String,
     detect_color: bool,
     download_art: bool,
@@ -112,6 +114,8 @@ impl Default for App {
             launcher: "build/MacAtrium.bin".into(),
             out_image: "/tmp/macatrium.hda".into(),
             startup_items: "/System Folder/Startup Items".into(),
+            startup_sound: String::new(),
+            shutdown_sound: String::new(),
             platform: "Apple Mac OS".into(),
             detect_color: false,
             download_art: false,
@@ -358,6 +362,8 @@ impl App {
             cfg.insert("art_max".into(), Value::from(m));
         }
         put(&mut cfg, "startup_items", &self.startup_items);
+        if !self.startup_sound.trim().is_empty() { put(&mut cfg, "startup_sound", &self.startup_sound); }
+        if !self.shutdown_sound.trim().is_empty() { put(&mut cfg, "shutdown_sound", &self.shutdown_sound); }
         put(&mut cfg, "rb_cli", &self.rb_cli);
         put(&mut cfg, "apps_root", &self.apps_root);
         put(&mut cfg, "metadata_dir", &self.metadata_dir);
@@ -518,6 +524,17 @@ impl eframe::App for App {
             ui.checkbox(&mut self.download_art, "download box art (LaunchBox)");
             ui.checkbox(&mut self.detect_color, "auto-detect Color / B&W");
         });
+        path_row(ui, "startup sound (WAV):", &mut self.startup_sound, Pick::File);
+        path_row(ui, "shutdown sound (WAV):", &mut self.shutdown_sound, Pick::File);
+        ui.label(
+            egui::RichText::new(
+                "Optional PCM WAV chimes; leave blank for none. The launcher's \
+                 Settings turns each on/off (default off). Clips are capped at 7 \
+                 seconds — longer files are truncated.",
+            )
+            .small()
+            .weak(),
+        );
         path_row(ui, "local art dir:", &mut self.art_dir, Pick::Folder);
         ui.horizontal(|ui| {
             ui.label("art depths:");

@@ -113,6 +113,15 @@ impl RbCli {
         self.put_text(image, host, dst, type_, creator)
     }
 
+    /// Replace the resource fork of an existing file from a host file (e.g. a
+    /// `snd ` sound resource baked by `atrium snd`).
+    pub fn set_rsrc(&self, image: &Path, dst: &str, host_rsrc: &Path) -> Result<()> {
+        let img = image.to_string_lossy();
+        let h = host_rsrc.to_string_lossy();
+        self.run(&["setrsrc", &img, dst, "--from-file", &h])?;
+        Ok(())
+    }
+
     /// Install a MacBinary archive (both forks + Finder info) into a directory,
     /// overwriting any existing file so a rebuild onto a non-clean image (e.g.
     /// one that already has the launcher) is idempotent.

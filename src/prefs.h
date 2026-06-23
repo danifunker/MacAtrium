@@ -22,6 +22,10 @@ typedef struct {
     int  haveVol;                  /* 1 if `vol` was loaded                    */
     int  artPref;                  /* 0 = Box Art, 1 = Screenshot              */
     int  haveArtPref;              /* 1 if `artPref` was loaded                */
+    int  sndStartup;               /* 1 = play the startup sound on launch     */
+    int  haveSndStartup;           /* 1 if `sndStartup` was loaded             */
+    int  sndShutdown;              /* 1 = play the shutdown sound on Shut Down  */
+    int  haveSndShutdown;          /* 1 if `sndShutdown` was loaded            */
     char category[ITEM_CAT_LEN];   /* last category name ("" if none)          */
     char item[ITEM_ID_LEN];        /* last item id ("" if none)                */
     int  haveSel;                  /* 1 if a category was loaded               */

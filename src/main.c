@@ -159,6 +159,8 @@ static void save_prefs(void)
     else              { p.vol = 0;       p.haveVol = 0; }
     p.artPref = gUi.artPref;
     p.haveArtPref = 1;
+    p.sndStartup = gUi.sndStartup;   p.haveSndStartup = 1;
+    p.sndShutdown = gUi.sndShutdown; p.haveSndShutdown = 1;
 
     p.category[0] = '\0';
     p.item[0]     = '\0';
@@ -242,10 +244,16 @@ int main(void)
 
     ui_init(&gUi, &gEnv, &gRender, &gModel, gWin, loaded ? 0 : 1);
     if (gPrefs.haveArtPref) gUi.artPref = gPrefs.artPref;   /* restore Artwork choice */
+    if (gPrefs.haveSndStartup)  gUi.sndStartup  = gPrefs.sndStartup;   /* restore sound prefs */
+    if (gPrefs.haveSndShutdown) gUi.sndShutdown = gPrefs.sndShutdown;
 
     bring_self_front();
     SetPort(gWin);
     ui_draw(&gUi);
+
+    /* Startup chime (async so it overlaps the UI coming up); off by default,
+     * a no-op if no sound was baked into the image. */
+    if (gUi.sndStartup) sound_play_file("sounds/startup", 1);
 
     for (;;) {
         if (WaitNextEvent(everyEvent, &evt, 10L, 0L)) {
@@ -274,7 +282,13 @@ int main(void)
                             }
                             break;
                         case UI_RESTART:  save_prefs(); sysctl_restart();  break;
-                        case UI_SHUTDOWN: save_prefs(); sysctl_shutdown(); break;
+                        case UI_SHUTDOWN:
+                            save_prefs();
+                            /* Shutdown chime — synchronous so it finishes before
+                             * the machine powers off. No-op if none is baked. */
+                            if (gUi.sndShutdown) sound_play_file("sounds/shutdown", 0);
+                            sysctl_shutdown();
+                            break;
                         case UI_PREFS_DIRTY: save_prefs(); break;
                         default: break;
                     }

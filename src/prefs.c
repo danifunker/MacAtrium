@@ -71,6 +71,8 @@ void prefs_load(Prefs *p)
     p->theme = 0; p->haveTheme = 0;
     p->vol   = 0; p->haveVol   = 0;
     p->artPref = 0; p->haveArtPref = 0;
+    p->sndStartup = 0; p->haveSndStartup = 0;
+    p->sndShutdown = 0; p->haveSndShutdown = 0;
     p->category[0] = '\0';
     p->item[0]     = '\0';
     p->haveSel = 0;
@@ -108,6 +110,12 @@ void prefs_load(Prefs *p)
         } else if (strcmp(key, "artwork") == 0) {
             p->artPref = (strcmp(val, "screenshot") == 0) ? 1 : 0;
             p->haveArtPref = 1;
+        } else if (strcmp(key, "startupsound") == 0) {
+            p->sndStartup = (strcmp(val, "on") == 0) ? 1 : 0;
+            p->haveSndStartup = 1;
+        } else if (strcmp(key, "shutdownsound") == 0) {
+            p->sndShutdown = (strcmp(val, "on") == 0) ? 1 : 0;
+            p->haveSndShutdown = 1;
         } else if (strcmp(key, "category") == 0) {
             strncpy(p->category, val, sizeof p->category - 1);
             p->category[sizeof p->category - 1] = '\0';
@@ -142,7 +150,7 @@ OSErr prefs_save(const Prefs *p)
     FSSpec spec;
     short  vref = 0, refNum;
     OSErr  err, first = noErr;
-    char   body[256];
+    char   body[320];
     int    n = 0;
     long   count;
 
@@ -165,6 +173,16 @@ OSErr prefs_save(const Prefs *p)
     if (p->haveArtPref) {
         append_str(body, &n, sizeof body, "artwork=");
         append_str(body, &n, sizeof body, p->artPref ? "screenshot" : "box");
+        append_str(body, &n, sizeof body, "\r");
+    }
+    if (p->haveSndStartup) {
+        append_str(body, &n, sizeof body, "startupsound=");
+        append_str(body, &n, sizeof body, p->sndStartup ? "on" : "off");
+        append_str(body, &n, sizeof body, "\r");
+    }
+    if (p->haveSndShutdown) {
+        append_str(body, &n, sizeof body, "shutdownsound=");
+        append_str(body, &n, sizeof body, p->sndShutdown ? "on" : "off");
         append_str(body, &n, sizeof body, "\r");
     }
     if (p->haveSel && p->category[0]) {

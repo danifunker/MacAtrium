@@ -113,6 +113,8 @@ void ui_init(Ui *u, Env *env, Render *r, Model *m, WindowPtr win, int safe)
     u->ndepths = display_depths(u->depths, UI_MAX_DEPTHS);   /* all OS-supported depths */
     u->vol = sound_available() ? sound_get_vol() : -1;
     u->artPref = 0;                                          /* Box Art by default */
+    u->sndStartup = 0;                                       /* sounds off by default */
+    u->sndShutdown = 0;
     {
         int i;
         for (i = 0; i < MAX_ITEMS; i++) u->rowIcon[i] = 0;   /* lazy row-icon cache */
@@ -385,9 +387,10 @@ static void draw_list(Ui *u)
     }
 }
 
-/* The Settings panel: a list of adjustable rows (Theme / Color Depth / Volume).
- * Up/Down move rows; Left/Right (and Return) change the selected row's value. */
-#define SET_N 4
+/* The Settings panel: a list of adjustable rows (Theme / Color Depth / Volume /
+ * Artwork / Startup Sound / Shutdown Sound). Up/Down move rows; Left/Right (and
+ * Return) change the selected row's value. */
+#define SET_N 6
 
 static void set_row_text(Ui *u, int row, char *out)
 {
@@ -411,10 +414,20 @@ static void set_row_text(Ui *u, int row, char *out)
             if (u->vol < 0) { strcat(out, "n/a"); }
             else { l2s(u->vol, num); strcat(out, num); strcat(out, " / 7"); }
             break;
-        default:
+        case 3:
             strcpy(out, "Artwork");
             while (strlen(out) < 16) strcat(out, " ");
             strcat(out, (u->artPref == 1) ? "Screenshot" : "Box Art");
+            break;
+        case 4:
+            strcpy(out, "Startup Sound");
+            while (strlen(out) < 16) strcat(out, " ");
+            strcat(out, u->sndStartup ? "On" : "Off");
+            break;
+        default:
+            strcpy(out, "Shutdown Sound");
+            while (strlen(out) < 16) strcat(out, " ");
+            strcat(out, u->sndShutdown ? "On" : "Off");
             break;
     }
 }
@@ -451,8 +464,12 @@ static void draw_settings(Ui *u)
 
     render_hline(r, px, (short)(px + pw), (short)(py + ph - 22));
     {
-        const char *hint = "^v row   <> change   Esc back";
+        /* On the sound rows, swap the nav hint for the clip-length note. */
+        const char *hint = (u->setSel >= 4)
+            ? "Sounds: a clip baked in the image, max 7 sec"
+            : "^v row   <> change   Esc back";
         short x = (short)(px + (pw - render_text_width(r, hint)) / 2);
+        if (x < (short)(px + 4)) x = (short)(px + 4);
         render_text(r, x, (short)(py + ph - 7), hint, INK_DIM);
     }
 }
@@ -735,11 +752,19 @@ static int settings_adjust(Ui *u, int dir)
                 return (u->vol != old);
             }
             return 0;
-        default:                                   /* Artwork: Box Art / Screenshot */
+        case 3:                                    /* Artwork: Box Art / Screenshot */
             u->artPref = u->artPref ? 0 : 1;
             if (u->listArt) { art_dispose(u->listArt); u->listArt = 0; }
             u->artFor = 0;                          /* force the inline pane to reload */
             return 1;                               /* persisted */
+        case 4:                                    /* Startup Sound On/Off (persisted) */
+            u->sndStartup = u->sndStartup ? 0 : 1;
+            if (u->sndStartup) sound_play_file("sounds/startup", 1);   /* preview */
+            return 1;
+        default:                                   /* Shutdown Sound On/Off (persisted) */
+            u->sndShutdown = u->sndShutdown ? 0 : 1;
+            if (u->sndShutdown) sound_play_file("sounds/shutdown", 1); /* preview */
+            return 1;
     }
 }
 

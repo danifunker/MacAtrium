@@ -21,4 +21,11 @@ void sound_set_vol(int v);
  * restore a saved volume at startup (a boot-time beep would be obnoxious). */
 void sound_apply_vol(int v);
 
+/* Play the `snd ` resource (id 128) from the resource file at the /MacAtrium-
+ * relative path `relToRoot` (e.g. "sounds/startup"). `async` returns immediately
+ * (the startup chime, so the UI isn't blocked); otherwise it blocks until the
+ * clip finishes (the shutdown chime, played before power-off). Best-effort: a
+ * missing file/resource or absent Sound Manager is a silent no-op. */
+void sound_play_file(const char *relToRoot, int async);
+
 #endif /* MACATRIUM_SOUND_H */
