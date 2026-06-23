@@ -206,6 +206,7 @@ static void save_prefs(void)
     p.haveArtPref = 1;
     p.sndStartup = gUi.sndStartup;   p.haveSndStartup = 1;
     p.sndShutdown = gUi.sndShutdown; p.haveSndShutdown = 1;
+    p.catList = gUi.catList;         p.haveCatList = 1;
 
     p.category[0] = '\0';
     p.item[0]     = '\0';
@@ -292,6 +293,7 @@ int main(void)
     if (gPrefs.haveArtPref) gUi.artPref = gPrefs.artPref;   /* restore Artwork choice */
     if (gPrefs.haveSndStartup)  gUi.sndStartup  = gPrefs.sndStartup;   /* restore sound prefs */
     if (gPrefs.haveSndShutdown) gUi.sndShutdown = gPrefs.sndShutdown;
+    if (gPrefs.haveCatList)     gUi.catList     = gPrefs.catList;      /* restore cat-list view */
 
     bring_self_front();
     SetPort(gWin);

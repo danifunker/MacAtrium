@@ -73,6 +73,7 @@ void prefs_load(Prefs *p)
     p->artPref = 0; p->haveArtPref = 0;
     p->sndStartup = 0; p->haveSndStartup = 0;
     p->sndShutdown = 0; p->haveSndShutdown = 0;
+    p->catList = 0; p->haveCatList = 0;
     p->category[0] = '\0';
     p->item[0]     = '\0';
     p->haveSel = 0;
@@ -116,6 +117,9 @@ void prefs_load(Prefs *p)
         } else if (strcmp(key, "shutdownsound") == 0) {
             p->sndShutdown = (strcmp(val, "on") == 0) ? 1 : 0;
             p->haveSndShutdown = 1;
+        } else if (strcmp(key, "categorieslist") == 0) {
+            p->catList = (strcmp(val, "on") == 0) ? 1 : 0;
+            p->haveCatList = 1;
         } else if (strcmp(key, "category") == 0) {
             strncpy(p->category, val, sizeof p->category - 1);
             p->category[sizeof p->category - 1] = '\0';
@@ -183,6 +187,11 @@ OSErr prefs_save(const Prefs *p)
     if (p->haveSndShutdown) {
         append_str(body, &n, sizeof body, "shutdownsound=");
         append_str(body, &n, sizeof body, p->sndShutdown ? "on" : "off");
+        append_str(body, &n, sizeof body, "\r");
+    }
+    if (p->haveCatList) {
+        append_str(body, &n, sizeof body, "categorieslist=");
+        append_str(body, &n, sizeof body, p->catList ? "on" : "off");
         append_str(body, &n, sizeof body, "\r");
     }
     if (p->haveSel && p->category[0]) {

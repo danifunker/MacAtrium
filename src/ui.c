@@ -16,9 +16,10 @@
 #define NARROW_W 420
 #define ICON_SZ  16            /* list-row icon box (px); 32x32 art fits into it */
 #define ICON_GUT 22            /* icon column width incl. the gap before the name */
+#define CATLIST_W 140          /* width of the optional categories list panel (left) */
 
-static const char *kMenuItems[] = { "Show Finder", "Restart", "Shut Down" };
-#define MENU_N 3
+static const char *kMenuItems[] = { "Settings", "Show Finder", "Restart", "Shut Down" };
+#define MENU_N 4
 
 /* ---- small helpers -------------------------------------------------------- */
 
@@ -117,6 +118,8 @@ void ui_init(Ui *u, Env *env, Render *r, Model *m, WindowPtr win, int safe)
     u->sndShutdown = 0;
     u->ncdevs = 0; u->cdevSel = 0; u->cdevTop = 0;           /* control-panel list */
     u->bgValid = 0;                                          /* force a full first paint */
+    u->lastMode = -1;
+    u->catList = 0;                                          /* categories list hidden */
     {
         int i;
         for (i = 0; i < MAX_ITEMS; i++) u->rowIcon[i] = 0;   /* lazy row-icon cache */
@@ -282,6 +285,7 @@ static void draw_carousel(Ui *u)
     int            carH   = usable * 42 / 100;
     short          carTop = HEADER_H;
     short          carBot, detTop, detBot;
+    short          clx = (short)(u->catList ? CATLIST_W : 0);  /* content left edge */
 
     if (carH < 120) carH = 120;
     carBot = (short)(HEADER_H + carH);
@@ -289,6 +293,33 @@ static void draw_carousel(Ui *u)
     detBot = (short)(H - HINT_H);
 
     render_fill(r, &full, FILL_BG);
+
+    /* ---- optional categories list (left panel) ---- */
+    if (u->catList) {
+        short sy = HEADER_H, sb = (short)(H - HINT_H);
+        int   rows = (sb - sy - 4) / ROW_H;
+        int   top, i;
+        Rect  sr;
+        SetRect(&sr, 0, sy, CATLIST_W, sb);
+        render_fill(r, &sr, FILL_PANEL);
+        render_frame(r, &sr);
+        top = m->curCat - rows / 2;
+        if (top + rows > m->ncats) top = m->ncats - rows;
+        if (top < 0) top = 0;
+        for (i = 0; i < rows; i++) {
+            int   ci = top + i;
+            short y0 = (short)(sy + 2 + i * ROW_H), base = (short)(y0 + ROW_H - 5);
+            int   sel;
+            char  nm[ITEM_CAT_LEN];
+            if (ci >= m->ncats) break;
+            sel = (ci == m->curCat);
+            SetRect(&sr, 2, y0, (short)(CATLIST_W - 2), (short)(y0 + ROW_H));
+            render_fill(r, &sr, sel ? FILL_SEL : FILL_PANEL);
+            strncpy(nm, m->cats[ci].name, sizeof nm - 1); nm[sizeof nm - 1] = '\0';
+            while (nm[0] && render_text_width(r, nm) > CATLIST_W - 14) nm[strlen(nm) - 1] = '\0';
+            render_text(r, 8, base, nm, sel ? INK_SELECTED : INK_NORMAL);
+        }
+    }
 
     /* The detail art is NOT loaded here — decoding a colour PICT on every move
      * makes scrolling lurch. ui_idle() loads it once the selection settles; until
@@ -314,14 +345,14 @@ static void draw_carousel(Ui *u)
     }
     render_hline(r, 0, (short)W, (short)(HEADER_H - 1));
 
-    /* ---- carousel band ---- */
+    /* ---- carousel band (in the content area to the right of any cat list) ---- */
     if (!cat || cat->count == 0) {
         const char *t = "(no items in this category)";
-        render_text(r, (short)((W - render_text_width(r, t)) / 2),
+        render_text(r, (short)(clx + (W - clx - render_text_width(r, t)) / 2),
                     (short)(carTop + carH / 2), t, INK_DIM);
     } else {
         int   center  = m->curItem;
-        short cx      = (short)(W / 2);
+        short cx      = (short)((clx + W) / 2);
         short iconCy  = (short)(carTop + (carH - 22) / 2);
         short centSz  = (short)(carH - 44);
         short sideSz, sideGap = 8, half;
@@ -331,7 +362,7 @@ static void draw_carousel(Ui *u)
         if (centSz < 40) centSz = 40;
         sideSz = (short)(centSz * 9 / 16);
         half   = (short)(centSz / 2);
-        nside  = (W / 2 - half - MARGIN) / (sideSz + sideGap);
+        nside  = ((W - clx) / 2 - half - MARGIN) / (sideSz + sideGap);
         if (nside > 4) nside = 4;
         if (nside < 1) nside = 1;
 
@@ -356,18 +387,19 @@ static void draw_carousel(Ui *u)
         }
         if (cur) {
             short nw = render_text_width(r, cur->name);
-            render_text(r, (short)((W - nw) / 2), (short)(carBot - 6), cur->name, INK_TITLE);
+            render_text(r, (short)(clx + (W - clx - nw) / 2), (short)(carBot - 6),
+                        cur->name, INK_TITLE);
         }
     }
-    render_hline(r, 0, (short)W, carBot);
+    render_hline(r, clx, (short)W, carBot);
 
     /* ---- detail band: art (left) + name / meta / blurb (right) ---- */
     {
-        short artW = (short)(W * 2 / 5);
+        short artW = (short)((W - clx) * 2 / 5);
         short ax0, ay0, ax1, ay1;
         Rect  ar;
         if (artW > 220) artW = 220;
-        ax0 = MARGIN; ay0 = (short)(detTop + MARGIN);
+        ax0 = (short)(clx + MARGIN); ay0 = (short)(detTop + MARGIN);
         ax1 = (short)(ax0 + artW); ay1 = (short)(detBot - MARGIN);
         SetRect(&ar, ax0, ay0, ax1, ay1);
         render_frame(r, &ar);
@@ -455,7 +487,7 @@ static void draw_carousel(Ui *u)
  * Artwork / Startup Sound / Shutdown Sound) plus a Control Panels action row.
  * Up/Down move rows; Left/Right (and Return) change the selected row's value;
  * Return on the last row opens the Control Panels list. */
-#define SET_N 7
+#define SET_N 8
 #define SET_ROW_CTLPANELS (SET_N - 1)   /* the action row (opens the cdev list) */
 
 static void set_row_text(Ui *u, int row, char *out)
@@ -494,6 +526,11 @@ static void set_row_text(Ui *u, int row, char *out)
             strcpy(out, "Shutdown Sound");
             while (strlen(out) < 16) strcat(out, " ");
             strcat(out, u->sndShutdown ? "On" : "Off");
+            break;
+        case 6:
+            strcpy(out, "Categories");
+            while (strlen(out) < 16) strcat(out, " ");
+            strcat(out, u->catList ? "Shown" : "Hidden");
             break;
         default:
             strcpy(out, "Control Panels");
@@ -736,6 +773,9 @@ static void draw_info(Ui *u)
 void ui_draw(Ui *u)
 {
     render_begin(u->r, u->win);
+    /* A mode change (overlay opened/closed/switched) needs one full repaint so
+     * the previous panel is cleared before the new view draws. */
+    if (u->mode != u->lastMode) { u->bgValid = 0; u->lastMode = u->mode; }
     if (u->mode == UI_MODE_PREVIEW) {
         draw_preview(u);
         u->bgValid = 0;                 /* full-screen view -> carousel not in GWorld */
@@ -782,12 +822,13 @@ int ui_idle(Ui *u)
 
 static UiCommand menu_select(Ui *u)
 {
-    u->mode = UI_MODE_LIST;
     switch (u->menuSel) {
-        case 0: return UI_SHOW_FINDER;
-        case 1: return UI_RESTART;
-        case 2: return UI_SHUTDOWN;
+        case 0: u->mode = UI_MODE_SETTINGS; u->setSel = 0; return UI_NONE;  /* Settings */
+        case 1: u->mode = UI_MODE_LIST; return UI_SHOW_FINDER;
+        case 2: u->mode = UI_MODE_LIST; return UI_RESTART;
+        case 3: u->mode = UI_MODE_LIST; return UI_SHUTDOWN;
     }
+    u->mode = UI_MODE_LIST;
     return UI_NONE;
 }
 
@@ -923,9 +964,13 @@ static int settings_adjust(Ui *u, int dir)
             u->sndStartup = u->sndStartup ? 0 : 1;
             if (u->sndStartup) sound_play_file("sounds/startup", 1);   /* preview */
             return 1;
-        default:                                   /* Shutdown Sound On/Off (persisted) */
+        case 5:                                    /* Shutdown Sound On/Off (persisted) */
             u->sndShutdown = u->sndShutdown ? 0 : 1;
             if (u->sndShutdown) sound_play_file("sounds/shutdown", 1); /* preview */
+            return 1;
+        default:                                   /* Categories list Show/Hide (persisted) */
+            u->catList = u->catList ? 0 : 1;
+            u->bgValid = 0;                         /* browse layout changes */
             return 1;
     }
 }

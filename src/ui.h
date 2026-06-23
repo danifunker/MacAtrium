@@ -56,6 +56,10 @@ typedef struct {
     int        bgValid;       /* 1 = the GWorld already holds the carousel, so a
                               * menu/settings overlay can redraw without repainting
                               * the whole screen behind it (fast modal nav)      */
+    int        lastMode;      /* mode at the previous draw; a change forces one
+                              * full repaint so a switched/closed overlay clears  */
+    int        catList;       /* 1 = show the categories list panel on the browse
+                              * screen (toggled in Settings)                      */
 } Ui;
 
 void      ui_init(Ui *u, Env *env, Render *r, Model *m, WindowPtr win, int safe);
