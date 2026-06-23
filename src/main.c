@@ -32,6 +32,18 @@
 #define plainDBox 2
 #endif
 
+/* MultiFinder suspend/resume (we set acceptSuspendResumeEvents in the SIZE
+ * resource). Standard on full toolboxes; guard for leaner Retro68 headers. */
+#ifndef osEvt
+#define osEvt 15
+#endif
+#ifndef suspendResumeMessage
+#define suspendResumeMessage 1
+#endif
+#ifndef resumeFlag
+#define resumeFlag 1
+#endif
+
 /* Large structures live in BSS, not on the stack. */
 static Catalog   gCat;
 static Model     gModel;
@@ -303,6 +315,22 @@ int main(void)
                 }
                 case mouseDown:
                     SelectWindow(gWin);
+                    break;
+                case osEvt:
+                    /* Suspend/resume from the app switcher. On resume — e.g.
+                     * switched back to us after Show Finder — re-hide the menu
+                     * bar (reclaiming its strip) and repaint full-screen; on
+                     * suspend, hand the bar back so the Finder has its menus. */
+                    if (((evt.message >> 24) & 0xFFL) == suspendResumeMessage) {
+                        if (evt.message & resumeFlag) {
+                            hide_menu_bar();
+                            CalcVis((WindowPeek)gWin);
+                            SetPort(gWin);
+                            ui_draw(&gUi);
+                        } else {
+                            restore_menu_bar();
+                        }
+                    }
                     break;
             }
         }

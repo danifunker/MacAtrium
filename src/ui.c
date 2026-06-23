@@ -175,6 +175,19 @@ static void dispose_row_icons(Ui *u)
 #define ART_PANE_W 176          /* right-hand art pane width when wide enough */
 #define ART_MIN_W  560          /* show the art pane only at this width or more */
 
+/* Art-pane width: the classic 176 px up to 720 px wide (640x480 unchanged), then
+ * a proportional ~27% (capped at 360) on bigger screens so the art isn't a sliver
+ * at 800x600 / 1024x768. The list takes the rest of the width. */
+static int art_pane_w(int W)
+{
+    int w;
+    if (W <= 720) return ART_PANE_W;
+    w = W * 27 / 100;
+    if (w < ART_PANE_W) w = ART_PANE_W;
+    if (w > 360) w = 360;
+    return w;
+}
+
 #define GEAR_X 8                /* settings affordance: left edge */
 #define GEAR_W 24               /* ...and reserved width (title starts after) */
 
@@ -243,8 +256,9 @@ static void draw_list(Ui *u)
     int       detailH = narrow ? 0 : 2 * ROW_H;   /* meta line + blurb */
     short     listTop = HEADER_H;
     short     listBot = (short)(H - HINT_H - detailH);
+    int       artW    = art_pane_w(W);
     int       showArt = (!narrow && W >= ART_MIN_W);
-    int       listW   = showArt ? (W - ART_PANE_W) : W;
+    int       listW   = showArt ? (W - artW) : W;
     int       visRows = (listBot - listTop - 2) / ROW_H;
     int       i, top;
 
@@ -348,7 +362,7 @@ static void draw_list(Ui *u)
             art_draw_fit(u->listArt, &inner);
         } else {
             const char *t = "(no art)";
-            short tx = (short)(listW + (ART_PANE_W - render_text_width(r, t)) / 2);
+            short tx = (short)(listW + (artW - render_text_width(r, t)) / 2);
             render_text(r, tx, (short)((listTop + listBot) / 2), t, INK_DIM);
         }
     }

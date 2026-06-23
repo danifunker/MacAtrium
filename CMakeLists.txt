@@ -28,6 +28,7 @@ add_application(MacAtrium
     src/display.c
     src/sound.c
     src/prefs.c
+    src/macatrium.r          # overrides SIZE (-1): 4 MB partition + suspend/resume
     TYPE "APPL"
     CREATOR "ATRM"
 )
