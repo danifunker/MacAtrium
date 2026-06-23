@@ -19,18 +19,28 @@ The MVP and the **7.x feature push are essentially complete** and verified in Sn
   Finder** (`ExitToShell`, matched by virtual key code).
 - **Launcher UX:** keyboard list nav, type-ahead, alias-resolved launch+return,
   dark/light theme, **More Info card** (`I`) + a two-line detail (developer/year/
-  genre + blurb), inline art pane, full-screen art preview (`P`).
+  genre + blurb), inline art pane, full-screen art preview (`P`); **per-item
+  launch hotkeys** (a `hotkey` char launches that title — doubles as a gamepad
+  button map via MiSTer); **per-row icons** (1-bit ICN# + colour icl8, drawn in
+  the list gutter, depth-matched).
 - **Colour/art:** colour backend verified at every depth; `atrium pict` emits
   **1/4/8/16/24-bit**; the launcher picks the best variant for the screen and
   down-converts deeper masters. **Two artworks per title** (Box-Front + gameplay
   Screenshot), switchable via **Settings → Artwork**.
-- **Settings panel:** Theme / Color Depth (runtime `SetDepth`) / Volume / Artwork.
-- **Prefs persistence:** theme / volume / artwork / last-selection → `MacAtrium
-  Prefs` in the Preferences folder ([17](17-prefs-persistence.md)).
+- **Settings panel:** Theme / Color Depth (runtime `SetDepth`) / Volume / Artwork
+  / **Startup Sound** / **Shutdown Sound** (on/off, ≤7 s clips baked into the
+  image) / **Control Panels** (enumerate the System `cdev`s, open via an `odoc`
+  AppleEvent to the Finder).
+- **Prefs persistence:** theme / volume / artwork / sound on-off / last-selection
+  → `MacAtrium Prefs` in the Preferences folder ([17](17-prefs-persistence.md)).
+- **App resource:** `SIZE (-1)` override (`src/macatrium.r`) — 4 MB partition,
+  MultiFinder suspend/resume (re-hides the bar + hides our window on switch-away),
+  HLE-aware (so we can send the Control Panels `odoc`).
 - **Build pipeline:** the pure-Rust `atrium` crate (`harvest · enrich · merge ·
-  set · pict · icon · catalog · image`) + the **Management UI** (egui, full
-  `atrium image` config, runs long ops on a worker thread) + **CI** that ships the
-  CLI bundled inside each GUI package (win/mac/linux).
+  set · pict · icon · snd · catalog · image`) — **harvest now recurses the whole
+  app folder tree** (nested data: DOOM wads, data dirs) — + the **Management UI**
+  (egui, full `atrium image` config incl. sounds + hotkeys, runs long ops on a
+  worker thread) + **CI** that ships the CLI bundled inside each GUI package.
 
 Sample appliance to run: **`~/MacAtrium-sample/`** (image + both ROMs + README +
 `screenshots/`). Rebuild it with `atrium image --config /tmp/macatrium-sample/sample-image.json`.
@@ -73,20 +83,25 @@ Sample appliance to run: **`~/MacAtrium-sample/`** (image + both ROMs + README +
 
 ## What's left
 
-**Next up (designed, ready to build): per-item launch hotkeys / gamepad mappings**
-— optional `hotkey` per item in `overrides.jsonl` → catalog; the launcher launches
-that title when the key is pressed (MiSTer maps buttons→keys, so it doubles as
-per-item button mapping); set it via a "Hotkey" column in the Management UI.
+The 7.x polish list is **done** (hotkeys, list-row icons + `icl8`, `SIZE (-1)`
+4 MB partition + suspend/resume, Settings → Control Panels) plus two extras
+shipped on request: **configurable startup/shutdown sounds** and **recursive
+structure-preserving harvest**. Each is verified in Snow (System 7.1, Mac II)
+except where noted below.
 
-Other 7.x polish:
-- **Settings → Control Panels** (enumerate via `FindFolder`, open `cdev`s with an
-  `odoc` AppleEvent to the resident Finder).
-- Icons *next to* list rows + `icl8` colour icons; per-resolution layout tuning
-  (800×600, 1024×768, 512×342 B&W); `SIZE (-1)` 4 MB partition bump; 7.6.1 run.
+Remaining 7.x odds and ends:
+- **Per-resolution layout** — only the wide-screen art-pane scaling is done (and
+  gated so 640×480 is unchanged). Real tuning for 512×342 B&W / 800×600 / 1024×768
+  is unverified (the harness only renders 640×480) — needs runs at those modes.
+- **7.6.1 run** — no 7.6.1 disk on the box yet (have 7.0.1 / 7.1 / 7.5.5 / 6.0.8).
 
-Loose ends needing a **non-headless** run (not code-blocked):
-- Re-hide the menu bar when returning from **Show Finder** (MultiFinder
-  suspend/resume; needs the SIZE `acceptSuspendResumeEvents` flag + app-switch test).
+Loose ends needing a **non-headless** run (code is done; emulator can't show it):
+- **Control Panels open**: the `odoc` AppleEvent now *sends* without error and
+  fronts the Finder (our window hides to reveal it), but the emulator's Finder
+  doesn't visibly open the `cdev` — confirm the panel actually opens on real HW.
+- **Re-hide menu bar on resume**: the SIZE `acceptSuspendResumeEvents` flag +
+  osEvt handler (Hide/ShowWindow + re-hide bar) are in `main.c`; confirm with a
+  real app-switch (Finder → back).
 - Confirm the **prefs cross-boot round-trip** on interactive Snow / real hardware.
 
 Bigger tracks:
