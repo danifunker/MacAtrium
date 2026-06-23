@@ -139,7 +139,11 @@ fn derive_categories(it: &SourceItem) -> Vec<String> {
     for g in &it.genre {
         push(&mut cats, g.trim().to_string());
     }
-    if let Some(color) = it.color {
+    // Colour facet: an explicit `color` (a manual override or screenshot
+    // detection) always wins; otherwise a pre-1987 title falls back to B&W, since
+    // the Mac was 1-bit-only until the Mac II (1987).
+    let color = it.color.or_else(|| it.year.filter(|&y| y < 1987).map(|_| false));
+    if let Some(color) = color {
         push(&mut cats, if color { "Color" } else { "B&W" }.to_string());
     }
     if let Some(year) = it.year {
@@ -426,6 +430,22 @@ mod tests {
                 "Mouse Required",
             ]
         );
+    }
+
+    #[test]
+    fn pre_1987_defaults_to_bw_but_explicit_color_wins() {
+        // No color facet + year < 1987 -> B&W (Mac was 1-bit only).
+        let it = item(r#"{"id":"x","name":"X","app":"a","year":1985}"#);
+        assert!(derive_categories(&it).iter().any(|c| c == "B&W"));
+        // An explicit colour facet overrides the year prior.
+        let it = item(r#"{"id":"x","name":"X","app":"a","year":1985,"color":true}"#);
+        let cats = derive_categories(&it);
+        assert!(cats.iter().any(|c| c == "Color"));
+        assert!(!cats.iter().any(|c| c == "B&W"));
+        // 1987+ with no facet stays unclassified (neither Color nor B&W).
+        let it = item(r#"{"id":"x","name":"X","app":"a","year":1990}"#);
+        let cats = derive_categories(&it);
+        assert!(!cats.iter().any(|c| c == "Color" || c == "B&W"));
     }
 
     #[test]

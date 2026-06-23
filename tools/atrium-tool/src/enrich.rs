@@ -459,7 +459,13 @@ pub fn run(
         std::fs::create_dir_all(&tmp)?;
         for (item_idx, dbid) in &wanted {
             let need = match &items[*item_idx] {
-                Item::Rec(o) => overwrite || missing(o, "color"),
+                // Pre-1987 titles are B&W by the year prior (the Mac was 1-bit
+                // until the Mac II), so don't let a colourful LaunchBox shot
+                // mislabel them — leave `color` unset for the catalog to fill.
+                Item::Rec(o) => {
+                    let pre_color_mac = o.get("year").and_then(Value::as_i64).is_some_and(|y| y < 1987);
+                    !pre_color_mac && (overwrite || missing(o, "color"))
+                }
                 _ => false,
             };
             if !need {
