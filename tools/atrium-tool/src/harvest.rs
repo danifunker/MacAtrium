@@ -1,12 +1,15 @@
 //! `atrium harvest` — pull apps out of a donor HFS image (the MacPack `.vhd`s)
 //! into the MacAtrium tree (docs/06, docs/13 Priority 1).
 //!
-//! For each source app folder it: lists the folder, finds the launchable `APPL`,
-//! extracts that plus its data files (both forks, via `rb-cli get-binhex`) to a
-//! staging dir, and emits a `data/library.jsonl` stub (id/name/app path + year &
-//! kind inferred from the source path). With `--into`, it also injects the forks
-//! straight into a target image's `/MacAtrium/Apps`. System clutter bundled in a
-//! game folder (System/Finder, Desktop DB/DF, Icon) is skipped.
+//! For each source app folder it: finds the launchable `APPL`, then **recursively
+//! copies the whole folder tree** (both forks, via `rb-cli get-binhex`),
+//! mirroring sub-folders under `/MacAtrium/Apps/<app>/` — so games that keep data
+//! in sub-folders (DOOM `.wad`s, level/data directories) come over intact, not
+//! just the top-level files. It emits a `data/library.jsonl` stub (id/name/app
+//! path + year & kind inferred from the source path). With `--into`, it injects
+//! the forks straight into the target image. System clutter bundled in a game
+//! folder (System/Finder, Desktop DB/DF, Icon, a bundled System Folder/Trash) is
+//! skipped at every level.
 
 use crate::rbcli::{Entry, RbCli};
 use anyhow::{bail, Context, Result};
@@ -33,6 +36,21 @@ fn is_clutter(e: &Entry) -> bool {
         || e.name == "Desktop"
         || e.name == "Icon\r"
         || e.name == "Icon"
+}
+
+/// Sub-folders we never recurse into (a bundled System Folder or the volume's
+/// housekeeping folders) — they'd drag in a whole System, not game data.
+fn is_clutter_dir(e: &Entry) -> bool {
+    e.is_dir
+        && matches!(
+            e.name.as_str(),
+            "System Folder"
+                | "Desktop Folder"
+                | "Trash"
+                | "Temporary Items"
+                | "TheVolumeSettingsFolder"
+                | "Cleanup At Startup"
+        )
 }
 
 /// Lowercase ASCII slug; common Latin accents folded so "Déjà Vu" → "deja-vu".
@@ -91,6 +109,80 @@ fn infer_year(src_folder: &str) -> Option<i64> {
         .find(|y| (1970..=2010).contains(y))
 }
 
+/// Recursively copy a source folder's tree into the target, mirroring sub-folders
+/// under `app_dir`. `rel` is the path so far relative to `app_dir` ("" at the
+/// top). Every kept file is extracted (both forks) and, with `into`, injected
+/// into its mirrored directory. Clutter files/folders are skipped at each level.
+#[allow(clippy::too_many_arguments)]
+fn harvest_tree(
+    rb: &RbCli,
+    image: &Path,
+    src_folder: &str,
+    rel: &str,
+    app_dir: &str,
+    stage_dir: &Path,
+    into: Option<&Path>,
+    files: &mut Vec<String>,
+    warnings: &mut Vec<String>,
+    depth: usize,
+) -> Result<()> {
+    if depth > 12 {
+        warnings.push(format!("{src_folder}: folder nesting too deep, stopping"));
+        return Ok(());
+    }
+    let entries = rb
+        .ls(image, src_folder)
+        .with_context(|| format!("listing {src_folder}"))?;
+
+    for e in &entries {
+        if e.name.contains('/') {
+            warnings.push(format!("{src_folder}: skipping '{}' (name contains '/')", e.name));
+            continue;
+        }
+        let child_src = format!("{}/{}", src_folder.trim_end_matches('/'), e.name);
+        let child_rel = if rel.is_empty() {
+            e.name.clone()
+        } else {
+            format!("{rel}/{}", e.name)
+        };
+
+        if e.is_dir {
+            if is_clutter_dir(e) {
+                continue; // a bundled System Folder / housekeeping dir
+            }
+            // Mirror the sub-folder on the target, then recurse into it.
+            let child_dir = format!("{app_dir}/{child_rel}");
+            if let Some(target) = into {
+                rb.mkdir_p(target, &child_dir)?;
+            }
+            harvest_tree(
+                rb, image, &child_src, &child_rel, app_dir, stage_dir, into, files, warnings,
+                depth + 1,
+            )?;
+            continue;
+        }
+
+        if is_clutter(e) {
+            continue;
+        }
+
+        // A file: extract both forks and inject into its mirrored directory.
+        let dst_dir = match child_rel.rfind('/') {
+            Some(i) => format!("{app_dir}/{}", &child_rel[..i]),
+            None => app_dir.to_string(),
+        };
+        let hqx = stage_dir.join(format!("{}.hqx", slugify(&child_rel)));
+        rb.get_binhex(image, &child_src, &hqx)
+            .with_context(|| format!("extracting {child_src}"))?;
+        if let Some(target) = into {
+            rb.put_binhex(target, &hqx, &dst_dir)
+                .with_context(|| format!("injecting {child_rel} into {dst_dir}"))?;
+        }
+        files.push(child_rel);
+    }
+    Ok(())
+}
+
 /// Harvest one source app folder. Returns None if the folder has no launchable
 /// `APPL` (logged by the caller).
 fn harvest_one(
@@ -112,12 +204,6 @@ fn harvest_one(
     };
     let app_dir = format!("{apps_root}/{app}");
 
-    let keep: Vec<&Entry> = entries
-        .iter()
-        .filter(|e| !e.is_dir && !is_clutter(e))
-        .collect();
-
-    // Stage + (optionally) inject each kept file, both forks.
     let app_slug = slugify(&app);
     let stage_dir = stage.join(&app_slug);
     std::fs::create_dir_all(&stage_dir)?;
@@ -125,22 +211,11 @@ fn harvest_one(
         rb.mkdir_p(target, &app_dir)?;
     }
 
+    // Recursively copy the whole folder tree (preserving sub-folders).
     let mut files = Vec::new();
-    for e in &keep {
-        if e.name.contains('/') {
-            warnings.push(format!("{src_folder}: skipping '{}' (name contains '/')", e.name));
-            continue;
-        }
-        let src = format!("{src_folder}/{}", e.name);
-        let hqx = stage_dir.join(format!("{}.hqx", slugify(&e.name)));
-        rb.get_binhex(image, &src, &hqx)
-            .with_context(|| format!("extracting {src}"))?;
-        if let Some(target) = into {
-            rb.put_binhex(target, &hqx, &app_dir)
-                .with_context(|| format!("injecting {} into {app_dir}", e.name))?;
-        }
-        files.push(e.name.clone());
-    }
+    harvest_tree(
+        rb, image, src_folder, "", &app_dir, &stage_dir, into, &mut files, warnings, 0,
+    )?;
 
     if files.is_empty() {
         warnings.push(format!("{src_folder}: APPL '{app}' but no files extracted"));
@@ -340,6 +415,24 @@ mod tests {
         assert!(is_clutter(&mk("BTFL", "Desktop DB")));
         assert!(!is_clutter(&mk("APPL", "Dark Castle")));
         assert!(!is_clutter(&mk("DCFL", "Data A")));
+    }
+
+    #[test]
+    fn clutter_dir_filter() {
+        let dir = |name: &str| Entry {
+            is_dir: true, ostype: String::new(), creator: String::new(),
+            name: name.into(), size: 0,
+        };
+        let file = |name: &str| Entry {
+            is_dir: false, ostype: "WAD ".into(), creator: "x".into(),
+            name: name.into(), size: 0,
+        };
+        assert!(is_clutter_dir(&dir("System Folder")));
+        assert!(is_clutter_dir(&dir("Trash")));
+        // a real game data sub-folder is kept, and files are never clutter-dirs
+        assert!(!is_clutter_dir(&dir("wads")));
+        assert!(!is_clutter_dir(&dir("Levels")));
+        assert!(!is_clutter_dir(&file("System Folder")));
     }
 
     #[test]
