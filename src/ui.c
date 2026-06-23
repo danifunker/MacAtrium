@@ -250,159 +250,163 @@ static void draw_safe(Ui *u)
     }
 }
 
-static void draw_list(Ui *u)
+/* Draw one carousel tile: the item's app icon (depth-matched, cached) centered
+ * at (cx, cy) in an sz x sz box, or a framed placeholder if it has no icon. */
+static void draw_tile(Ui *u, int catIdx, const CatItem *it, short cx, short cy, short sz)
 {
-    Render   *r = u->r;
-    Model    *m = u->m;
-    int       W = win_w(u), H = win_h(u);
-    int       narrow = (W < NARROW_W);
-    ModelCat *cat = model_cur_cat(m);
-    Rect      full = u->win->portRect;
-    Rect      rr;
-    char      num[16];
-    int       detailH = narrow ? 0 : 2 * ROW_H;   /* meta line + blurb */
-    short     listTop = HEADER_H;
-    short     listBot = (short)(H - HINT_H - detailH);
-    int       artW    = art_pane_w(W);
-    int       showArt = (!narrow && W >= ART_MIN_W);
-    int       listW   = showArt ? (W - artW) : W;
-    int       visRows = (listBot - listTop - 2) / ROW_H;
-    int       i, top;
+    Rect box;
+    Art *ic;
+    short h = (short)(sz / 2);
+    SetRect(&box, (short)(cx - h), (short)(cy - h), (short)(cx + h), (short)(cy + h));
+    ic = it->icon[0] ? row_icon(u, catIdx, it) : 0;
+    if (ic) art_draw_fit(ic, &box);
+    else    render_frame(u->r, &box);          /* icon-less item placeholder */
+}
+
+/* The browse screen: a horizontal icon carousel (Left/Right scroll the games,
+ * the selected one enlarged in the centre; Up/Down change category) over a
+ * detail panel (the selected game's art + name / developer / genre / blurb).
+ * Reuses the lazily-cached app icons (carousel) and the depth-matched art
+ * loader (detail pane), so a move is mostly cheap icon blits. */
+static void draw_carousel(Ui *u)
+{
+    Render        *r   = u->r;
+    Model         *m   = u->m;
+    int            W   = win_w(u), H = win_h(u);
+    ModelCat      *cat = model_cur_cat(m);
+    const CatItem *cur = model_cur_item(m);
+    Rect           full = u->win->portRect;
+    char           num[16];
+    int            usable = H - HEADER_H - HINT_H;
+    int            carH   = usable * 42 / 100;
+    short          carTop = HEADER_H;
+    short          carBot, detTop, detBot;
+
+    if (carH < 120) carH = 120;
+    carBot = (short)(HEADER_H + carH);
+    detTop = (short)(carBot + 1);
+    detBot = (short)(H - HINT_H);
 
     render_fill(r, &full, FILL_BG);
 
-    /* lazy-load the selected item's art for the inline pane (only on change) */
-    if (showArt) {
-        const CatItem *curIt = model_cur_item(m);
-        if (curIt != u->artFor) {
-            if (u->listArt) { art_dispose(u->listArt); u->listArt = 0; }
-            if (curIt) {
-                const char *base = art_base(u, curIt);
-                if (base && base[0]) u->listArt = load_item_art(u, base);
-            }
-            u->artFor = curIt;
+    /* lazy-load the selected item's art for the detail pane (only on change) */
+    if (cur != u->artFor) {
+        if (u->listArt) { art_dispose(u->listArt); u->listArt = 0; }
+        if (cur) {
+            const char *base = art_base(u, cur);
+            if (base && base[0]) u->listArt = load_item_art(u, base);
         }
-    } else if (u->listArt) {
-        art_dispose(u->listArt); u->listArt = 0; u->artFor = 0;
+        u->artFor = cur;
     }
 
-    /* ---- header ---- */
+    /* ---- header: gear, title, the category (with ^v), and N / M ---- */
     render_text_size(r, 12);
     draw_settings_btn(u);
     render_text(r, GEAR_X + GEAR_W, 20, "MacAtrium", INK_TITLE);
     if (cat) {
-        short x = (short)(GEAR_X + GEAR_W + render_text_width(r, "MacAtrium") + 20);
-        render_text(r, x, 20, cat->name, INK_NORMAL);
-    }
-    if (cat) {
-        char line[32];
-        l2s(cat->count, num);
-        strcpy(line, num);
-        strcat(line, (cat->count == 1) ? " item" : " items");
-        render_text(r, (short)(W - MARGIN - render_text_width(r, line)), 20, line, INK_DIM);
+        char  cl[ITEM_CAT_LEN + 8];
+        short cw;
+        strcpy(cl, "^ "); strcat(cl, cat->name); strcat(cl, " v");
+        cw = render_text_width(r, cl);
+        render_text(r, (short)((W - cw) / 2), 20, cl, INK_NORMAL);
+        {
+            char line[24];
+            l2s(m->curItem + 1, num); strcpy(line, num);
+            strcat(line, " / ");
+            l2s(cat->count, num); strcat(line, num);
+            render_text(r, (short)(W - MARGIN - render_text_width(r, line)), 20, line, INK_DIM);
+        }
     }
     render_hline(r, 0, (short)W, (short)(HEADER_H - 1));
 
-    /* ---- list panel ---- */
-    SetRect(&rr, 0, listTop, (short)listW, listBot);
-    render_fill(r, &rr, FILL_PANEL);
-
-    top = clamp_scroll(u, visRows);
-
+    /* ---- carousel band ---- */
     if (!cat || cat->count == 0) {
-        render_text(r, MARGIN, (short)(listTop + 22),
-                    "(no items in this category)", INK_DIM);
+        const char *t = "(no items in this category)";
+        render_text(r, (short)((W - render_text_width(r, t)) / 2),
+                    (short)(carTop + carH / 2), t, INK_DIM);
     } else {
-        /* Reserve an icon gutter only when some item in this category has an
-         * icon, so catalogs without icons render exactly as before. */
-        int gut = 0;
-        for (i = 0; i < cat->count; i++)
-            if (m->cat->items[cat->idx[i]].icon[0]) { gut = ICON_GUT; break; }
+        int   center  = m->curItem;
+        short cx      = (short)(W / 2);
+        short iconCy  = (short)(carTop + (carH - 22) / 2);
+        short centSz  = (short)(carH - 44);
+        short sideSz, sideGap = 8, half;
+        int   nside, k;
 
-        for (i = 0; i < visRows; i++) {
-            int row = top + i;
-            short y0, base, tx;
-            int sel;
-            const CatItem *it;
-            if (row >= cat->count) break;
-            it  = &m->cat->items[cat->idx[row]];
-            sel = (row == m->curItem);
-            y0  = (short)(listTop + i * ROW_H);
-            base = (short)(y0 + ROW_H - 5);
-            tx  = (short)(MARGIN + gut);
+        if (centSz > 76) centSz = 76;
+        if (centSz < 40) centSz = 40;
+        sideSz = (short)(centSz * 9 / 16);
+        half   = (short)(centSz / 2);
+        nside  = (W / 2 - half - MARGIN) / (sideSz + sideGap);
+        if (nside > 4) nside = 4;
+        if (nside < 1) nside = 1;
 
-            SetRect(&rr, 0, y0, (short)listW, (short)(y0 + ROW_H));
-            render_fill(r, &rr, sel ? FILL_SEL : FILL_PANEL);
-
-            /* small app icon in the gutter (depth-matched, lazily cached) */
-            if (gut && it->icon[0]) {
-                Art *ic = row_icon(u, cat->idx[row], it);
-                if (ic) {
-                    Rect ir;
-                    SetRect(&ir, MARGIN, (short)(y0 + 1),
-                            (short)(MARGIN + ICON_SZ), (short)(y0 + 1 + ICON_SZ));
-                    art_draw_fit(ic, &ir);
-                }
-            }
-
-            render_text(r, tx, base, it->name, sel ? INK_SELECTED : INK_NORMAL);
-
-            if (!narrow && it->year > 0) {
-                l2s(it->year, num);
-                render_text(r, (short)(listW - MARGIN - render_text_width(r, num)),
-                            base, num, sel ? INK_SELECTED : INK_DIM);
-            }
+        /* side tiles outer -> inner (centre drawn last, on top) */
+        for (k = nside; k >= 1; k--) {
+            short off = (short)(half + sideGap + sideSz / 2 + (k - 1) * (sideSz + sideGap));
+            int   li = center - k, ri = center + k;
+            if (li >= 0)
+                draw_tile(u, cat->idx[li], &m->cat->items[cat->idx[li]],
+                          (short)(cx - off), iconCy, sideSz);
+            if (ri < cat->count)
+                draw_tile(u, cat->idx[ri], &m->cat->items[cat->idx[ri]],
+                          (short)(cx + off), iconCy, sideSz);
+        }
+        /* centre tile + a frame to mark the selection */
+        draw_tile(u, cat->idx[center], cur, cx, iconCy, centSz);
+        {
+            Rect f;
+            SetRect(&f, (short)(cx - half - 3), (short)(iconCy - half - 3),
+                    (short)(cx + half + 3), (short)(iconCy + half + 3));
+            render_frame(r, &f);
+        }
+        if (cur) {
+            short nw = render_text_width(r, cur->name);
+            render_text(r, (short)((W - nw) / 2), (short)(carBot - 6), cur->name, INK_TITLE);
         }
     }
-    SetRect(&rr, 0, listTop, (short)listW, listBot);
-    render_frame(r, &rr);
+    render_hline(r, 0, (short)W, carBot);
 
-    /* ---- inline art pane (selected item's box art, depth-matched) ---- */
-    if (showArt) {
-        Rect ap, inner;
-        SetRect(&ap, (short)listW, listTop, (short)W, listBot);
-        render_fill(r, &ap, FILL_PANEL);
-        render_frame(r, &ap);
+    /* ---- detail band: art (left) + name / meta / blurb (right) ---- */
+    {
+        short artW = (short)(W * 2 / 5);
+        short ax0, ay0, ax1, ay1;
+        Rect  ar;
+        if (artW > 220) artW = 220;
+        ax0 = MARGIN; ay0 = (short)(detTop + MARGIN);
+        ax1 = (short)(ax0 + artW); ay1 = (short)(detBot - MARGIN);
+        SetRect(&ar, ax0, ay0, ax1, ay1);
+        render_frame(r, &ar);
         if (u->listArt) {
-            SetRect(&inner, (short)(listW + MARGIN), (short)(listTop + MARGIN),
-                    (short)(W - MARGIN), (short)(listBot - MARGIN));
+            Rect inner;
+            SetRect(&inner, (short)(ax0 + 4), (short)(ay0 + 4),
+                    (short)(ax1 - 4), (short)(ay1 - 4));
             art_draw_fit(u->listArt, &inner);
         } else {
             const char *t = "(no art)";
-            short tx = (short)(listW + (artW - render_text_width(r, t)) / 2);
-            render_text(r, tx, (short)((listTop + listBot) / 2), t, INK_DIM);
+            render_text(r, (short)(ax0 + (artW - render_text_width(r, t)) / 2),
+                        (short)((ay0 + ay1) / 2), t, INK_DIM);
         }
-    }
-
-    /* ---- detail area: meta line (developer/year/genre) + blurb/status ---- */
-    if (!narrow) {
-        const CatItem *it = model_cur_item(m);
-        short y1 = (short)(listBot + ROW_H - 5);
-        short y2 = (short)(listBot + 2 * ROW_H - 5);
-        if (it) {
-            char meta[ITEM_VENDOR_LEN + ITEM_GENRE_LEN + 32];
-            build_meta(it, meta);
-            if (meta[0]) render_text(r, MARGIN, y1, meta, INK_DIM);
-        }
-        if (u->status[0]) {
-            render_text(r, MARGIN, y2, u->status, INK_NORMAL);
-        } else if (it && it->desc[0]) {
-            render_text(r, MARGIN, y2, it->desc, INK_NORMAL);
+        if (cur) {
+            short tx = (short)(ax1 + 2 * MARGIN);
+            short ty = (short)(detTop + 18);
+            char  meta[ITEM_VENDOR_LEN + ITEM_GENRE_LEN + 32];
+            render_text(r, tx, ty, cur->name, INK_TITLE); ty = (short)(ty + ROW_H);
+            build_meta(cur, meta);
+            if (meta[0]) { render_text(r, tx, ty, meta, INK_DIM); ty = (short)(ty + ROW_H + 4); }
+            if (u->status[0])
+                render_text(r, tx, ty, u->status, INK_NORMAL);
+            else if (cur->desc[0])
+                draw_wrapped(r, tx, ty, (short)(W - tx - MARGIN), ROW_H, cur->desc, INK_NORMAL, 6);
         }
     }
 
     /* ---- hint bar ---- */
     render_hline(r, 0, (short)W, (short)(H - HINT_H));
     {
-        const char *hint;
-        short x;
-        if (u->settingsFocus)
-            hint = "Settings:   Return  open      ->  back";
-        else
-            hint = narrow
-                ? "<> cat  ^v sel  Ret launch  I info  P art  Esc menu"
-                : "<- ->  category   ^ v  select   Return  launch   I  info   P  art   Esc  menu   <  settings";
-        x = (short)((W - render_text_width(r, hint)) / 2);
+        const char *hint = u->settingsFocus
+            ? "Settings:   Return  open       v  back"
+            : "<- ->  game    ^ v  category    Return  play    I  info   P  art   Esc  menu";
+        short x = (short)((W - render_text_width(r, hint)) / 2);
         if (x < MARGIN) x = MARGIN;
         render_text(r, x, (short)(H - 7), hint, INK_DIM);
     }
@@ -701,7 +705,7 @@ void ui_draw(Ui *u)
         if (u->safe) {
             draw_safe(u);
         } else {
-            draw_list(u);
+            draw_carousel(u);
         }
         if (u->mode == UI_MODE_MENU)
             draw_menu(u);
@@ -979,13 +983,14 @@ UiCommand ui_key(Ui *u, char ch)
             u->mode = UI_MODE_MENU;
             u->menuSel = 0;
             break;
-        case kCharUp:    if (!u->safe) model_move_item(u->m, -1); break;
-        case kCharDown:  if (!u->safe) model_move_item(u->m, +1); break;
-        case kCharLeft:
-            /* Left past the first category focuses the Settings gear. */
+        /* Carousel nav: Left/Right scroll games, Up/Down change category. */
+        case kCharLeft:  if (!u->safe) model_move_item(u->m, -1); break;
+        case kCharRight: if (!u->safe) model_move_item(u->m, +1); break;
+        case kCharUp:
+            /* Up past the first category focuses the Settings gear. */
             if (!u->safe && !model_move_cat(u->m, -1)) u->settingsFocus = 1;
             break;
-        case kCharRight: if (!u->safe) model_move_cat(u->m, +1); break;
+        case kCharDown:  if (!u->safe) model_move_cat(u->m, +1); break;
         case kCharReturn:
         case kCharEnter:
             if (!u->safe && model_cur_item(u->m)) {
