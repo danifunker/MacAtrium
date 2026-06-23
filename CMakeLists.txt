@@ -30,6 +30,7 @@ add_application(MacAtrium
     src/sound.c
     src/prefs.c
     src/macatrium.r          # overrides SIZE (-1): 4 MB partition + suspend/resume
+    src/macatrium-icon.r     # Finder app icon (greenhouse): ICN#/icl8/BNDL/FREF
     TYPE "APPL"
     CREATOR "ATRM"
 )
