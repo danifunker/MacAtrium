@@ -302,7 +302,13 @@ int main(void)
     if (gUi.sndStartup) sound_play_file("sounds/startup", 1);
 
     for (;;) {
-        if (WaitNextEvent(everyEvent, &evt, 10L, 0L)) {
+        if (!WaitNextEvent(everyEvent, &evt, 10L, 0L)) {
+            /* Idle: load the settled selection's detail art (deferred so a fast
+             * scroll never blocks on decoding a colour PICT), then repaint. */
+            if (ui_idle(&gUi)) ui_draw(&gUi);
+            continue;
+        }
+        {
             switch (evt.what) {
                 case keyDown:
                 case autoKey: {

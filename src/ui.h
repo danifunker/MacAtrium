@@ -53,11 +53,19 @@ typedef struct {
     int        ncdevs;        /* count enumerated                              */
     int        cdevSel;       /* selected control panel                        */
     int        cdevTop;       /* first visible row (scroll)                    */
+    int        bgValid;       /* 1 = the GWorld already holds the carousel, so a
+                              * menu/settings overlay can redraw without repainting
+                              * the whole screen behind it (fast modal nav)      */
 } Ui;
 
 void      ui_init(Ui *u, Env *env, Render *r, Model *m, WindowPtr win, int safe);
 void      ui_draw(Ui *u);
 UiCommand ui_key(Ui *u, char ch);
+
+/* Idle work: lazily load the selected item's detail art (deferred so scrolling
+ * stays cheap). Returns 1 if it loaded something and the caller should redraw.
+ * Call from the event loop when WaitNextEvent reports no event. */
+int       ui_idle(Ui *u);
 void      ui_set_status(Ui *u, const char *msg);
 
 /* The current item's app path (for main to launch); NULL if none. */

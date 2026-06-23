@@ -116,6 +116,7 @@ void ui_init(Ui *u, Env *env, Render *r, Model *m, WindowPtr win, int safe)
     u->sndStartup = 0;                                       /* sounds off by default */
     u->sndShutdown = 0;
     u->ncdevs = 0; u->cdevSel = 0; u->cdevTop = 0;           /* control-panel list */
+    u->bgValid = 0;                                          /* force a full first paint */
     {
         int i;
         for (i = 0; i < MAX_ITEMS; i++) u->rowIcon[i] = 0;   /* lazy row-icon cache */
@@ -289,15 +290,9 @@ static void draw_carousel(Ui *u)
 
     render_fill(r, &full, FILL_BG);
 
-    /* lazy-load the selected item's art for the detail pane (only on change) */
-    if (cur != u->artFor) {
-        if (u->listArt) { art_dispose(u->listArt); u->listArt = 0; }
-        if (cur) {
-            const char *base = art_base(u, cur);
-            if (base && base[0]) u->listArt = load_item_art(u, base);
-        }
-        u->artFor = cur;
-    }
+    /* The detail art is NOT loaded here — decoding a colour PICT on every move
+     * makes scrolling lurch. ui_idle() loads it once the selection settles; until
+     * then the detail pane shows the (already-cached) icon, so a move is cheap. */
 
     /* ---- header: gear, title, the category (with ^v), and N / M ---- */
     render_text_size(r, 12);
@@ -376,27 +371,71 @@ static void draw_carousel(Ui *u)
         ax1 = (short)(ax0 + artW); ay1 = (short)(detBot - MARGIN);
         SetRect(&ar, ax0, ay0, ax1, ay1);
         render_frame(r, &ar);
-        if (u->listArt) {
-            Rect inner;
-            SetRect(&inner, (short)(ax0 + 4), (short)(ay0 + 4),
-                    (short)(ax1 - 4), (short)(ay1 - 4));
-            art_draw_fit(u->listArt, &inner);
-        } else {
-            const char *t = "(no art)";
-            render_text(r, (short)(ax0 + (artW - render_text_width(r, t)) / 2),
-                        (short)((ay0 + ay1) / 2), t, INK_DIM);
+        {
+            /* The settled box art (loaded by ui_idle) once available; until then
+             * the cached app icon, so a fast scroll never blocks on art. */
+            Art *show = (cur && cur == u->artFor) ? u->listArt : 0;
+            if (!show && cat && cur && cur->icon[0] &&
+                m->curItem >= 0 && m->curItem < cat->count)
+                show = row_icon(u, cat->idx[m->curItem], cur);   /* placeholder */
+            if (show) {
+                Rect inner;
+                SetRect(&inner, (short)(ax0 + 4), (short)(ay0 + 4),
+                        (short)(ax1 - 4), (short)(ay1 - 4));
+                art_draw_fit(show, &inner);
+            } else {
+                const char *t = "(no art)";
+                render_text(r, (short)(ax0 + (artW - render_text_width(r, t)) / 2),
+                            (short)((ay0 + ay1) / 2), t, INK_DIM);
+            }
         }
         if (cur) {
-            short tx = (short)(ax1 + 2 * MARGIN);
-            short ty = (short)(detTop + 18);
-            char  meta[ITEM_VENDOR_LEN + ITEM_GENRE_LEN + 32];
-            render_text(r, tx, ty, cur->name, INK_TITLE); ty = (short)(ty + ROW_H);
-            build_meta(cur, meta);
-            if (meta[0]) { render_text(r, tx, ty, meta, INK_DIM); ty = (short)(ty + ROW_H + 4); }
+            short tx   = (short)(ax1 + 2 * MARGIN);
+            short ty   = (short)(detTop + 18);
+            short maxw = (short)(W - tx - MARGIN);
+            char  buf[ITEM_VENDOR_LEN + 24];
+
+            /* title */
+            render_text(r, tx, ty, cur->name, INK_TITLE);
+            ty = (short)(ty + ROW_H + 3);
+
+            /* year - developer */
+            buf[0] = '\0';
+            if (cur->year > 0) { l2s(cur->year, num); strcat(buf, num); }
+            if (cur->vendor[0]) {
+                if (buf[0]) strcat(buf, " - ");
+                strncat(buf, cur->vendor, sizeof buf - strlen(buf) - 1);
+            }
+            if (buf[0]) { render_text(r, tx, ty, buf, INK_DIM); ty = (short)(ty + ROW_H); }
+
+            /* genre on its own line */
+            if (cur->genre[0]) {
+                char g[ITEM_GENRE_LEN + 8];
+                strcpy(g, "Genre: ");
+                strncat(g, cur->genre, ITEM_GENRE_LEN);
+                render_text(r, tx, ty, g, INK_DIM);
+                ty = (short)(ty + ROW_H);
+            }
+            ty = (short)(ty + 6);
+
+            /* description (a transient status line wins) */
             if (u->status[0])
                 render_text(r, tx, ty, u->status, INK_NORMAL);
             else if (cur->desc[0])
-                draw_wrapped(r, tx, ty, (short)(W - tx - MARGIN), ROW_H, cur->desc, INK_NORMAL, 6);
+                draw_wrapped(r, tx, ty, maxw, ROW_H, cur->desc, INK_NORMAL, 7);
+
+            /* tags: the navigational categories, along the panel's last line */
+            if (cur->ncats > 0) {
+                char tags[ITEM_CAT_LEN * 5];
+                int  ci;
+                tags[0] = '\0';
+                for (ci = 0; ci < cur->ncats; ci++) {
+                    if (strlen(tags) + strlen(cur->cats[ci]) + 4 >= sizeof tags) break;
+                    if (tags[0]) strcat(tags, " - ");
+                    strcat(tags, cur->cats[ci]);
+                }
+                if (tags[0]) render_text(r, tx, (short)(detBot - 8), tags, INK_DIM);
+            }
         }
     }
 
@@ -699,13 +738,20 @@ void ui_draw(Ui *u)
     render_begin(u->r, u->win);
     if (u->mode == UI_MODE_PREVIEW) {
         draw_preview(u);
+        u->bgValid = 0;                 /* full-screen view -> carousel not in GWorld */
     } else if (u->mode == UI_MODE_INFO) {
         draw_info(u);
+        u->bgValid = 0;
     } else {
-        if (u->safe) {
-            draw_safe(u);
-        } else {
-            draw_carousel(u);
+        /* The menu / settings / control-panels panels are overlays. When only the
+         * overlay's selection changed, the carousel behind it is already in the
+         * GWorld, so skip repainting it — that's what made menu Up/Down lurch. */
+        int overlay = (u->mode == UI_MODE_MENU || u->mode == UI_MODE_SETTINGS ||
+                       u->mode == UI_MODE_CTLPANELS);
+        if (!overlay || !u->bgValid) {
+            if (u->safe) draw_safe(u);
+            else         draw_carousel(u);
+            u->bgValid = 1;
         }
         if (u->mode == UI_MODE_MENU)
             draw_menu(u);
@@ -715,6 +761,21 @@ void ui_draw(Ui *u)
             draw_ctlpanels(u);
     }
     render_end(u->r, u->win);
+}
+
+int ui_idle(Ui *u)
+{
+    const CatItem *cur;
+    if (u->safe || u->mode != UI_MODE_LIST) return 0;  /* only the carousel defers art */
+    cur = model_cur_item(u->m);
+    if (cur == u->artFor) return 0;                 /* already loaded -> no work */
+    if (u->listArt) { art_dispose(u->listArt); u->listArt = 0; }
+    if (cur) {
+        const char *base = art_base(u, cur);
+        if (base && base[0]) u->listArt = load_item_art(u, base);
+    }
+    u->artFor = cur;
+    return 1;                                        /* loaded -> caller redraws */
 }
 
 /* ---- input ---------------------------------------------------------------- */
@@ -817,6 +878,7 @@ static void apply_depth(Ui *u, short depth)
         art_dispose(u->listArt); u->listArt = 0; u->artFor = 0;
     }
     dispose_row_icons(u);                          /* icl8/ICN# variant is depth-specific */
+    u->bgValid = 0;                                /* whole screen must repaint */
 }
 
 /* Change the selected Settings row's value by `dir` (-1 / +1). Returns 1 if a
@@ -828,6 +890,7 @@ static int settings_adjust(Ui *u, int dir)
     switch (u->setSel) {
         case 0:                                    /* Theme (persisted) */
             render_toggle_theme(u->r);
+            u->bgValid = 0;                         /* carousel colours changed */
             return 1;
         case 1: {                                  /* Color Depth (not persisted) */
             int i, cur = 0;
@@ -853,7 +916,8 @@ static int settings_adjust(Ui *u, int dir)
         case 3:                                    /* Artwork: Box Art / Screenshot */
             u->artPref = u->artPref ? 0 : 1;
             if (u->listArt) { art_dispose(u->listArt); u->listArt = 0; }
-            u->artFor = 0;                          /* force the inline pane to reload */
+            u->artFor = 0;                          /* force the detail pane to reload */
+            u->bgValid = 0;                         /* carousel art changes */
             return 1;                               /* persisted */
         case 4:                                    /* Startup Sound On/Off (persisted) */
             u->sndStartup = u->sndStartup ? 0 : 1;
@@ -873,6 +937,7 @@ UiCommand ui_key(Ui *u, char ch)
     /* Theme toggle works in any mode (list / menu / safe / preview). */
     if (ch == 't' || ch == 'T') {
         render_toggle_theme(u->r);
+        u->bgValid = 0;                             /* colours changed everywhere */
         ui_draw(u);
         return UI_PREFS_DIRTY;                      /* theme changed -> persist */
     }
