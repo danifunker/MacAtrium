@@ -176,6 +176,16 @@ fn harvest_tree(
             warnings.push(format!("{src_folder}: skipping '{}' (name contains '/')", e.name));
             continue;
         }
+        // rb-cli treats source paths as globs, so it can't address a name with a
+        // glob metacharacter (see PROMPT-literal-path-flag.md in rusty-backup).
+        // Skip such entries rather than abort the whole harvest.
+        if e.name.contains(|c| matches!(c, '*' | '?' | '[' | ']' | '{' | '}')) {
+            warnings.push(format!(
+                "{src_folder}: skipping '{}' (name has a glob metachar; rb-cli can't address it yet)",
+                e.name
+            ));
+            continue;
+        }
         let child_src = format!("{}/{}", src_folder.trim_end_matches('/'), e.name);
         let child_rel = if rel.is_empty() {
             e.name.clone()
