@@ -11,6 +11,7 @@
 
 use crate::pict;
 use anyhow::{anyhow, Result};
+use std::path::Path;
 
 // ---- big-endian readers (all bounds-checked, None on overrun) --------------
 fn be_u16(b: &[u8], o: usize) -> Option<u16> {
@@ -207,6 +208,66 @@ pub fn app_icon_raw1(hqx: &[u8]) -> Result<Option<Vec<u8>>> {
     Ok(app_icn_plane(&rsrc).map(|icn| pict::raw1_wrap(32, 32, 4, &icn)))
 }
 
+// ---- colour icon (icl8) ----------------------------------------------------
+/// The standard Macintosh 8-bit system palette (the default `clut` 8): a
+/// 6×6×6 colour cube (component levels FF/CC/99/66/33/00, index = r*36+g*6+b)
+/// followed by red, green, blue and gray ramps over the in-between repeated-
+/// digit values. `icl8` pixels index into this. Returns 256 [r,g,b] entries.
+fn mac_palette() -> [[u8; 3]; 256] {
+    const CUBE: [u8; 6] = [0xFF, 0xCC, 0x99, 0x66, 0x33, 0x00];
+    const RAMP: [u8; 10] = [0xEE, 0xDD, 0xBB, 0xAA, 0x88, 0x77, 0x55, 0x44, 0x22, 0x11];
+    let mut pal = [[0u8; 3]; 256];
+    let mut i = 0;
+    for &r in &CUBE {
+        for &g in &CUBE {
+            for &b in &CUBE {
+                pal[i] = [r, g, b];
+                i += 1;
+            }
+        }
+    }
+    // i == 216: pure-colour and gray ramps fill 216..256.
+    for &v in &RAMP { pal[i] = [v, 0, 0]; i += 1; }
+    for &v in &RAMP { pal[i] = [0, v, 0]; i += 1; }
+    for &v in &RAMP { pal[i] = [0, 0, v]; i += 1; }
+    for &v in &RAMP { pal[i] = [v, v, v]; i += 1; }
+    pal
+}
+
+/// The app's 32×32 8-bit colour icon (`icl8`, 1024 index bytes): the bundle's
+/// designated icon (shares its `ICN#` id), else the lowest-id `icl8`.
+fn app_icl8_data(rsrc: &[u8]) -> Option<Vec<u8>> {
+    let icl8s = resources_of_type(rsrc, b"icl8");
+    if icl8s.is_empty() {
+        return None;
+    }
+    let chosen = app_icn_id_via_bndl(rsrc)
+        .and_then(|id| icl8s.iter().find(|(i, _)| *i == id).map(|(_, d)| *d))
+        .or_else(|| icl8s.iter().min_by_key(|(i, _)| *i).map(|(_, d)| *d))?;
+    (chosen.len() >= 1024).then(|| chosen[..1024].to_vec())
+}
+
+/// Decode a `.hqx` app's colour icon (`icl8`) and write it as a 32×32 PNG at
+/// `out`, resolving palette indices through the standard Mac 256-colour table.
+/// Returns Ok(true) when written, Ok(false) when the app has no usable `icl8`.
+pub fn app_icl8_png(hqx: &[u8], out: &Path) -> Result<bool> {
+    let rsrc = binhex_resource_fork(hqx)?;
+    let icl8 = match app_icl8_data(&rsrc) {
+        Some(d) => d,
+        None => return Ok(false),
+    };
+    let pal = mac_palette();
+    let mut rgba = Vec::with_capacity(32 * 32 * 4);
+    for &idx in &icl8 {
+        let [r, g, b] = pal[idx as usize];
+        rgba.extend_from_slice(&[r, g, b, 0xFF]);
+    }
+    let img: image::RgbaImage = image::ImageBuffer::from_raw(32, 32, rgba)
+        .ok_or_else(|| anyhow!("icl8 RGBA size mismatch"))?;
+    img.save(out).map_err(|e| anyhow!("writing {}: {e}", out.display()))?;
+    Ok(true)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -320,6 +381,19 @@ mod tests {
         ]);
         let plane = app_icn_plane(&rsrc).expect("icon");
         assert_eq!(&plane[..], &app_icn[0..128]); // chose 256 via BNDL, not 200
+    }
+
+    #[test]
+    fn mac_palette_endpoints_and_ramps() {
+        let pal = mac_palette();
+        assert_eq!(pal[0], [0xFF, 0xFF, 0xFF]); // white at the cube's first entry
+        assert_eq!(pal[215], [0x00, 0x00, 0x00]); // black at the cube's last entry
+        assert_eq!(pal[216], [0xEE, 0x00, 0x00]); // first red-ramp entry
+        assert_eq!(pal[246], [0xEE, 0xEE, 0xEE]); // first gray-ramp entry
+        assert_eq!(pal[255], [0x11, 0x11, 0x11]); // last entry
+        // cube ordering: index = r*36 + g*6 + b over levels FF/CC/99/66/33/00.
+        assert_eq!(pal[1], [0xFF, 0xFF, 0xCC]); // blue steps fastest
+        assert_eq!(pal[36], [0xCC, 0xFF, 0xFF]); // red step
     }
 
     #[test]

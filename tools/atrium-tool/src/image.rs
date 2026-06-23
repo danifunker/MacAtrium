@@ -123,35 +123,54 @@ fn find_art(dir: &Path, id: &str) -> Option<PathBuf> {
     None
 }
 
-/// Harvest the app's own Finder icon (`ICN#`) from the injected app into
-/// `<id>.icon.raw`, and point the catalog `image` at the base path (the launcher
-/// resolves `<base>.icon.raw` as a last resort, after box-art variants). Returns
-/// Ok(true) when an icon was baked. Never fails the build — a missing or odd app
-/// just yields Ok(false).
-fn bake_app_icon(
+/// Harvest the app's own Finder icon from the injected app into icon variants
+/// and return the catalog base path (`<images_rel>/<id>.icon`) the launcher
+/// resolves to them, or `None`. Bakes the 1-bit `ICN#` (`<id>.icon.raw`, every
+/// screen) and, when present, the 8-bit colour `icl8` as a small PICT
+/// (`<id>.icon.8.pict`, picked on colour screens). The launcher draws this in
+/// the list-row gutter and falls back to it for the big art pane when an item
+/// has no box art. Never fails the build — a missing or odd app yields `None`.
+fn bake_icon(
     rb: &RbCli,
     cfg: &Config,
     stage: &Path,
     images_rel: &str,
     id: &str,
     app: &str,
-    overlay: &mut String,
-) -> Result<bool> {
+) -> Result<Option<String>> {
     let hqx = stage.join(format!("{id}.icon.hqx"));
     let src = format!("/MacAtrium/{}", app.trim_start_matches('/'));
     if rb.get_binhex(&cfg.out, &src, &hqx).is_err() {
-        return Ok(false); // not extractable (e.g. path moved/aliased)
+        return Ok(None); // not extractable (e.g. path moved/aliased)
     }
-    let raw = match std::fs::read(&hqx).ok().and_then(|b| icons::app_icon_raw1(&b).ok().flatten()) {
+    let hqx_bytes = match std::fs::read(&hqx) {
+        Ok(b) => b,
+        Err(_) => return Ok(None),
+    };
+    // 1-bit ICN# — required; without it there's no usable icon.
+    let raw = match icons::app_icon_raw1(&hqx_bytes).ok().flatten() {
         Some(r) => r,
-        None => return Ok(false), // no usable ICN#
+        None => return Ok(None),
     };
     let rawfile = stage.join(format!("{id}.icon.raw"));
     std::fs::write(&rawfile, &raw)?;
     let dst = format!("{}/{}.icon.raw", cfg.images_dir.trim_end_matches('/'), id);
     rb.put_typed(&cfg.out, &rawfile, &dst, "ABMP", "ttxt")?;
-    overlay.push_str(&format!("{{\"id\":{id:?},\"image\":{:?}}}\n", format!("{images_rel}/{id}")));
-    Ok(true)
+
+    // 8-bit colour icl8 (optional): bake a small 8-bit PICT injected as the
+    // `.8.pict` depth variant, so colour screens get a colour icon (1-bit
+    // screens keep the ICN# .raw). The icl8 indexes the standard Mac palette,
+    // which `icons::app_icl8_png` resolves into a PNG for `pict`.
+    let pngfile = stage.join(format!("{id}.icon.png"));
+    if matches!(icons::app_icl8_png(&hqx_bytes, &pngfile), Ok(true)) {
+        let pictfile = stage.join(format!("{id}.icon.8.pict"));
+        if pict::run(&pngfile, &pictfile, pict::Depth::Eight, true, None).is_ok() {
+            let pdst = format!("{}/{}.icon.8.pict", cfg.images_dir.trim_end_matches('/'), id);
+            let _ = rb.put_typed(&cfg.out, &pictfile, &pdst, "PICT", "ttxt");
+        }
+    }
+
+    Ok(Some(format!("{images_rel}/{id}.icon")))
 }
 
 /// Bake the depth variants for one source image under `name` (e.g. "prince" for
@@ -322,10 +341,12 @@ pub fn run(config: &Path) -> Result<()> {
                 .or_else(|| downloaded_shot.get(&id).cloned());
 
             let mut fields = String::new();
+            let mut has_box = false;
             if let Some(src) = &box_src {
                 if let Some(rel) = bake_variants(&rb, &cfg, &stage, images_rel, &id, src, &depths, multi)? {
                     fields.push_str(&format!(",\"image\":{rel:?}"));
                     n += 1;
+                    has_box = true;
                 }
             }
             if let Some(src) = &shot_src {
@@ -334,15 +355,20 @@ pub fn run(config: &Path) -> Result<()> {
                     n_shot += 1;
                 }
             }
+            // App's own Finder icon (ICN#/icl8) for the list-row gutter — baked
+            // for every item with an app. When the item has no box art, reuse it
+            // as the big art-pane fallback (the old behaviour, now for all rows).
+            if let Some(app) = app.as_deref().filter(|a| !a.is_empty()) {
+                if let Some(icon_rel) = bake_icon(&rb, &cfg, &stage, images_rel, &id, app)? {
+                    fields.push_str(&format!(",\"icon\":{icon_rel:?}"));
+                    n_icon += 1;
+                    if !has_box {
+                        fields.push_str(&format!(",\"image\":{icon_rel:?}"));
+                    }
+                }
+            }
             if !fields.is_empty() {
                 overlay.push_str(&format!("{{\"id\":{id:?}{fields}}}\n"));
-            } else if let Some(app) = app.as_deref().filter(|a| !a.is_empty()) {
-                // No box/shot art — fall back to the app's own Finder icon (ICN#),
-                // harvested from the app we just injected, as a .raw the launcher
-                // CopyBits like any other 1-bit art (docs/14).
-                if bake_app_icon(&rb, &cfg, &stage, images_rel, &id, app, &mut overlay).unwrap_or(false) {
-                    n_icon += 1;
-                }
             }
         }
         let depth_label = if multi { cfg.art_depths.join("/") } else { cfg.art_depth.clone() };

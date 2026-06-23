@@ -14,6 +14,8 @@
 #define MARGIN   10
 #define ROW_H    18
 #define NARROW_W 420
+#define ICON_SZ  16            /* list-row icon box (px); 32x32 art fits into it */
+#define ICON_GUT 22            /* icon column width incl. the gap before the name */
 
 static const char *kMenuItems[] = { "Show Finder", "Restart", "Shut Down" };
 #define MENU_N 3
@@ -111,6 +113,10 @@ void ui_init(Ui *u, Env *env, Render *r, Model *m, WindowPtr win, int safe)
     u->ndepths = display_depths(u->depths, UI_MAX_DEPTHS);   /* all OS-supported depths */
     u->vol = sound_available() ? sound_get_vol() : -1;
     u->artPref = 0;                                          /* Box Art by default */
+    {
+        int i;
+        for (i = 0; i < MAX_ITEMS; i++) u->rowIcon[i] = 0;   /* lazy row-icon cache */
+    }
 }
 
 /* The art base path to show for an item, honouring the Artwork setting: the
@@ -143,6 +149,26 @@ const char *ui_current_name(Ui *u)
 /* ---- drawing -------------------------------------------------------------- */
 
 static Art *load_item_art(Ui *u, const char *image);   /* defined below */
+
+/* The small list-row icon for catalog item `catIdx`, lazily loaded and cached
+ * (depth-matched like art: 1-bit ICN# .raw, or the icl8 .8.pict on colour
+ * screens). NULL if the item has no icon or it won't load. */
+static Art *row_icon(Ui *u, int catIdx, const CatItem *it)
+{
+    if (catIdx < 0 || catIdx >= MAX_ITEMS) return 0;
+    if (!u->rowIcon[catIdx] && it->icon[0])
+        u->rowIcon[catIdx] = load_item_art(u, it->icon);
+    return u->rowIcon[catIdx];
+}
+
+/* Drop every cached row icon (e.g. after a depth change — the icl8 colour
+ * variant differs from the 1-bit one). */
+static void dispose_row_icons(Ui *u)
+{
+    int i;
+    for (i = 0; i < MAX_ITEMS; i++)
+        if (u->rowIcon[i]) { art_dispose(u->rowIcon[i]); u->rowIcon[i] = 0; }
+}
 
 #define ART_PANE_W 176          /* right-hand art pane width when wide enough */
 #define ART_MIN_W  560          /* show the art pane only at this width or more */
@@ -264,9 +290,15 @@ static void draw_list(Ui *u)
         render_text(r, MARGIN, (short)(listTop + 22),
                     "(no items in this category)", INK_DIM);
     } else {
+        /* Reserve an icon gutter only when some item in this category has an
+         * icon, so catalogs without icons render exactly as before. */
+        int gut = 0;
+        for (i = 0; i < cat->count; i++)
+            if (m->cat->items[cat->idx[i]].icon[0]) { gut = ICON_GUT; break; }
+
         for (i = 0; i < visRows; i++) {
             int row = top + i;
-            short y0, base;
+            short y0, base, tx;
             int sel;
             const CatItem *it;
             if (row >= cat->count) break;
@@ -274,11 +306,23 @@ static void draw_list(Ui *u)
             sel = (row == m->curItem);
             y0  = (short)(listTop + i * ROW_H);
             base = (short)(y0 + ROW_H - 5);
+            tx  = (short)(MARGIN + gut);
 
             SetRect(&rr, 0, y0, (short)listW, (short)(y0 + ROW_H));
             render_fill(r, &rr, sel ? FILL_SEL : FILL_PANEL);
 
-            render_text(r, MARGIN, base, it->name, sel ? INK_SELECTED : INK_NORMAL);
+            /* small app icon in the gutter (depth-matched, lazily cached) */
+            if (gut && it->icon[0]) {
+                Art *ic = row_icon(u, cat->idx[row], it);
+                if (ic) {
+                    Rect ir;
+                    SetRect(&ir, MARGIN, (short)(y0 + 1),
+                            (short)(MARGIN + ICON_SZ), (short)(y0 + 1 + ICON_SZ));
+                    art_draw_fit(ic, &ir);
+                }
+            }
+
+            render_text(r, tx, base, it->name, sel ? INK_SELECTED : INK_NORMAL);
 
             if (!narrow && it->year > 0) {
                 l2s(it->year, num);
@@ -657,6 +701,7 @@ static void apply_depth(Ui *u, short depth)
     if (u->listArt) {                              /* art variant is depth-specific */
         art_dispose(u->listArt); u->listArt = 0; u->artFor = 0;
     }
+    dispose_row_icons(u);                          /* icl8/ICN# variant is depth-specific */
 }
 
 /* Change the selected Settings row's value by `dir` (-1 / +1). Returns 1 if a

@@ -113,11 +113,13 @@ impl RbCli {
         self.put_text(image, host, dst, type_, creator)
     }
 
-    /// Install a MacBinary archive (both forks + Finder info) into a directory.
+    /// Install a MacBinary archive (both forks + Finder info) into a directory,
+    /// overwriting any existing file so a rebuild onto a non-clean image (e.g.
+    /// one that already has the launcher) is idempotent.
     pub fn put_macbinary(&self, image: &Path, host: &Path, dst_dir: &str) -> Result<()> {
         let img = image.to_string_lossy();
         let h = host.to_string_lossy();
-        self.run(&["put-macbinary", &img, &h, "--dst-dir", dst_dir, "-q"])?;
+        self.run(&["put-macbinary", &img, &h, "--dst-dir", dst_dir, "--force", "-q"])?;
         Ok(())
     }
 }

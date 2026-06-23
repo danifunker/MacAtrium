@@ -60,6 +60,10 @@ struct SourceItem {
     /// Optional second artwork (gameplay screenshot) base path.
     #[serde(default)]
     shot: Option<String>,
+    /// Optional small per-item icon base path (the app's Finder icon), drawn in
+    /// the launcher's list-row gutter. Resolved as a depth variant like art.
+    #[serde(default)]
+    icon: Option<String>,
     #[serde(rename = "type", default)]
     type_: Option<String>,
     #[serde(default)]
@@ -102,6 +106,9 @@ struct OutItem {
     /// Single-character launch hotkey (gamepad button map); omitted if none.
     #[serde(skip_serializing_if = "Option::is_none")]
     hotkey: Option<String>,
+    /// Small per-item list-row icon base path; omitted if none.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    icon: Option<String>,
 }
 
 /// Top-level category for a `kind` value.
@@ -293,6 +300,7 @@ fn build(src_text: &str) -> Result<(Vec<OutItem>, Report)> {
             image: it.image,
             shot: it.shot,
             hotkey,
+            icon: it.icon,
         });
     }
 

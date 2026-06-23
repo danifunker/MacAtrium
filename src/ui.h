@@ -43,6 +43,7 @@ typedef struct {
     int        ndepths;       /* count in depths[]                            */
     int        vol;           /* speaker volume 0..SOUND_VOL_MAX (-1 = n/a)   */
     int        artPref;       /* 0 = Box Art, 1 = Screenshot (the `shot` field) */
+    Art       *rowIcon[MAX_ITEMS]; /* lazily-loaded list-row icons, by catalog idx */
 } Ui;
 
 void      ui_init(Ui *u, Env *env, Render *r, Model *m, WindowPtr win, int safe);

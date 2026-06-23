@@ -32,6 +32,7 @@ typedef struct {
     char desc[ITEM_DESC_LEN];
     char image[ITEM_PATH_LEN];               /* box-art base path, "" if absent */
     char shot[ITEM_PATH_LEN];                /* screenshot base path, "" if absent */
+    char icon[ITEM_PATH_LEN];                /* list-row icon base path, "" if absent */
     char hotkey;                             /* launch hotkey char, 0 if none */
 } CatItem;
 
