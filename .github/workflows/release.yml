@@ -448,10 +448,10 @@ jobs:
 
   release:
     name: Create release
-    # Builds/tests run on every push; a release is PUBLISHED only when you push a
-    # version tag (e.g. `git tag v1.0 && git push --tags`). So pushing `main`
-    # exercises the full build without releasing anything.
-    if: startsWith(github.ref, 'refs/tags/')
+    # Builds/tests run on every push; a release is PUBLISHED on pushes to `main`
+    # and on version-tag pushes (e.g. `git tag v1.0 && git push --tags`). Pushes
+    # to other branches exercise the full build without releasing anything.
+    if: ${{ github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/tags/') }}
     needs:
       - generate-version
       - test-core
