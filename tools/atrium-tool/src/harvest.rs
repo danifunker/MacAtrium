@@ -114,11 +114,27 @@ fn common_prefix_len(a: &str, b: &str) -> usize {
     a.bytes().zip(b.bytes()).take_while(|(x, y)| x == y).count()
 }
 
+/// A colour/B&W hint from an app's name: +1 for a "color"/"8-bit"/"256" build,
+/// -1 for a "b/w"/"mono"/"1-bit" build, 0 otherwise. Used to pick the colour
+/// build when a game ships both under one folder (e.g. "SimAnt B&W" vs
+/// "SimAnt Color"), since this launcher is colour-first.
+fn variant_rank(name: &str) -> i32 {
+    let n = name.to_ascii_lowercase();
+    let bw = n.contains("b/w") || n.contains("b&w") || n.contains("mono")
+        || n.contains("1-bit") || n.contains("1 bit")
+        || n.contains("black & white") || n.contains("black and white");
+    let color = n.contains("color") || n.contains("colour")
+        || n.contains("8-bit") || n.contains("8 bit") || n.contains("256")
+        || n.contains("24-bit");
+    color as i32 - bw as i32
+}
+
 /// Choose the app a game folder should launch. Skips the Finder (a bundled
 /// mini-Finder some self-booting games ship — creator `MACS` / name "Finder")
 /// and, among the remaining `APPL`s, prefers the one whose name best matches the
 /// source folder name (so "Crystal Quest" wins over a bundled "CritterEditor",
-/// and a "... Level Editor" loses to the game). Falls back to the first APPL.
+/// and a "... Level Editor" loses to the game), preferring a colour build over a
+/// B&W one on a tie. Falls back to the first APPL.
 fn pick_appl(entries: &[Entry], src_folder: &str) -> Option<String> {
     let base_slug = slugify(src_folder.rsplit('/').next().unwrap_or(src_folder));
     let real: Vec<&Entry> = entries
@@ -132,14 +148,14 @@ fn pick_appl(entries: &[Entry], src_folder: &str) -> Option<String> {
             .find(|e| !e.is_dir && e.ostype == "APPL")
             .map(|e| e.name.clone());
     }
-    // Best folder-name match, then prefer the shorter name (editors/extras tend
-    // to be "<game> <something>"); keep ls order as the final tiebreak.
+    // Best folder-name match; then the colour build; then the shorter name
+    // (editors/extras tend to be "<game> <something>"); ls order as final tiebreak.
     let best = real
         .iter()
         .enumerate()
         .max_by_key(|(i, e)| {
             let pfx = common_prefix_len(&slugify(&e.name), &base_slug);
-            (pfx, std::cmp::Reverse(e.name.len()), std::cmp::Reverse(*i))
+            (pfx, variant_rank(&e.name), std::cmp::Reverse(e.name.len()), std::cmp::Reverse(*i))
         })
         .map(|(_, e)| e)?;
     let best_pfx = common_prefix_len(&slugify(&best.name), &base_slug);
@@ -485,6 +501,12 @@ mod tests {
         // Only a Finder present -> last resort still returns it (don't drop the title).
         let entries = vec![e("APPL", "MACS", "Finder")];
         assert_eq!(pick_appl(&entries, "/Games/x/Foo").as_deref(), Some("Finder"));
+        // A game shipping both a B&W and a Colour build -> pick Colour.
+        let entries = vec![
+            e("APPL", "SANT", "SimAnt\u{2122} B&W"),
+            e("APPL", "SANT", "SimAnt\u{2122} Color"),
+        ];
+        assert_eq!(pick_appl(&entries, "/Games/1991/SimAnt 1.0").as_deref(), Some("SimAnt\u{2122} Color"));
     }
 
     #[test]
