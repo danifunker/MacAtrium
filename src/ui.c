@@ -404,18 +404,17 @@ static void draw_carousel(Ui *u)
         SetRect(&ar, ax0, ay0, ax1, ay1);
         render_frame(r, &ar);
         {
-            /* The settled box art (loaded by ui_idle) once available; until then
-             * the cached app icon, so a fast scroll never blocks on art. */
-            Art *show = (cur && cur == u->artFor) ? u->listArt : 0;
-            if (!show && cat && cur && cur->icon[0] &&
-                m->curItem >= 0 && m->curItem < cat->count)
-                show = row_icon(u, cat->idx[m->curItem], cur);   /* placeholder */
-            if (show) {
+            /* The art is loaded lazily by ui_idle once the selection settles, so a
+             * fast scroll never blocks on decoding a colour PICT. While it's still
+             * loading we leave the frame empty (no icon flash) — the art just
+             * appears once. "(no art)" shows only after loading found nothing. */
+            int loaded = (cur && cur == u->artFor);   /* ui_idle has run for this item */
+            if (loaded && u->listArt) {
                 Rect inner;
                 SetRect(&inner, (short)(ax0 + 4), (short)(ay0 + 4),
                         (short)(ax1 - 4), (short)(ay1 - 4));
-                art_draw_fit(show, &inner);
-            } else {
+                art_draw_fit(u->listArt, &inner);
+            } else if (loaded) {
                 const char *t = "(no art)";
                 render_text(r, (short)(ax0 + (artW - render_text_width(r, t)) / 2),
                             (short)((ay0 + ay1) / 2), t, INK_DIM);
