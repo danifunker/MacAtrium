@@ -125,6 +125,24 @@ fn dataset_records(path: &Path) -> Result<Vec<(String, Option<String>)>> {
     Ok(recs)
 }
 
+/// A filesystem-safe base name for an item's baked art/icon files. Classic HFS
+/// caps filenames at 31 chars and our longest suffix is `.shot.24.pict` (13), so
+/// the base must be <= 18; a longer id is truncated to 12 chars + a short hash
+/// for uniqueness. The catalog `id` itself is untouched — only on-volume art
+/// filenames (and the `image`/`shot`/`icon` paths pointing at them) use this.
+fn fs_id(id: &str) -> String {
+    const MAX: usize = 17;
+    if id.len() <= MAX {
+        return id.to_string();
+    }
+    let mut h: u32 = 0x811c_9dc5; // FNV-1a
+    for b in id.bytes() {
+        h ^= b as u32;
+        h = h.wrapping_mul(0x0100_0193);
+    }
+    format!("{}-{:04x}", &id[..MAX - 5], h & 0xffff)
+}
+
 fn find_art(dir: &Path, id: &str) -> Option<PathBuf> {
     for ext in ["png", "jpg", "jpeg", "PNG", "JPG"] {
         let p = dir.join(format!("{id}.{ext}"));
@@ -228,6 +246,24 @@ fn bake_variants(
         let ext = if depths[0] == pict::Depth::One { "raw" } else { "pict" };
         format!("{images_rel}/{name}.{ext}")
     }))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::fs_id;
+
+    #[test]
+    fn fs_id_keeps_short_ids_and_shrinks_long_ones() {
+        assert_eq!(fs_id("dark-castle"), "dark-castle"); // short -> unchanged
+        let long = "armor-alley-level-editor-2-0"; // 28 chars
+        let got = fs_id(long);
+        assert!(got.len() <= 17, "fs_id too long: {got} ({})", got.len());
+        // longest baked suffix is ".shot.24.pict" (13) -> must fit 31-char HFS.
+        assert!(got.len() + ".shot.24.pict".len() <= 31);
+        // deterministic + distinct for different long ids
+        assert_eq!(fs_id(long), got);
+        assert_ne!(fs_id("a-very-long-game-name-one"), fs_id("a-very-long-game-name-two"));
+    }
 }
 
 /// Bake one WAV chime into a sound file (`<sounds_dir>/<name>`) on the volume:
@@ -369,24 +405,26 @@ pub fn run(config: &Path) -> Result<()> {
         for (id, app) in dataset_records(&work)? {
             // Box-Front (catalog `image`) and Screenshot (catalog `shot`); a local
             // art_dir wins, else the downloaded file. art_dir screenshots are named
-            // `<id>.shot.<ext>`.
+            // `<id>.shot.<ext>`. Baked files use `fid` (HFS 31-char safe), not `id`.
+            let fid = fs_id(&id);
             let box_src = cfg.art_dir.as_ref().and_then(|adir| find_art(adir, &id))
                 .or_else(|| downloaded.get(&id).cloned());
             let shot_name = format!("{id}.shot");
+            let shot_vol = format!("{fid}.shot");
             let shot_src = cfg.art_dir.as_ref().and_then(|adir| find_art(adir, &shot_name))
                 .or_else(|| downloaded_shot.get(&id).cloned());
 
             let mut fields = String::new();
             let mut has_box = false;
             if let Some(src) = &box_src {
-                if let Some(rel) = bake_variants(&rb, &cfg, &stage, images_rel, &id, src, &depths, multi)? {
+                if let Some(rel) = bake_variants(&rb, &cfg, &stage, images_rel, &fid, src, &depths, multi)? {
                     fields.push_str(&format!(",\"image\":{rel:?}"));
                     n += 1;
                     has_box = true;
                 }
             }
             if let Some(src) = &shot_src {
-                if let Some(rel) = bake_variants(&rb, &cfg, &stage, images_rel, &shot_name, src, &depths, multi)? {
+                if let Some(rel) = bake_variants(&rb, &cfg, &stage, images_rel, &shot_vol, src, &depths, multi)? {
                     fields.push_str(&format!(",\"shot\":{rel:?}"));
                     n_shot += 1;
                 }
@@ -395,7 +433,7 @@ pub fn run(config: &Path) -> Result<()> {
             // for every item with an app. When the item has no box art, reuse it
             // as the big art-pane fallback (the old behaviour, now for all rows).
             if let Some(app) = app.as_deref().filter(|a| !a.is_empty()) {
-                if let Some(icon_rel) = bake_icon(&rb, &cfg, &stage, images_rel, &id, app)? {
+                if let Some(icon_rel) = bake_icon(&rb, &cfg, &stage, images_rel, &fid, app)? {
                     fields.push_str(&format!(",\"icon\":{icon_rel:?}"));
                     n_icon += 1;
                     if !has_box {

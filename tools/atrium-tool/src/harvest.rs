@@ -109,6 +109,43 @@ fn infer_year(src_folder: &str) -> Option<i64> {
         .find(|y| (1970..=2010).contains(y))
 }
 
+/// Length of the common leading run of two strings (ASCII slug comparison).
+fn common_prefix_len(a: &str, b: &str) -> usize {
+    a.bytes().zip(b.bytes()).take_while(|(x, y)| x == y).count()
+}
+
+/// Choose the app a game folder should launch. Skips the Finder (a bundled
+/// mini-Finder some self-booting games ship — creator `MACS` / name "Finder")
+/// and, among the remaining `APPL`s, prefers the one whose name best matches the
+/// source folder name (so "Crystal Quest" wins over a bundled "CritterEditor",
+/// and a "... Level Editor" loses to the game). Falls back to the first APPL.
+fn pick_appl(entries: &[Entry], src_folder: &str) -> Option<String> {
+    let base_slug = slugify(src_folder.rsplit('/').next().unwrap_or(src_folder));
+    let real: Vec<&Entry> = entries
+        .iter()
+        .filter(|e| !e.is_dir && e.ostype == "APPL" && e.creator != "MACS" && e.name != "Finder")
+        .collect();
+    if real.is_empty() {
+        // No "real" app — last resort, take any APPL so we don't drop the title.
+        return entries
+            .iter()
+            .find(|e| !e.is_dir && e.ostype == "APPL")
+            .map(|e| e.name.clone());
+    }
+    // Best folder-name match, then prefer the shorter name (editors/extras tend
+    // to be "<game> <something>"); keep ls order as the final tiebreak.
+    let best = real
+        .iter()
+        .enumerate()
+        .max_by_key(|(i, e)| {
+            let pfx = common_prefix_len(&slugify(&e.name), &base_slug);
+            (pfx, std::cmp::Reverse(e.name.len()), std::cmp::Reverse(*i))
+        })
+        .map(|(_, e)| e)?;
+    let best_pfx = common_prefix_len(&slugify(&best.name), &base_slug);
+    Some(if best_pfx >= 3 { best.name.clone() } else { real[0].name.clone() })
+}
+
 /// Recursively copy a source folder's tree into the target, mirroring sub-folders
 /// under `app_dir`. `rel` is the path so far relative to `app_dir` ("" at the
 /// top). Every kept file is extracted (both forks) and, with `into`, injected
@@ -198,8 +235,8 @@ fn harvest_one(
         .ls(image, src_folder)
         .with_context(|| format!("listing {src_folder}"))?;
 
-    let app = match entries.iter().find(|e| !e.is_dir && e.ostype == "APPL") {
-        Some(e) => e.name.clone(),
+    let app = match pick_appl(&entries, src_folder) {
+        Some(name) => name,
         None => return Ok(None),
     };
     let app_dir = format!("{apps_root}/{app}");
@@ -415,6 +452,29 @@ mod tests {
         assert!(is_clutter(&mk("BTFL", "Desktop DB")));
         assert!(!is_clutter(&mk("APPL", "Dark Castle")));
         assert!(!is_clutter(&mk("DCFL", "Data A")));
+    }
+
+    #[test]
+    fn pick_appl_prefers_game_over_editor_and_finder() {
+        let e = |ostype: &str, creator: &str, name: &str| Entry {
+            is_dir: false, ostype: ostype.into(), creator: creator.into(),
+            name: name.into(), size: 0,
+        };
+        // Crystal Quest folder bundling an editor + the game: pick the game.
+        let entries = vec![
+            e("APPL", "CCC1", "CritterEditor 1.0.4M"),
+            e("APPL", "CQST", "Crystal Quest"),
+        ];
+        assert_eq!(pick_appl(&entries, "/Games/1988/Crystal Quest 2.2.5m").as_deref(), Some("Crystal Quest"));
+        // A bundled Finder must never be chosen when a real app exists.
+        let entries = vec![
+            e("APPL", "MACS", "Finder"),
+            e("APPL", "WZRD", "Wizardry"),
+        ];
+        assert_eq!(pick_appl(&entries, "/Games/1990/Wizardry I (3.02)").as_deref(), Some("Wizardry"));
+        // Only a Finder present -> last resort still returns it (don't drop the title).
+        let entries = vec![e("APPL", "MACS", "Finder")];
+        assert_eq!(pick_appl(&entries, "/Games/x/Foo").as_deref(), Some("Finder"));
     }
 
     #[test]
