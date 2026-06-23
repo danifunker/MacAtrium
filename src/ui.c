@@ -772,6 +772,17 @@ UiCommand ui_key(Ui *u, char ch)
         return cmd;
     }
 
+    /* Per-item launch hotkey: a printable key mapped to a title launches it
+     * immediately (doubles as a gamepad button via MiSTer's button->key map).
+     * Checked before navigation/type-ahead; restricted to printable keys so it
+     * never shadows the arrows / Return / Esc. (Note 't' is consumed by the
+     * global theme toggle above, so it can't be a hotkey.) */
+    if (!u->safe && (unsigned char)ch >= 0x20 && model_select_hotkey(u->m, ch)) {
+        u->status[0] = '\0';
+        ui_draw(u);
+        return UI_LAUNCH;
+    }
+
     /* list / safe mode */
     switch (ch) {
         case kCharEscape:

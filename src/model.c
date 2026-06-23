@@ -155,6 +155,32 @@ int model_type_ahead(Model *m, char ch)
     return 0;
 }
 
+int model_select_hotkey(Model *m, char ch)
+{
+    int i, r;
+    ModelCat *all;
+    unsigned char want = (unsigned char)ch;
+
+    if (want >= 'A' && want <= 'Z') want += 32;
+    if (want == 0) return 0;
+
+    for (i = 0; i < m->cat->nitems; i++) {
+        unsigned char hk = (unsigned char)m->cat->items[i].hotkey;
+        if (hk == 0) continue;
+        if (hk >= 'A' && hk <= 'Z') hk += 32;
+        if (hk != want) continue;
+
+        /* Point the cursor at item i via "All" (slot 0 — always present and
+         * holding every item), so a hotkey works from any category. */
+        m->curCat = 0;
+        all = &m->cats[0];
+        for (r = 0; r < all->count; r++)
+            if (all->idx[r] == i) { m->curItem = r; m->topRow = 0; return 1; }
+        return 0;                /* item not in "All" (shouldn't happen) */
+    }
+    return 0;
+}
+
 int model_move_cat(Model *m, int delta)
 {
     if (m->ncats == 0) return 0;

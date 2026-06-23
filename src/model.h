@@ -51,6 +51,12 @@ int model_select(Model *m, const char *catName, const char *itemId);
  * wrapping — so repeated presses cycle. Returns 1 if a match was selected. */
 int model_type_ahead(Model *m, char ch);
 
+/* Launch hotkey: select the item anywhere in the catalog whose `hotkey` matches
+ * `ch` (case-insensitive), switching to the synthesized "All" category so the
+ * selection is always valid regardless of the current view. First match wins.
+ * Returns 1 if found+selected (caller then launches it), 0 otherwise. */
+int model_select_hotkey(Model *m, char ch);
+
 /* True if a category name is recommendation-style (preserves dataset order). */
 int model_is_list_ordered(const char *name);
 

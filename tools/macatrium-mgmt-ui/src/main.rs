@@ -41,6 +41,7 @@ struct Row {
     genre: String,
     color: bool, // true = Color, false = B&W
     mouse: bool, // true = Mouse Required, false = No Mouse
+    hotkey: String, // single-char launch hotkey (gamepad button map), "" = none
     dirty: bool, // touched since last save
 }
 
@@ -194,6 +195,7 @@ fn load_rows(path: &str) -> anyhow::Result<Vec<Row>> {
             genre,
             color: as_bool(&m, "color", false),
             mouse: as_bool(&m, "mouse", true),
+            hotkey: m.get("hotkey").and_then(Value::as_str).unwrap_or("").to_string(),
             dirty: false,
         });
     }
@@ -276,6 +278,10 @@ impl App {
             let mut f = Map::new();
             f.insert("color".into(), Value::Bool(row.color));
             f.insert("mouse".into(), Value::Bool(row.mouse));
+            // Hotkey: only the first character; written when set (gamepad map).
+            if let Some(c) = row.hotkey.trim().chars().next() {
+                f.insert("hotkey".into(), Value::String(c.to_string()));
+            }
             if let Err(e) = merge::set(PathBuf::from(&self.overrides).as_path(), &row.id, &f) {
                 self.status = format!("Save failed for {}: {e}", row.id);
                 return;
@@ -447,7 +453,7 @@ impl eframe::App for App {
             .show(ui, |ui| {
                 egui::Grid::new("catalog")
                     .striped(true)
-                    .num_columns(6)
+                    .num_columns(7)
                     .show(ui, |ui| {
                         ui.strong("Name");
                         ui.strong("Year");
@@ -455,6 +461,7 @@ impl eframe::App for App {
                         ui.strong("Genre");
                         ui.strong("Color");
                         ui.strong("Mouse");
+                        ui.strong("Hotkey");
                         ui.end_row();
                         for row in &mut self.rows {
                             ui.label(&row.name);
@@ -465,7 +472,15 @@ impl eframe::App for App {
                             let c = ui.checkbox(&mut row.color, clabel);
                             let mlabel = if row.mouse { "Required" } else { "No mouse" };
                             let m = ui.checkbox(&mut row.mouse, mlabel);
-                            if c.changed() || m.changed() {
+                            // A 1-char launch hotkey (gamepad button map); we keep
+                            // only the first char on save.
+                            let h = ui.add(
+                                egui::TextEdit::singleline(&mut row.hotkey)
+                                    .char_limit(1)
+                                    .desired_width(24.0)
+                                    .hint_text("key"),
+                            );
+                            if c.changed() || m.changed() || h.changed() {
                                 row.dirty = true;
                             }
                             ui.end_row();

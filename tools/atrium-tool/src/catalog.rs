@@ -64,6 +64,11 @@ struct SourceItem {
     type_: Option<String>,
     #[serde(default)]
     creator: Option<String>,
+    /// Optional per-item launch hotkey (a single character): the launcher
+    /// launches this title when the key is pressed. Doubles as a per-item
+    /// gamepad-button map (MiSTer maps joystick buttons → keystrokes).
+    #[serde(default)]
+    hotkey: Option<String>,
 }
 
 /// The on-Mac record. Field order here is the emitted JSON field order.
@@ -94,6 +99,9 @@ struct OutItem {
     /// instead of the box art per the user's Artwork setting.
     #[serde(skip_serializing_if = "Option::is_none")]
     shot: Option<String>,
+    /// Single-character launch hotkey (gamepad button map); omitted if none.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    hotkey: Option<String>,
 }
 
 /// Top-level category for a `kind` value.
@@ -161,6 +169,8 @@ fn build(src_text: &str) -> Result<(Vec<OutItem>, Report)> {
     let mut warnings = Vec::new();
     let mut cat_counts: BTreeMap<String, usize> = BTreeMap::new();
     let mut seen_ids: BTreeMap<String, usize> = BTreeMap::new();
+    // Launch hotkey (lowercased) -> line it was first claimed on, for dup warnings.
+    let mut seen_hotkeys: BTreeMap<char, usize> = BTreeMap::new();
 
     for (lineno, raw) in src_text.lines().enumerate() {
         let line = raw.trim();
@@ -240,6 +250,35 @@ fn build(src_text: &str) -> Result<(Vec<OutItem>, Report)> {
             }
         }
 
+        // Launch hotkey: normalize to a single character (the device stores one
+        // byte). Warn on a multi-char value (we keep the first) and on a key
+        // already claimed by an earlier item (first match wins on device).
+        let hotkey = it.hotkey.as_deref().map(str::trim).filter(|h| !h.is_empty()).and_then(|h| {
+            let mut chars = h.chars();
+            let first = chars.next().unwrap();
+            if chars.next().is_some() {
+                warnings.push(format!(
+                    "line {ln} ({}): hotkey \"{h}\" longer than 1 char; using '{first}'",
+                    it.id
+                ));
+            }
+            if !first.is_ascii_graphic() {
+                warnings.push(format!(
+                    "line {ln} ({}): hotkey '{first}' is not a printable ASCII key; ignored",
+                    it.id
+                ));
+                return None;
+            }
+            let lower = first.to_ascii_lowercase();
+            if let Some(prev) = seen_hotkeys.insert(lower, ln) {
+                warnings.push(format!(
+                    "line {ln} ({}): hotkey '{first}' already used on line {prev}",
+                    it.id
+                ));
+            }
+            Some(first.to_string())
+        });
+
         out.push(OutItem {
             id: it.id,
             name: it.name,
@@ -253,6 +292,7 @@ fn build(src_text: &str) -> Result<(Vec<OutItem>, Report)> {
             desc: it.desc,
             image: it.image,
             shot: it.shot,
+            hotkey,
         });
     }
 
@@ -427,6 +467,32 @@ mod tests {
         // No vendor/genre -> omitted (None).
         let (bare, _) = build(r#"{"id":"x","name":"X","app":"a"}"#).unwrap();
         assert!(bare[0].vendor.is_none() && bare[0].genre.is_none());
+    }
+
+    #[test]
+    fn hotkey_passthrough_and_normalization() {
+        // Single char passes through; a multi-char value keeps the first char.
+        let (items, report) = build(
+            "{\"id\":\"a\",\"name\":\"A\",\"app\":\"a\",\"hotkey\":\"1\"}\n\
+             {\"id\":\"b\",\"name\":\"B\",\"app\":\"b\",\"hotkey\":\"xy\"}\n\
+             {\"id\":\"c\",\"name\":\"C\",\"app\":\"c\"}",
+        )
+        .unwrap();
+        assert_eq!(items[0].hotkey.as_deref(), Some("1"));
+        assert_eq!(items[1].hotkey.as_deref(), Some("x")); // first char of "xy"
+        assert!(items[2].hotkey.is_none());
+        assert!(report.warnings.iter().any(|w| w.contains("longer than 1 char")));
+    }
+
+    #[test]
+    fn duplicate_hotkey_warns() {
+        let (_items, report) = build(
+            "{\"id\":\"a\",\"name\":\"A\",\"app\":\"a\",\"hotkey\":\"g\"}\n\
+             {\"id\":\"b\",\"name\":\"B\",\"app\":\"b\",\"hotkey\":\"G\"}",
+        )
+        .unwrap();
+        // 'g' and 'G' collide case-insensitively.
+        assert!(report.warnings.iter().any(|w| w.contains("already used")));
     }
 
     #[test]

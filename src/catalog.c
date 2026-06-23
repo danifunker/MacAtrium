@@ -70,6 +70,9 @@ static int item_from_object(const JsonObject *o, CatItem *it)
     f = json_get(o, "shot");
     if (f && f->type == JT_STR) copy_field(it->shot, sizeof it->shot, f->str);
 
+    f = json_get(o, "hotkey");
+    if (f && f->type == JT_STR && f->str[0]) it->hotkey = f->str[0];
+
     return 1;
 }
 
