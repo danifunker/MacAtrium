@@ -14,7 +14,7 @@
 #define ITEM_NAME_LEN   64
 #define ITEM_PATH_LEN   192
 #define ITEM_CAT_LEN    32
-#define ITEM_DESC_LEN   128
+#define ITEM_DESC_LEN   256
 #define ITEM_VENDOR_LEN 40
 #define ITEM_GENRE_LEN  64
 

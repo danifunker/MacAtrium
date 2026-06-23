@@ -26,7 +26,31 @@ struct LbGame {
     year: Option<i64>,
     publisher: Option<String>,
     genres: Vec<String>,
+    overview: Option<String>,
     database_id: String,
+}
+
+/// Tidy a LaunchBox <Overview> into a one-paragraph `desc`: collapse whitespace
+/// and cap the length (the on-device buffer is small), backing off to a sentence
+/// or word boundary so it doesn't cut mid-word.
+fn clamp_desc(s: &str) -> String {
+    const MAX: usize = 240;
+    let flat = s.split_whitespace().collect::<Vec<_>>().join(" ");
+    if flat.chars().count() <= MAX {
+        return flat;
+    }
+    let mut t: String = flat.chars().take(MAX).collect();
+    if let Some(i) = t.rfind(['.', '!', '?']) {
+        if i > MAX / 2 {
+            t.truncate(i + 1);
+            return t;
+        }
+    }
+    if let Some(i) = t.rfind(' ') {
+        t.truncate(i);
+    }
+    t.push_str("...");
+    t
 }
 
 /// Normalise a title for matching: lowercase, fold common Latin accents, keep
@@ -205,6 +229,10 @@ fn parse_games(path: &Path, platform: &str) -> Result<Vec<LbGame>> {
                                             .collect()
                                     })
                                     .unwrap_or_default(),
+                                overview: acc
+                                    .get("Overview")
+                                    .map(|s| s.trim().to_string())
+                                    .filter(|s| !s.is_empty()),
                                 database_id: id.trim().to_string(),
                             });
                         }
@@ -229,6 +257,7 @@ fn field_tag(n: &[u8]) -> Option<&'static str> {
         b"ReleaseDate" => Some("ReleaseDate"),
         b"Publisher" => Some("Publisher"),
         b"Genres" => Some("Genres"),
+        b"Overview" => Some("Overview"),
         b"DatabaseID" => Some("DatabaseID"),
         _ => None,
     }
@@ -436,6 +465,11 @@ pub fn run(
             }
             if !g.genres.is_empty() && (overwrite || missing(&obj, "genre")) {
                 obj.insert("genre".into(), Value::from(g.genres.clone()));
+            }
+            if let Some(ov) = &g.overview {
+                if !ov.is_empty() && (overwrite || missing(&obj, "desc")) {
+                    obj.insert("desc".into(), Value::from(clamp_desc(ov)));
+                }
             }
             wanted.push((items.len(), g.database_id.clone()));
         } else {
