@@ -13,6 +13,7 @@
 #include <Events.h>
 #include <Processes.h>
 #include <Memory.h>
+#include <AppleEvents.h>
 
 #include "env.h"
 #include "macfs.h"
@@ -24,6 +25,7 @@
 #include "sysctl.h"
 #include "sound.h"
 #include "prefs.h"
+#include "controlpanels.h"
 #include "mac_compat.h"
 
 #include <string.h>
@@ -42,6 +44,9 @@
 #endif
 #ifndef resumeFlag
 #define resumeFlag 1
+#endif
+#ifndef kHighLevelEvent
+#define kHighLevelEvent 23
 #endif
 
 /* Large structures live in BSS, not on the stack. */
@@ -110,6 +115,34 @@ static void quit_to_finder(void)
     restore_menu_bar();
     (void)sysctl_show_finder();   /* front the Finder (best-effort) */
     ExitToShell();                /* terminate us; the Finder becomes the shell */
+}
+
+/* AppleEvent handlers. We're isHighLevelEventAware (SIZE) so AESend works for
+ * the Control Panels odoc; in return the OS delivers the required core events to
+ * us, which we must accept. We ignore oapp/odoc/pdoc and honour quit (the Finder
+ * sends it at shutdown). */
+static pascal OSErr ae_ignore(const AppleEvent *e, AppleEvent *reply, long refcon)
+{
+    (void)e; (void)reply; (void)refcon;
+    return noErr;
+}
+static pascal OSErr ae_quit(const AppleEvent *e, AppleEvent *reply, long refcon)
+{
+    (void)e; (void)reply; (void)refcon;
+    quit_to_finder();                 /* restores the bar + ExitToShell (no return) */
+    return noErr;
+}
+
+static void install_ae_handlers(void)
+{
+    AEInstallEventHandler(kCoreEventClass, kAEOpenApplication,
+                          NewAEEventHandlerUPP(ae_ignore), 0, false);
+    AEInstallEventHandler(kCoreEventClass, kAEOpenDocuments,
+                          NewAEEventHandlerUPP(ae_ignore), 0, false);
+    AEInstallEventHandler(kCoreEventClass, kAEPrintDocuments,
+                          NewAEEventHandlerUPP(ae_ignore), 0, false);
+    AEInstallEventHandler(kCoreEventClass, kAEQuitApplication,
+                          NewAEEventHandlerUPP(ae_quit), 0, false);
 }
 
 static WindowPtr make_window(const Env *e)
@@ -238,6 +271,7 @@ int main(void)
     int loaded;
 
     toolbox_init();
+    install_ae_handlers();            /* required AE handlers (we're HLE-aware) */
     env_probe(&gEnv);                 /* match whatever depth the OS is set to;
                                          saves the original menu-bar height       */
     prefs_load(&gPrefs);              /* saved theme / volume / selection */
@@ -293,6 +327,32 @@ int main(void)
                                 ui_draw(&gUi);
                             }
                             break;
+                        case UI_OPEN_CDEV: {
+                            /* Open the chosen control panel via the Finder: give
+                             * the menu bar back, send the odoc, and front the
+                             * Finder so the cdev is visible. On resume (osEvt) we
+                             * re-hide the bar. */
+                            const CtlPanel *cp = ui_current_cdev(&gUi);
+                            if (cp) {
+                                OSErr oe;
+                                restore_menu_bar();
+                                oe = ctlpanels_open(cp);
+                                if (oe == noErr) {
+                                    (void)sysctl_show_finder();
+                                } else {
+                                    char m[48];
+                                    gUi.mode = UI_MODE_LIST;   /* so the status shows */
+                                    strcpy(m, "Open control panel failed (err ");
+                                    append_long(m, oe);
+                                    strcat(m, ")");
+                                    ui_set_status(&gUi, m);
+                                    hide_menu_bar();
+                                    CalcVis((WindowPeek)gWin);
+                                    ui_draw(&gUi);
+                                }
+                            }
+                            break;
+                        }
                         case UI_RESTART:  save_prefs(); sysctl_restart();  break;
                         case UI_SHUTDOWN:
                             save_prefs();
@@ -316,19 +376,26 @@ int main(void)
                 case mouseDown:
                     SelectWindow(gWin);
                     break;
+                case kHighLevelEvent:
+                    AEProcessAppleEvent(&evt);   /* dispatch to the handlers above */
+                    break;
                 case osEvt:
-                    /* Suspend/resume from the app switcher. On resume — e.g.
-                     * switched back to us after Show Finder — re-hide the menu
-                     * bar (reclaiming its strip) and repaint full-screen; on
-                     * suspend, hand the bar back so the Finder has its menus. */
+                    /* Suspend/resume from the app switcher. On suspend (e.g. we
+                     * fronted the Finder for Show Finder or to open a control
+                     * panel) hand the menu bar back AND hide our full-screen
+                     * window so the Finder/control panel is actually visible. On
+                     * resume, show + repaint full-screen and re-hide the bar. */
                     if (((evt.message >> 24) & 0xFFL) == suspendResumeMessage) {
                         if (evt.message & resumeFlag) {
+                            ShowWindow(gWin);
+                            SelectWindow(gWin);
                             hide_menu_bar();
                             CalcVis((WindowPeek)gWin);
                             SetPort(gWin);
                             ui_draw(&gUi);
                         } else {
                             restore_menu_bar();
+                            HideWindow(gWin);
                         }
                     }
                     break;

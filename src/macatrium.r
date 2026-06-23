@@ -11,8 +11,9 @@
  *      after "Show Finder" (main.c handles the osEvt resume).
  *
  * Field order mirrors the template (Retro68APPL.r) and the 'SIZE' type in
- * Multiverse.r. We stay notHighLevelEventAware: we *send* `odoc` AppleEvents
- * (which needs no SIZE flag) but never receive them, so no AE handler is needed.
+ * Multiverse.r. isHighLevelEventAware opens our AppleEvent/PPC port so we can
+ * *send* the `odoc` to the Finder (without it, AESend fails -903 noPortErr);
+ * main.c installs the four required AE handlers and processes incoming events.
  */
 #include "Processes.r"
 
@@ -26,7 +27,7 @@ resource 'SIZE' (-1) {
 	dontGetFrontClicks,
 	ignoreChildDiedEvents,
 	is32BitCompatible,
-	notHighLevelEventAware,
+	isHighLevelEventAware,
 	onlyLocalHLEvents,
 	notStationeryAware,
 	dontUseTextEditServices,

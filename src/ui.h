@@ -11,6 +11,7 @@
 #include "render.h"
 #include "model.h"
 #include "art.h"
+#include "controlpanels.h"
 
 typedef enum {
     UI_NONE = 0,
@@ -18,10 +19,12 @@ typedef enum {
     UI_SHOW_FINDER,  /* bring the resident Finder to front */
     UI_RESTART,
     UI_SHUTDOWN,
+    UI_OPEN_CDEV,    /* open the selected control panel via the Finder */
     UI_PREFS_DIRTY   /* a persisted setting (theme/volume) changed; main saves */
 } UiCommand;
 
-enum { UI_MODE_LIST = 0, UI_MODE_MENU, UI_MODE_PREVIEW, UI_MODE_SETTINGS, UI_MODE_INFO };
+enum { UI_MODE_LIST = 0, UI_MODE_MENU, UI_MODE_PREVIEW, UI_MODE_SETTINGS,
+       UI_MODE_INFO, UI_MODE_CTLPANELS };
 
 #define UI_MAX_DEPTHS 6
 
@@ -46,6 +49,10 @@ typedef struct {
     int        sndStartup;    /* 1 = play the startup sound on launch          */
     int        sndShutdown;   /* 1 = play the shutdown sound on Shut Down      */
     Art       *rowIcon[MAX_ITEMS]; /* lazily-loaded list-row icons, by catalog idx */
+    CtlPanel   cdevs[CTLPANEL_MAX]; /* control panels (UI_MODE_CTLPANELS)         */
+    int        ncdevs;        /* count enumerated                              */
+    int        cdevSel;       /* selected control panel                        */
+    int        cdevTop;       /* first visible row (scroll)                    */
 } Ui;
 
 void      ui_init(Ui *u, Env *env, Render *r, Model *m, WindowPtr win, int safe);
@@ -56,5 +63,8 @@ void      ui_set_status(Ui *u, const char *msg);
 /* The current item's app path (for main to launch); NULL if none. */
 const char *ui_current_app(Ui *u);
 const char *ui_current_name(Ui *u);
+
+/* The selected control panel (for main to open via the Finder); NULL if none. */
+const CtlPanel *ui_current_cdev(Ui *u);
 
 #endif /* MACATRIUM_UI_H */

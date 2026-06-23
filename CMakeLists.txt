@@ -25,6 +25,7 @@ add_application(MacAtrium
     src/ui.c
     src/launch.c
     src/sysctl.c
+    src/controlpanels.c
     src/display.c
     src/sound.c
     src/prefs.c

@@ -115,6 +115,7 @@ void ui_init(Ui *u, Env *env, Render *r, Model *m, WindowPtr win, int safe)
     u->artPref = 0;                                          /* Box Art by default */
     u->sndStartup = 0;                                       /* sounds off by default */
     u->sndShutdown = 0;
+    u->ncdevs = 0; u->cdevSel = 0; u->cdevTop = 0;           /* control-panel list */
     {
         int i;
         for (i = 0; i < MAX_ITEMS; i++) u->rowIcon[i] = 0;   /* lazy row-icon cache */
@@ -146,6 +147,12 @@ const char *ui_current_name(Ui *u)
 {
     const CatItem *it = model_cur_item(u->m);
     return it ? it->name : 0;
+}
+
+const CtlPanel *ui_current_cdev(Ui *u)
+{
+    if (u->cdevSel < 0 || u->cdevSel >= u->ncdevs) return 0;
+    return &u->cdevs[u->cdevSel];
 }
 
 /* ---- drawing -------------------------------------------------------------- */
@@ -402,9 +409,11 @@ static void draw_list(Ui *u)
 }
 
 /* The Settings panel: a list of adjustable rows (Theme / Color Depth / Volume /
- * Artwork / Startup Sound / Shutdown Sound). Up/Down move rows; Left/Right (and
- * Return) change the selected row's value. */
-#define SET_N 6
+ * Artwork / Startup Sound / Shutdown Sound) plus a Control Panels action row.
+ * Up/Down move rows; Left/Right (and Return) change the selected row's value;
+ * Return on the last row opens the Control Panels list. */
+#define SET_N 7
+#define SET_ROW_CTLPANELS (SET_N - 1)   /* the action row (opens the cdev list) */
 
 static void set_row_text(Ui *u, int row, char *out)
 {
@@ -438,10 +447,15 @@ static void set_row_text(Ui *u, int row, char *out)
             while (strlen(out) < 16) strcat(out, " ");
             strcat(out, u->sndStartup ? "On" : "Off");
             break;
-        default:
+        case 5:
             strcpy(out, "Shutdown Sound");
             while (strlen(out) < 16) strcat(out, " ");
             strcat(out, u->sndShutdown ? "On" : "Off");
+            break;
+        default:
+            strcpy(out, "Control Panels");
+            while (strlen(out) < 16) strcat(out, " ");
+            strcat(out, "Open >");
             break;
     }
 }
@@ -478,12 +492,76 @@ static void draw_settings(Ui *u)
 
     render_hline(r, px, (short)(px + pw), (short)(py + ph - 22));
     {
-        /* On the sound rows, swap the nav hint for the clip-length note. */
-        const char *hint = (u->setSel >= 4)
-            ? "Sounds: a clip baked in the image, max 7 sec"
-            : "^v row   <> change   Esc back";
-        short x = (short)(px + (pw - render_text_width(r, hint)) / 2);
+        /* Contextual bottom hint: the clip-length note on the sound rows, the
+         * open hint on Control Panels, else the nav keys. */
+        const char *hint;
+        short x;
+        if (u->setSel == 4 || u->setSel == 5)
+            hint = "Sounds: a clip baked in the image, max 7 sec";
+        else if (u->setSel == SET_ROW_CTLPANELS)
+            hint = "Return  open the Control Panels list";
+        else
+            hint = "^v row   <> change   Esc back";
+        x = (short)(px + (pw - render_text_width(r, hint)) / 2);
         if (x < (short)(px + 4)) x = (short)(px + 4);
+        render_text(r, x, (short)(py + ph - 7), hint, INK_DIM);
+    }
+}
+
+/* The Control Panels list (reached from Settings -> Control Panels): a scrollable
+ * panel of the System's `cdev` files; Return opens the selected one via the
+ * Finder, Esc returns to Settings. */
+static void draw_ctlpanels(Ui *u)
+{
+    Render *r = u->r;
+    int     W = win_w(u), H = win_h(u);
+    int     pw = 320;
+    int     rows = 9;                       /* visible list rows */
+    int     ph = rows * (ROW_H + 2) + 56;
+    short   px = (short)((W - pw) / 2);
+    short   py = (short)((H - ph) / 2);
+    Rect    panel, rr;
+    int     i;
+
+    SetRect(&panel, px, py, (short)(px + pw), (short)(py + ph));
+    render_fill(r, &panel, FILL_PANEL);
+    render_frame(r, &panel);
+
+    render_text_size(r, 12);
+    render_text(r, (short)(px + MARGIN), (short)(py + 22), "Control Panels", INK_TITLE);
+    render_hline(r, px, (short)(px + pw), (short)(py + 30));
+
+    /* keep the selection in view */
+    if (u->cdevSel < u->cdevTop) u->cdevTop = u->cdevSel;
+    else if (u->cdevSel >= u->cdevTop + rows) u->cdevTop = u->cdevSel - rows + 1;
+    if (u->cdevTop < 0) u->cdevTop = 0;
+
+    if (u->ncdevs == 0) {
+        render_text(r, (short)(px + MARGIN), (short)(py + 52),
+                    "(none found)", INK_DIM);
+    } else {
+        for (i = 0; i < rows; i++) {
+            int   idx = u->cdevTop + i;
+            short y0  = (short)(py + 38 + i * (ROW_H + 2));
+            short base = (short)(y0 + ROW_H - 5);
+            int   sel = (idx == u->cdevSel);
+            char  nm[64];
+            const unsigned char *p;
+            int   k;
+            if (idx >= u->ncdevs) break;
+            p = u->cdevs[idx].name;
+            for (k = 0; k < p[0] && k < 63; k++) nm[k] = (char)p[k + 1];
+            nm[k] = '\0';
+            SetRect(&rr, (short)(px + 4), y0, (short)(px + pw - 4), (short)(y0 + ROW_H));
+            render_fill(r, &rr, sel ? FILL_SEL : FILL_PANEL);
+            render_text(r, (short)(px + MARGIN), base, nm, sel ? INK_SELECTED : INK_NORMAL);
+        }
+    }
+
+    render_hline(r, px, (short)(px + pw), (short)(py + ph - 22));
+    {
+        const char *hint = "^v select   Return  open   Esc  back";
+        short x = (short)(px + (pw - render_text_width(r, hint)) / 2);
         render_text(r, x, (short)(py + ph - 7), hint, INK_DIM);
     }
 }
@@ -629,6 +707,8 @@ void ui_draw(Ui *u)
             draw_menu(u);
         else if (u->mode == UI_MODE_SETTINGS)
             draw_settings(u);
+        else if (u->mode == UI_MODE_CTLPANELS)
+            draw_ctlpanels(u);
     }
     render_end(u->r, u->win);
 }
@@ -796,6 +876,17 @@ UiCommand ui_key(Ui *u, char ch)
     /* Settings panel: rows adjusted with arrows, Esc returns to the list. */
     if (u->mode == UI_MODE_SETTINGS) {
         int dirty = 0;
+        /* The Control Panels row is an action: Return/Right opens the cdev list
+         * (enumerated fresh each time). */
+        if (u->setSel == SET_ROW_CTLPANELS &&
+            (ch == kCharReturn || ch == kCharEnter || ch == kCharRight)) {
+            u->ncdevs  = ctlpanels_list(u->cdevs, CTLPANEL_MAX);
+            u->cdevSel = 0;
+            u->cdevTop = 0;
+            u->mode = UI_MODE_CTLPANELS;
+            ui_draw(u);
+            return UI_NONE;
+        }
         switch (ch) {
             case kCharUp:    if (u->setSel > 0) u->setSel--; break;
             case kCharDown:  if (u->setSel < SET_N - 1) u->setSel++; break;
@@ -807,6 +898,21 @@ UiCommand ui_key(Ui *u, char ch)
         }
         ui_draw(u);
         return dirty ? UI_PREFS_DIRTY : UI_NONE;
+    }
+
+    /* Control Panels list: navigate, Return opens via the Finder, Esc back. */
+    if (u->mode == UI_MODE_CTLPANELS) {
+        switch (ch) {
+            case kCharUp:    if (u->cdevSel > 0) u->cdevSel--; break;
+            case kCharDown:  if (u->cdevSel < u->ncdevs - 1) u->cdevSel++; break;
+            case kCharReturn:
+            case kCharEnter:
+                if (u->ncdevs > 0) { ui_draw(u); return UI_OPEN_CDEV; }
+                break;
+            case kCharEscape: u->mode = UI_MODE_SETTINGS; break;
+        }
+        ui_draw(u);
+        return UI_NONE;
     }
 
     /* Gear focused on the list screen (reached by Left at the first category). */
