@@ -26,6 +26,7 @@ Every push builds + tests; releases publish on `main` / tag pushes.
 | `harvest` | **done** | Pull apps out of a donor HFS image (the MacPack `.vhd`s) into `/MacAtrium/Apps`, both forks, + dataset stubs |
 | `enrich` | **done** | Fill the dataset (year/vendor/genre + art URLs) from the LaunchBox Games Database |
 | `mg` | **done** | Fill the dataset from the local **Macintosh Garden** archive (68K-only): year/vendor/genre/desc + `source` attribution + offline colour detect, and stage box-front/screenshot art |
+| `fetch` | **done** | Download a 68K title's software from the Macintosh Garden mirror, extract via rb-cli (StuffIt/CompactPro/MAR/BinHex/MacBinary), inject the forks into an image under `Apps/` |
 | `merge` | **done** | Apply a manual overrides overlay (colour/mouse, corrections, unmatched titles) over the dataset |
 | `set` | **done** | CLI upsert of one override record (the colour/mouse "checkbox" + corrections) |
 | `pict` | **done** | PNG/JPEG → PICT at 1/4/8/16-bit (docs/06 Images) |
@@ -178,6 +179,31 @@ atrium mg --src data/library.jsonl --mg-archive ~/macgarden-archive \
 In `atrium image`, set `mg_archive` to run this before LaunchBox (so MG wins the
 gap-fills) and feed its art into the art pass (precedence: explicit `art_dir` >
 MacGarden > LaunchBox download).
+
+### `atrium fetch`
+
+Phase 2 of the MG integration — MG as a **content/donor** source. Downloads a
+68K title's software from the static mirror, extracts it with **rb-cli**, and
+(with `--into`) injects the forks into an image under `Apps/`:
+
+```sh
+atrium fetch --mg-archive ~/macgarden-archive --nid 434 \
+  --rb-cli /path/to/rb-cli --into target.hda
+# or fetch for every dataset record that matches an MG title:
+atrium fetch --mg-archive ~/macgarden-archive --src data/library.jsonl --into target.hda
+```
+
+- Builds the static mirror URL (`gardenmirror.oldapplestuff.com/<kind>/<file>`;
+  the mirror needs a User-Agent) and caches downloads under
+  `<archive>/downloads/` (on-demand, per-title — **never committed**).
+- Extraction: `rb-cli archive extract` for StuffIt/CompactPro/MAR/BinHex-wrapped
+  `.hqx`; `put-macbinary` for `.bin`. Injects the extracted tree
+  structure-preserving (each path component sanitised HFS-safe).
+- Skips formats rb-cli can't open yet (`.zip`, disk images, `.sitx`) with a
+  message — `.sitx` is a PPC/OS9-era format for the later OS 9.2.2 phase.
+- **Follow-up:** picking the launchable `APPL` and emitting a `library.jsonl`
+  stub (so the title appears in the catalog) is the remaining harvest-integration
+  step; `fetch` today injects the bytes, `harvest`-style stub emission comes next.
 
 ### `atrium merge`
 

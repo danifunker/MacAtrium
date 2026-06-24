@@ -122,6 +122,17 @@ impl RbCli {
         Ok(())
     }
 
+    /// Extract a classic-Mac archive (StuffIt `.sit`/`.sea`, Compact Pro `.cpt`,
+    /// `.mar`, or BinHex-wrapped `.hqx`) to a host directory as one `.hqx` per
+    /// file (both forks + Finder info) — exactly what `put_binhex` ingests. The
+    /// decoding lives in rb-cli's `macarchive` module (pure Rust).
+    pub fn archive_extract(&self, archive: &Path, dest: &Path) -> Result<()> {
+        let a = archive.to_string_lossy();
+        let d = dest.to_string_lossy();
+        self.run(&["archive", "extract", &a, &d, "--format", "binhex"])?;
+        Ok(())
+    }
+
     /// Install a MacBinary archive (both forks + Finder info) into a directory,
     /// overwriting any existing file so a rebuild onto a non-clean image (e.g.
     /// one that already has the launcher) is idempotent.

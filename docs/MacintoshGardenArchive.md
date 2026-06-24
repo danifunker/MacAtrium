@@ -305,4 +305,21 @@ MG becomes a first-class source in `atrium` (**Option B**), parallel to LaunchBo
   (MacBinary I/II/III). Decided **shell out to rb-cli** (AGPL boundary), **68K-only**
   scope first, **visible attribution**, and **defer `.sitx`/Snow-extraction** to the
   OS 9.2.2 phase. Verified the 68K subset (12,036 titles) and that rb-cli + zip +
-  disk-image paths cover 99.7% of it. Next: build Phase 1.
+  disk-image paths cover 99.7% of it.
+- **2026-06-23** — **Phase 1 built + committed** (`atrium mg` + `mg_archive` in
+  `image`): 68K-filtered name match, de-HTML'd desc, `source` attribution (carried
+  through catalog.rs), offline colour detect, box/screenshot art staging. Matcher
+  also splits compound `/` titles now. Verified: 12/12 shipping titles matched.
+- **2026-06-23** — **Phase 2 built + committed** (`atrium fetch`): download from the
+  static mirror (needs a User-Agent) → `rb-cli archive extract` → structure-preserving
+  inject under `Apps/`. Had to **rebuild rb-cli** (the on-box binary predated the
+  `archive` verb). Verified end-to-end on HyperCard Player (`.sit`, nid 434): 8 forks
+  extracted from the nested tree and injected; `rb-cli ls` shows the `APPL` + its
+  `STAK`s with correct type/creator. Learned: a `.sit` expands to a whole tree (app
+  folder + docs + sometimes an inner `.img` disk image + MG's own
+  `Macintosh-Garden.txt`).
+  **Remaining follow-ups (not blockers):** (a) emit a `library.jsonl` stub for a
+  fetched title (pick the `APPL` as the launch path) so it shows in the catalog —
+  the harvest-integration step; (b) `.zip` / inner-disk-image handling; (c)
+  `.sitx`/Snow extraction in the OS 9.2.2 phase; (d) the launcher's More Info card
+  reading the new `source` field (data + catalog already carry it).

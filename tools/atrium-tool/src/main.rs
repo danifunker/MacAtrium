@@ -10,7 +10,7 @@
 //! stubs that describe their planned behaviour.
 
 use anyhow::Result;
-use atrium::{catalog, enrich, harvest, icons, image, merge, mg, pict, snd};
+use atrium::{catalog, enrich, fetch, harvest, icons, image, merge, mg, pict, snd};
 use clap::{Parser, Subcommand};
 use std::path::PathBuf;
 
@@ -103,6 +103,36 @@ enum Cmd {
         /// `<id>.<ext>` / `<id>.shot.<ext>` for the `image` art pass.
         #[arg(long)]
         art_dir: Option<PathBuf>,
+    },
+
+    /// Fetch a 68K title's software from the Macintosh Garden mirror, extract it
+    /// with rb-cli (StuffIt/CompactPro/MAR/BinHex/MacBinary), and optionally inject
+    /// the forks into an image under Apps/. On-demand, per-title (Phase 2).
+    Fetch {
+        /// Macintosh Garden archive root (for metadata + per-title info.json).
+        #[arg(long = "mg-archive")]
+        archive: PathBuf,
+        /// MG node id(s) to fetch (repeatable).
+        #[arg(long = "nid")]
+        nids: Vec<i64>,
+        /// Or: fetch for every dataset record that matches an MG title.
+        #[arg(long)]
+        src: Option<PathBuf>,
+        /// Download cache dir (default: <archive>/downloads; never committed).
+        #[arg(long)]
+        downloads: Option<PathBuf>,
+        /// Inject the extracted forks into this image under Apps/.
+        #[arg(long)]
+        into: Option<PathBuf>,
+        #[arg(long, default_value = "/MacAtrium/Apps")]
+        apps_root: String,
+        #[arg(long, default_value = "rb-cli")]
+        rb_cli: String,
+        #[arg(long, default_value = "curl")]
+        curl: String,
+        /// Extraction staging dir (default: a temp dir).
+        #[arg(long)]
+        stage: Option<PathBuf>,
     },
 
     /// Capture manual data into the overrides overlay (the CLI "checkbox" for the
@@ -288,6 +318,12 @@ fn main() -> Result<()> {
         }
         Cmd::Mg { src, archive, out, overwrite, art_dir } => {
             mg::run(&src, &archive, &out, overwrite, art_dir.as_deref())?;
+        }
+        Cmd::Fetch { archive, nids, src, downloads, into, apps_root, rb_cli, curl, stage } => {
+            fetch::run(
+                &archive, &nids, src.as_deref(), downloads.as_deref(), into.as_deref(),
+                &apps_root, &rb_cli, &curl, stage.as_deref(),
+            )?;
         }
 
         Cmd::Set {

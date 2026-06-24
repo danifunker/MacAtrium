@@ -6,6 +6,7 @@
 
 pub mod catalog;
 pub mod enrich;
+pub mod fetch;
 pub mod harvest;
 pub mod icons;
 pub mod image;
