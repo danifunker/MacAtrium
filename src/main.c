@@ -88,9 +88,14 @@ static void toolbox_init(void)
 
 static void bring_self_front(void)
 {
-    ProcessSerialNumber psn;
-    if (GetCurrentProcess(&psn) == noErr)
-        SetFrontProcess(&psn);
+    /* The Process Manager (GetCurrentProcess/SetFrontProcess) is System 7+ (and
+     * MultiFinder); on base System 6 those are unimplemented traps. We're already
+     * frontmost as the launched app there, so skip it. */
+    if (gHasWNE) {
+        ProcessSerialNumber psn;
+        if (GetCurrentProcess(&psn) == noErr)
+            SetFrontProcess(&psn);
+    }
 }
 
 /* True full-screen: drop the menu bar to 0 height AND cede its strip back to the
