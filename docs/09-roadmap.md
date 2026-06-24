@@ -76,12 +76,20 @@ blockers to fix:
       MultiFinder). Set from the probed `gestaltSystemVersion`.
 - [x] **No regression** — the new file code is verified on **System 7.1** (Mac II,
       Snow): boots, loads the 12-item catalog, renders metadata + art.
-- [ ] **Deploy + validate on 6.0.8 + MultiFinder.** The code is ready; what's left
-      is deployment: the Startup-Items auto-launch is System-7-only, so 6.0.8 needs
-      the **boot-block shell swap** (`bbShellName`, Str15 at partition offset
-      `0x1A`, §C″). Add a small `rb-cli`/`atrium` "set shell name" helper, then
-      boot-to-launcher on 6.0.8 + MultiFinder and confirm the resident `Launch`
-      path returns there.
+- [ ] **Deploy + validate on 6.0.8 + MultiFinder** (the open piece). The code is
+      ready; the blocker is *deployment*: Startup-Items auto-launch is System-7-only.
+      🔬 **Tried the boot-block shell swap and it did NOT take in Snow on
+      `MacLC_6-0-8.hda`** (2026-06-23): the Apple_HFS partition / boot block is at
+      sector 96 (byte 49152, confirmed via the partition map), and rewriting
+      `bbShellName` there to **"MacAtrium"** *or* **"MultiFinder"** (verified the
+      bytes persisted) both still booted the **plain Finder** — so this Snow build
+      ignores `bbShellName` for this disk, contradicting the earlier §C″ note.
+      Next: investigate Snow's 6.0.8 shell selection (boot `2` code resource? a
+      `bless`/`make-bootable` step? interactive Snow?) or a different auto-launch
+      (a real MultiFinder "Set Startup"). Until then the launcher is **code-ready
+      but unverified-at-runtime on 6.0.8**. (A `set_boot_shell` helper was drafted
+      then reverted — patching the field is correct, but it doesn't drive the boot,
+      so it wasn't committed.)
 - [ ] B&W path on a MacPlus-class config (Mini vMac / MacPlus core).
 - [ ] If a single binary proves impractical, cut a 6.0.8 build variant (fallback
       only).
