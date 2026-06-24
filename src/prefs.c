@@ -15,6 +15,7 @@
 #include "mac_compat.h"
 
 #include <Files.h>        /* FindFolder, FSp* — multiversal header */
+#include <Gestalt.h>      /* gestaltSystemVersion — System-6 path selection */
 #include <Memory.h>
 #include <string.h>
 
@@ -44,6 +45,17 @@ static OSErr prefs_spec(Boolean create, FSSpec *spec, short *vrefOut)
 {
     short vref;
     long  dirID;
+    long sysv = 0;
+    (void)Gestalt(gestaltSystemVersion, &sysv);
+    /* System 6 has no Preferences folder and no FindFolder (System-7 Folder
+     * Manager trap). Store the prefs file inside /MacAtrium instead (next to the
+     * metadata), resolved by macfs — no FindFolder, works on 6.0.8. */
+    if (sysv < 0x0700) {
+        OSErr err = macfs_make_spec("MacAtrium Prefs", spec);
+        if (err != noErr) return err;
+        if (vrefOut) *vrefOut = spec->vRefNum;
+        return noErr;
+    }
     OSErr err = FindFolder(kOnSystemDisk, kPreferencesFolderType,
                            create ? kCreateFolder : kDontCreateFolder,
                            &vref, &dirID);

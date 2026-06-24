@@ -28,8 +28,17 @@ OSErr macfs_boot_vref(short *vref)
 {
     if (!gHaveBoot) {
         short v;
-        long  d;
-        OSErr err = FindFolder(kOnSystemDisk, kSystemFolderType, false, &v, &d);
+        long  d, sysv = 0;
+        OSErr err;
+        /* FindFolder is a System-7 (Folder Manager) trap — unimplemented on base
+         * System 6, where it bombs ("unimplemented trap"). On 6.x use GetVol: the
+         * default volume at app startup is the boot volume. */
+        (void)Gestalt(gestaltSystemVersion, &sysv);
+        if (sysv >= 0x0700) {
+            err = FindFolder(kOnSystemDisk, kSystemFolderType, false, &v, &d);
+        } else {
+            err = GetVol(0L, &v);
+        }
         if (err != noErr) return err;
         gBootVRef = v;
         gHaveBoot = true;
