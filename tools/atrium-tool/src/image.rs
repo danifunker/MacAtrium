@@ -107,6 +107,32 @@ struct Config {
     /// sounds/shutdown under /MacAtrium).
     #[serde(default = "d_sounds_dir")]
     sounds_dir: String,
+    /// System 6 appliance: install the launcher *as* the Finder (in the System
+    /// Folder, typed FNDR/MACS) so the boot launches it as the shell. System 6 has
+    /// no Startup Items folder, so this is the auto-launch path there. Replaces
+    /// the real Finder (no Finder fallback — a true single-app appliance). Leave
+    /// false for the 7.x Startup-Items deployment.
+    #[serde(default)]
+    finder_replace: bool,
+}
+
+/// Install the launcher *as* `/System Folder/Finder` (typed FNDR/MACS) so a
+/// System-6 boot launches it as the shell. Patches the MacBinary internal name to
+/// "Finder", injects it (overwriting the real Finder), and retypes it.
+fn install_as_finder(rb: &RbCli, cfg: &Config, stage: &Path) -> Result<()> {
+    let mut bytes = std::fs::read(&cfg.launcher)
+        .with_context(|| format!("reading launcher {}", cfg.launcher.display()))?;
+    anyhow::ensure!(bytes.len() > 128, "launcher .bin too small to be MacBinary");
+    let name = b"Finder";
+    bytes[1] = name.len() as u8;            // MacBinary filename length
+    for k in 0..63 {                        // filename field (63 bytes)
+        bytes[2 + k] = if k < name.len() { name[k] } else { 0 };
+    }
+    let patched = stage.join("Finder.bin");
+    std::fs::write(&patched, &bytes)?;
+    rb.put_macbinary(&cfg.out, &patched, "/System Folder")?;   // lands as "Finder" (--force)
+    rb.chmeta(&cfg.out, "/System Folder/Finder", "FNDR", "MACS")?;
+    Ok(())
 }
 
 /// (id, app-path) for every dataset record with an id. `app` is the launcher
@@ -479,9 +505,14 @@ pub fn run(config: &Path) -> Result<()> {
     let report = catalog::run(&work, &cat, false, false)?;
     catalog::inject(&cfg.rb_cli, &cfg.out, &cat, &cfg.metadata_dir, Some(&stage))?;
 
-    eprintln!("[7/7] launcher     install into {}", cfg.startup_items);
-    rb.mkdir_p(&cfg.out, &cfg.startup_items)?;
-    rb.put_macbinary(&cfg.out, &cfg.launcher, &cfg.startup_items)?;
+    if cfg.finder_replace {
+        eprintln!("[7/7] launcher     install AS the Finder (System 6 boot shell)");
+        install_as_finder(&rb, &cfg, &stage)?;
+    } else {
+        eprintln!("[7/7] launcher     install into {}", cfg.startup_items);
+        rb.mkdir_p(&cfg.out, &cfg.startup_items)?;
+        rb.put_macbinary(&cfg.out, &cfg.launcher, &cfg.startup_items)?;
+    }
 
     // Optional startup / shutdown chimes (WAV -> snd resource on the volume).
     if cfg.startup_sound.is_some() || cfg.shutdown_sound.is_some() {

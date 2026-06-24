@@ -6,8 +6,18 @@
 
 #include <Files.h>     /* FindFolder + CInfoPBRec live in the multiversal header */
 #include <AppleEvents.h>
+#include <Gestalt.h>
 #include <Errors.h>
 #include <string.h>
+
+/* Control Panels here use FindFolder + an odoc AppleEvent, both System 7+. On
+ * base System 6 they'd be unimplemented traps, so the feature is disabled. */
+static int ctlpanels_available(void)
+{
+    long sysv = 0;
+    (void)Gestalt(gestaltSystemVersion, &sysv);
+    return sysv >= 0x0700;
+}
 
 #ifndef kControlPanelFolderType
 #define kControlPanelFolderType 'ctrl'
@@ -39,6 +49,8 @@ int ctlpanels_list(CtlPanel *out, int max)
     int         n = 0, i, j;
     CInfoPBRec  pb;
     Str63       name;
+
+    if (!ctlpanels_available()) return 0;   /* System 6: no FindFolder/odoc */
 
     if (FindFolder(kOnSystemDisk, kControlPanelFolderType, kDontCreateFolder,
                    &vref, &dirID) != noErr)
@@ -79,6 +91,8 @@ OSErr ctlpanels_open(const CtlPanel *cp)
     AEDescList    docs;
     FSSpec        spec;
     OSErr         err;
+
+    if (!ctlpanels_available()) return paramErr;  /* System 6: no AppleEvents */
 
     /* Rebuild the cdev's FSSpec from the recorded location. */
     spec.vRefNum = cp->vref;

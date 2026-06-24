@@ -133,6 +133,13 @@ impl RbCli {
         Ok(())
     }
 
+    /// Change an existing file's HFS type/creator codes.
+    pub fn chmeta(&self, image: &Path, path: &str, type_: &str, creator: &str) -> Result<()> {
+        let img = image.to_string_lossy();
+        self.run(&["chmeta", &img, path, "--type", type_, "--creator", creator])?;
+        Ok(())
+    }
+
     /// Install a MacBinary archive (both forks + Finder info) into a directory,
     /// overwriting any existing file so a rebuild onto a non-clean image (e.g.
     /// one that already has the launcher) is idempotent.
