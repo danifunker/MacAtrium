@@ -25,6 +25,7 @@ Every push builds + tests; releases publish on `main` / tag pushes.
 | `catalog` | **done** | Compile a curated dataset → on-Mac `catalog.jsonl` (faceted categories, CR line endings, MacRoman encoding) |
 | `harvest` | **done** | Pull apps out of a donor HFS image (the MacPack `.vhd`s) into `/MacAtrium/Apps`, both forks, + dataset stubs |
 | `enrich` | **done** | Fill the dataset (year/vendor/genre + art URLs) from the LaunchBox Games Database |
+| `mg` | **done** | Fill the dataset from the local **Macintosh Garden** archive (68K-only): year/vendor/genre/desc + `source` attribution + offline colour detect, and stage box-front/screenshot art |
 | `merge` | **done** | Apply a manual overrides overlay (colour/mouse, corrections, unmatched titles) over the dataset |
 | `set` | **done** | CLI upsert of one override record (the colour/mouse "checkbox" + corrections) |
 | `pict` | **done** | PNG/JPEG → PICT at 1/4/8/16-bit (docs/06 Images) |
@@ -153,6 +154,30 @@ ones ("Prince of Persia (Brøderbund Software)", "Deja Vu: A Nightmare Comes
 True!!", "Hobbit, The", "Glider 4.0") — preferring the entry with the most
 complete data. Unmatched titles are reported for manual fixing. Approach adapted
 from megatron-uk/x68klauncher's `tools/metadata.py`.
+
+### `atrium mg`
+
+Fill the dataset from the local **Macintosh Garden** archive
+(`~/macgarden-archive`, see [docs/MacintoshGardenArchive.md](../../docs/MacintoshGardenArchive.md)),
+a sibling source to `enrich`. Reads `metadata/{games,apps}.ndjson`, keeps only
+**68K-compatible** titles (`architecture ⊇ "68k"`), matches by normalised name,
+and fills `year` / `vendor` / `genre` / `desc` (gaps-only unless `--overwrite`):
+
+```sh
+atrium mg --src data/library.jsonl --mg-archive ~/macgarden-archive \
+  --out data/library.jsonl --art-dir /tmp/mg-art
+```
+
+- De-HTMLs the MG description (strips tags + entities + internal `/games/…` links).
+- Sets **`source: "Macintosh Garden"`** (visible attribution; carried through to
+  the catalog for the More Info card).
+- **Offline** colour detect from a gameplay screenshot already on disk (no download).
+- `--art-dir` copies each matched title's box-front → `<id>.<ext>` and a gameplay
+  screenshot → `<id>.shot.<ext>` for the `image` art→PICT pass.
+
+In `atrium image`, set `mg_archive` to run this before LaunchBox (so MG wins the
+gap-fills) and feed its art into the art pass (precedence: explicit `art_dir` >
+MacGarden > LaunchBox download).
 
 ### `atrium merge`
 

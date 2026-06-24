@@ -11,6 +11,7 @@ pub mod icons;
 pub mod image;
 pub mod macroman;
 pub mod merge;
+pub mod mg;
 pub mod pict;
 pub mod rbcli;
 pub mod snd;

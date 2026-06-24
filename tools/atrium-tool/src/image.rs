@@ -11,7 +11,7 @@
 //! curated `data/library.jsonl`. Run with `atrium image --config build.json`.
 
 use crate::rbcli::RbCli;
-use crate::{catalog, enrich, harvest, icons, merge, pict, snd};
+use crate::{catalog, enrich, harvest, icons, merge, mg, pict, snd};
 use anyhow::{Context, Result};
 use serde::Deserialize;
 use serde_json::Value;
@@ -54,6 +54,10 @@ struct Config {
     /// LaunchBox Metadata.xml — if set, enrich the dataset.
     #[serde(default)]
     metadata: Option<PathBuf>,
+    /// Macintosh Garden archive root — if set, enrich (68K-only) before LaunchBox
+    /// (so MG wins for gaps) and stage MG box-front/screenshot art for the art pass.
+    #[serde(default)]
+    mg_archive: Option<PathBuf>,
     #[serde(default = "d_platform")]
     platform: String,
     /// Auto-detect color/B&W from LaunchBox screenshots during enrich.
@@ -330,6 +334,14 @@ pub fn run(config: &Path) -> Result<()> {
         }
     }
 
+    // 3b. enrich from the Macintosh Garden archive (68K-only) BEFORE LaunchBox, so
+    // MG wins for gap-fills; stage its box-front/screenshot art for the art pass.
+    let mg_art_dir = stage.join("mg-art");
+    if let Some(mga) = &cfg.mg_archive {
+        eprintln!("[3b] mg            Macintosh Garden archive {}", mga.display());
+        mg::run(&work, mga, &work, false, Some(&mg_art_dir))?;
+    }
+
     // 4. enrich from LaunchBox (fills gaps only; optional color auto-detect)
     if let Some(md) = &cfg.metadata {
         eprintln!("[3/7] enrich       LaunchBox \"{}\"", cfg.platform);
@@ -353,7 +365,7 @@ pub fn run(config: &Path) -> Result<()> {
 
     // 6. art: gather sources (local art_dir wins; else download Box-Front from
     // LaunchBox), convert -> PICT, inject, set the catalog image field.
-    if cfg.art_dir.is_some() || cfg.download_art {
+    if cfg.art_dir.is_some() || cfg.download_art || cfg.mg_archive.is_some() {
         let depth = pict::Depth::parse(&cfg.art_depth)?;
         rb.mkdir_p(&cfg.out, &cfg.images_dir)?;
 
@@ -407,11 +419,16 @@ pub fn run(config: &Path) -> Result<()> {
             // art_dir wins, else the downloaded file. art_dir screenshots are named
             // `<id>.shot.<ext>`. Baked files use `fid` (HFS 31-char safe), not `id`.
             let fid = fs_id(&id);
+            // Source precedence: explicit art_dir (user override) > MacGarden art >
+            // LaunchBox download. (MG art is era-accurate Mac art; docs/MacintoshGardenArchive.md.)
+            let mg_art = cfg.mg_archive.as_ref().map(|_| mg_art_dir.as_path());
             let box_src = cfg.art_dir.as_ref().and_then(|adir| find_art(adir, &id))
+                .or_else(|| mg_art.and_then(|adir| find_art(adir, &id)))
                 .or_else(|| downloaded.get(&id).cloned());
             let shot_name = format!("{id}.shot");
             let shot_vol = format!("{fid}.shot");
             let shot_src = cfg.art_dir.as_ref().and_then(|adir| find_art(adir, &shot_name))
+                .or_else(|| mg_art.and_then(|adir| find_art(adir, &shot_name)))
                 .or_else(|| downloaded_shot.get(&id).cloned());
 
             let mut fields = String::new();

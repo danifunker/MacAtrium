@@ -33,7 +33,7 @@ struct LbGame {
 /// Tidy a LaunchBox <Overview> into a one-paragraph `desc`: collapse whitespace
 /// and cap the length (the on-device buffer is small), backing off to a sentence
 /// or word boundary so it doesn't cut mid-word.
-fn clamp_desc(s: &str) -> String {
+pub fn clamp_desc(s: &str) -> String {
     const MAX: usize = 240;
     let flat = s.split_whitespace().collect::<Vec<_>>().join(" ");
     if flat.chars().count() <= MAX {
@@ -141,10 +141,12 @@ fn strip_articles(k: &str) -> String {
 /// qualifier removed, with any ":" subtitle dropped, and each of those with
 /// articles stripped — so our clean titles match LaunchBox's disambiguated ones
 /// ("Deja Vu: A Nightmare Comes True!!", "Hobbit, The", "The Ancient Art of War").
-fn candidate_keys(name: &str) -> Vec<String> {
+pub fn candidate_keys(name: &str) -> Vec<String> {
     let stripped = strip_groups(name);
-    let before_colon = name.split(':').next().unwrap_or(name);
-    let stripped_before_colon = stripped.split(':').next().unwrap_or(&stripped);
+    // Split on ':' (subtitle) and '/' (compound bundles, e.g. Macintosh Garden's
+    // "Lemmings/Oh No! More Lemmings") so the head segment matches our clean title.
+    let before_colon = name.split([':', '/']).next().unwrap_or(name);
+    let stripped_before_colon = stripped.split([':', '/']).next().unwrap_or(&stripped);
     let raw = [
         name.to_string(),
         stripped.clone(),
@@ -353,7 +355,7 @@ pub fn download(url: &str, out: &Path, curl: &str) -> Result<()> {
 
 /// Classify an image as colour (true) or B&W (false) by the fraction of clearly
 /// saturated pixels — robust to JPEG chroma noise on grayscale shots.
-fn is_color_image(path: &Path) -> Result<bool> {
+pub fn is_color_image(path: &Path) -> Result<bool> {
     let img = image::ImageReader::open(path)?
         .with_guessed_format()?
         .decode()?

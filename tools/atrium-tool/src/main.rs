@@ -10,7 +10,7 @@
 //! stubs that describe their planned behaviour.
 
 use anyhow::Result;
-use atrium::{catalog, enrich, harvest, icons, image, merge, pict, snd};
+use atrium::{catalog, enrich, harvest, icons, image, merge, mg, pict, snd};
 use clap::{Parser, Subcommand};
 use std::path::PathBuf;
 
@@ -81,6 +81,28 @@ enum Cmd {
         /// curl binary used to download screenshots for --detect-color.
         #[arg(long, default_value = "curl")]
         curl: String,
+    },
+
+    /// Fill the curated dataset from the local Macintosh Garden archive
+    /// (68K-only): year/vendor/genre/desc (de-HTML'd) + source attribution +
+    /// offline colour detect. Optionally copy box-front/screenshot art into a dir.
+    Mg {
+        /// Curated source dataset to enrich (e.g. data/library.jsonl).
+        #[arg(long)]
+        src: PathBuf,
+        /// Macintosh Garden archive root (holds metadata/*.ndjson + <kind>/<nid>/).
+        #[arg(long = "mg-archive")]
+        archive: PathBuf,
+        /// Output dataset (may equal --src to enrich in place).
+        #[arg(long)]
+        out: PathBuf,
+        /// Overwrite existing values instead of only filling missing ones.
+        #[arg(long)]
+        overwrite: bool,
+        /// Copy each matched title's box-front + gameplay screenshot here as
+        /// `<id>.<ext>` / `<id>.shot.<ext>` for the `image` art pass.
+        #[arg(long)]
+        art_dir: Option<PathBuf>,
     },
 
     /// Capture manual data into the overrides overlay (the CLI "checkbox" for the
@@ -263,6 +285,9 @@ fn main() -> Result<()> {
         }
         Cmd::Enrich { src, metadata, out, platform, overwrite, art_manifest, detect_color, curl } => {
             enrich::run(&src, &metadata, &out, &platform, overwrite, art_manifest.as_deref(), detect_color, &curl)?;
+        }
+        Cmd::Mg { src, archive, out, overwrite, art_dir } => {
+            mg::run(&src, &archive, &out, overwrite, art_dir.as_deref())?;
         }
 
         Cmd::Set {

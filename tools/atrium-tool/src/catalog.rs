@@ -26,6 +26,7 @@ const ITEM_DESC_LEN: usize = 255;
 const ITEM_VENDOR_LEN: usize = 39;
 const ITEM_GENRE_LEN: usize = 63;
 const MAX_CATS: usize = 64; // distinct named categories (excludes synthesized "All")
+const ITEM_SOURCE_LEN: usize = 39;
 
 /// One curated record from the source dataset. Only `id`, `name`, `app` are
 /// required; the facet fields are optional and drive category derivation.
@@ -68,6 +69,10 @@ struct SourceItem {
     type_: Option<String>,
     #[serde(default)]
     creator: Option<String>,
+    /// Optional attribution for the metadata/art source (e.g. "Macintosh
+    /// Garden"), shown in the More Info card. Passed through to the catalog.
+    #[serde(default)]
+    source: Option<String>,
     /// Optional per-item launch hotkey (a single character): the launcher
     /// launches this title when the key is pressed. Doubles as a per-item
     /// gamepad-button map (MiSTer maps joystick buttons → keystrokes).
@@ -109,6 +114,9 @@ struct OutItem {
     /// Small per-item list-row icon base path; omitted if none.
     #[serde(skip_serializing_if = "Option::is_none")]
     icon: Option<String>,
+    /// Metadata/art attribution (e.g. "Macintosh Garden"); omitted if none.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    source: Option<String>,
 }
 
 /// Top-level category for a `kind` value.
@@ -305,6 +313,7 @@ fn build(src_text: &str) -> Result<(Vec<OutItem>, Report)> {
             shot: it.shot,
             hotkey,
             icon: it.icon,
+            source: it.source.map(|s| s.chars().take(ITEM_SOURCE_LEN).collect()),
         });
     }
 
