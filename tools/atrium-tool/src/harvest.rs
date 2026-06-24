@@ -389,7 +389,17 @@ pub fn run(
     let mut warnings = Vec::new();
     let mut harvested = Vec::new();
     for folder in &folders {
-        match harvest_one(&rb, image, folder, stage, apps_root, into, &mut warnings)? {
+        // A folder that can't be listed (a mistyped/odd name in a curated list) or
+        // otherwise fails is skipped with a warning, not fatal — one bad path
+        // shouldn't abort a 30-title build.
+        let res = match harvest_one(&rb, image, folder, stage, apps_root, into, &mut warnings) {
+            Ok(r) => r,
+            Err(e) => {
+                warnings.push(format!("{folder}: skipped ({e})"));
+                continue;
+            }
+        };
+        match res {
             Some(h) => {
                 eprintln!(
                     "harvested {:<28} <- {}  ({} file{})",
