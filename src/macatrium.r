@@ -34,6 +34,7 @@ resource 'SIZE' (-1) {
 	reserved,
 	reserved,
 	reserved,
-	4096 * 1024,
-	1024 * 1024
+	2048 * 1024,    /* preferred: real peak is ~1 MB now (8-bit-capped off-screen
+	                   buffer + catalog), so 2 MB is ample headroom (was 4 MB) */
+	1024 * 1024     /* minimum */
 };

@@ -288,10 +288,12 @@ int main(void)
     int loaded;
 
     toolbox_init();
-    install_ae_handlers();            /* required AE handlers (we're HLE-aware) */
     env_probe(&gEnv);                 /* match whatever depth the OS is set to;
                                          saves the original menu-bar height       */
-    gHasWNE = (gEnv.sysVers >= 0x0700);  /* WaitNextEvent only from System 7 up */
+    gHasWNE = (gEnv.sysVers >= 0x0700);  /* WaitNextEvent + AppleEvent Mgr: System 7+ */
+    /* The AppleEvent Manager is System 7+; AEInstallEventHandler doesn't exist on
+     * base 6.0.8, so only install the handlers (and accept high-level events) there. */
+    if (gHasWNE) install_ae_handlers();
     prefs_load(&gPrefs);              /* saved theme / volume / selection */
     hide_menu_bar();                  /* true full-screen (restored for Launch
                                          Finder; gEnv keeps the original height) */
@@ -402,7 +404,8 @@ int main(void)
                     SelectWindow(gWin);
                     break;
                 case kHighLevelEvent:
-                    AEProcessAppleEvent(&evt);   /* dispatch to the handlers above */
+                    if (gHasWNE)                 /* AppleEvent Manager is System 7+ */
+                        AEProcessAppleEvent(&evt);   /* dispatch to the handlers above */
                     break;
                 case osEvt:
                     /* Suspend/resume from the app switcher. On suspend (e.g. we

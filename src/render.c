@@ -12,7 +12,10 @@ void render_init(Render *r, const Env *e)
     r->color        = e->useColor;
     r->theme        = THEME_DARK;      /* dark by default; 'T' toggles at runtime */
     r->depth        = e->pixelSize > 0 ? e->pixelSize : 1;
-    r->useOffscreen = e->hasColorQD;   /* NewGWorld needs Color QD */
+    /* Off-screen compositing needs Color QD *and* System 7+: on base System 6 the
+     * GWorld/temp-memory path can bomb with dsMemFullErr (out of memory) at launch,
+     * so 6.0.8 draws directly to the window instead (docs/09 Milestone 4). */
+    r->useOffscreen = e->hasColorQD && (e->sysVers >= 0x0700);
     r->offscreen    = 0;
 }
 
@@ -24,7 +27,7 @@ void render_reset_for_depth(Render *r, const Env *e, int depth)
     }
     r->depth        = depth > 0 ? depth : 1;
     r->color        = (e->hasColorQD && r->depth >= 4);   /* matches env_probe */
-    r->useOffscreen = e->hasColorQD;                      /* may rebuild next frame */
+    r->useOffscreen = e->hasColorQD && (e->sysVers >= 0x0700);  /* 6.0.8: direct */
 }
 
 void render_set_theme(Render *r, int theme)
@@ -58,12 +61,16 @@ void render_begin(Render *r, WindowPtr w)
          * clean instead of washed-out/brown. Direct depths (16/24/32) carry RGB
          * per pixel and need no table. */
         if (gd && (**gd).gdPMap && r->depth <= 8) ctab = (**(**gd).gdPMap).pmTable;
-        /* A 640x480 GWorld is ~38 KB at 1-bit but ~300 KB at 8-bit, which won't
-         * fit the default app partition. Allocate from temp (MultiFinder) memory
-         * first; fall back to the app heap, then to direct drawing. */
-        err = NewGWorld(&r->offscreen, r->depth, &b, ctab, 0L, useTempMem);
+        /* Cap the off-screen buffer at 8-bit: a 640x480 GWorld is ~38 KB at 1-bit
+         * and ~300 KB at 8-bit, but ~1.2 MB at 24-bit. We composite at <=8-bit and
+         * let CopyBits up-convert to a deeper screen — a small fidelity trade for a
+         * big memory win (the buffer never balloons past ~300 KB). */
+        short gwDepth = (r->depth > 8) ? 8 : (short)r->depth;
+        /* Allocate from temp (MultiFinder) memory first; fall back to the app heap,
+         * then to direct drawing. (Only reached on System 7+, see render_init.) */
+        err = NewGWorld(&r->offscreen, gwDepth, &b, ctab, 0L, useTempMem);
         if (err != noErr || !r->offscreen)
-            err = NewGWorld(&r->offscreen, r->depth, &b, ctab, 0L, 0);
+            err = NewGWorld(&r->offscreen, gwDepth, &b, ctab, 0L, 0);
         if (err != noErr || !r->offscreen) {
             r->useOffscreen = 0;          /* fall back to direct drawing */
             r->offscreen    = 0;
