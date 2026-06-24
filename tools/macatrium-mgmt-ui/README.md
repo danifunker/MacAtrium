@@ -11,23 +11,31 @@ cd tools/macatrium-mgmt-ui
 cargo run --release      # opens a window (needs a display — not the headless dev box)
 ```
 
-## Workflow
+## Workflow — three steps
 
-1. **Pick an `.hda`** and **Extract catalog** — runs `rb-cli get` on
-   `/MacAtrium/metadata/catalog.jsonl` (or **Open** a `data/library.jsonl` directly).
-2. The table lists each title with **Color / B&W** and **Mouse** checkboxes — the
-   two facets LaunchBox can't provide — plus name/year/vendor/genre.
-3. **Enrich (LaunchBox)** fills year/vendor/genre from `Metadata.xml`
-   (`atrium::enrich`).
-4. Toggle the checkboxes, then **Save overrides** writes them to
-   `data/overrides.jsonl` (`atrium::merge::set`).
-5. **Build image** assembles a bootable `.hda` (`atrium::image`). The panel
-   exposes the **full `atrium image` config** — every option the CLI's JSON
-   config takes: base system / launcher / dataset / overrides / metadata, platform,
-   download-art, auto-detect colour, a local art dir, **art-depth variants**, art
-   max-px, harvest sources (donor disk + app paths), and an **Advanced** group
-   (apps/metadata/images dirs, stage, curl). Optional fields are omitted when
-   blank so the CLI defaults apply.
+A top tab bar walks you through it; a status/progress line sits at the bottom of
+every step. Each action calls the same `atrium` function the CLI does.
+
+1. **Library** — **Pick an `.hda`** + **Extract catalog** (`rb-cli get` on
+   `/MacAtrium/metadata/catalog.jsonl`), or **Open** a `data/library.jsonl`. The
+   table lists each title; toggle the **Color / B&W** and **Mouse** facets (the two
+   LaunchBox can't provide) plus an optional launch **hotkey**, then **Save
+   overrides** (`atrium::merge::set` → `data/overrides.jsonl`).
+2. **Enrich** — fill metadata (gaps-only) from public sources:
+   - **LaunchBox** — `Metadata.xml` → year/vendor/genre (`atrium::enrich`), with an
+     optional Color/B&W auto-detect.
+   - **Macintosh Garden** — a local scrape archive → year/vendor/genre/desc + the
+     `source` attribution, colour detected offline (`atrium::mg`, 68K-only).
+   - **Fetch software from Macintosh Garden** — downloads + extracts + injects a
+     title's software into the **output** `.hda` and appends a catalog stub
+     (`atrium::fetch`).
+3. **Build** — three essentials up front (base system / launcher / output), an
+   optional **content sources** group (MG archive + LaunchBox), and **Build image**
+   (`atrium::image`). Everything else — dataset/overrides paths, platform, startup
+   items, **art-depth variants**, art max-px, local art dir, sounds, harvest
+   sources, and the dirs/tools (rb-cli, curl, apps/metadata/images dirs, stage) —
+   lives under **Advanced**. Optional fields are omitted when blank so the CLI
+   defaults apply.
 
 ### Art depths
 

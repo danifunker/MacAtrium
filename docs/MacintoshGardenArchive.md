@@ -318,8 +318,15 @@ MG becomes a first-class source in `atrium` (**Option B**), parallel to LaunchBo
   `STAK`s with correct type/creator. Learned: a `.sit` expands to a whole tree (app
   folder + docs + sometimes an inner `.img` disk image + MG's own
   `Macintosh-Garden.txt`).
-  **Remaining follow-ups (not blockers):** (a) emit a `library.jsonl` stub for a
-  fetched title (pick the `APPL` as the launch path) so it shows in the catalog —
-  the harvest-integration step; (b) `.zip` / inner-disk-image handling; (c)
-  `.sitx`/Snow extraction in the OS 9.2.2 phase; (d) the launcher's More Info card
-  reading the new `source` field (data + catalog already carry it).
+  **Remaining follow-ups (not blockers):** (a) `.zip` / inner-disk-image handling;
+  (b) `.sitx`/Snow extraction in the OS 9.2.2 phase; (c) the launcher's More Info
+  card reading the new `source` field (data + catalog already carry it).
+- **2026-06-23** — **`fetch --append-to`** closes the loop: finds the injected
+  `APPL` and emits a minimal stub so fetched titles show in the catalog (verified
+  on HyperCard Player). Then **verified the full pipeline in Snow**: built an image
+  with `mg_archive` set (no LaunchBox, no static art) — matched 12/12, baked 9
+  box-art + 10 screenshots from MG; the catalog carries `source` on all 12; and the
+  launcher renders the MG box art + MG-enriched detail (year/vendor/genre/desc) on
+  a 1-bit screen. **GUI follow-up requested:** rebuild the Manager into a
+  step-based flow (Library → Enrich → Build) and add MG controls (enrich + art +
+  fetch) — currently MG is CLI-only.

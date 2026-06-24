@@ -2,34 +2,44 @@
 //!
 //! Every action here calls the `atrium` **library** — the exact functions the
 //! CLI exposes — so the CLI stays the source of truth and this is just a nicer
-//! way to drive it. Workflow: pick an `.hda`, extract its catalog with rb-cli,
-//! toggle the **Color/B&W** and **Mouse** facets LaunchBox can't provide (plus
-//! fix metadata), enrich from LaunchBox, save your edits to `overrides.jsonl`,
-//! and build a bootable image. The **Build image** panel exposes the full
-//! `atrium image` config — every option the CLI's JSON config takes, including
-//! the art-depth variants to bake (default 1/8/24; pick one for a single depth).
+//! way to drive it. The UI is organised as a **three-step flow**:
 //!
-//! GUI-specific concern only: it renders the table and shells the same atrium
-//! calls. Long operations run inline for now (a brief freeze) — threading them
-//! is a follow-up.
+//!   1. **Library** — pick an `.hda` and extract its catalog (or open a dataset),
+//!      then edit the Color/B&W + Mouse facets (and per-item hotkey) and save.
+//!   2. **Enrich** — fill metadata from public sources (LaunchBox and/or the local
+//!      **Macintosh Garden** archive), and optionally **fetch** a title's software
+//!      from Macintosh Garden into the output image.
+//!   3. **Build** — assemble a bootable `.hda`. The essentials are up front; every
+//!      other `atrium image` option lives behind an **Advanced** disclosure.
+//!
+//! Long operations (extract / enrich / mg / fetch / build) run on a worker thread
+//! so the window stays responsive.
 
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
-use atrium::{enrich, image, merge, rbcli::RbCli};
+use atrium::{enrich, fetch, image, merge, mg, rbcli::RbCli};
 use eframe::egui;
 use serde_json::{Map, Value};
 use std::path::PathBuf;
 
 fn main() -> eframe::Result<()> {
     let opts = eframe::NativeOptions {
-        viewport: egui::ViewportBuilder::default().with_inner_size([1000.0, 860.0]),
+        viewport: egui::ViewportBuilder::default().with_inner_size([960.0, 720.0]),
         ..Default::default()
     };
     eframe::run_native(
-        "MacAtrium Management UI",
+        "MacAtrium Manager",
         opts,
         Box::new(|_cc| Ok(Box::<App>::default())),
     )
+}
+
+/// The three workflow steps (the top tab bar).
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum Tab {
+    Library,
+    Enrich,
+    Build,
 }
 
 /// One editable dataset row. `raw` keeps every field so saving never drops data.
@@ -55,9 +65,11 @@ struct HarvestUi {
 }
 
 struct App {
+    tab: Tab,
     // shared paths / dataset editing
     rb_cli: String,
     metadata: String, // LaunchBox Metadata.xml
+    mg_archive: String, // local Macintosh Garden archive root
     image_path: String, // selected .hda (for Extract catalog)
     dataset: String, // working dataset / extracted catalog (JSONL)
     overrides: String,
@@ -88,7 +100,7 @@ struct App {
     images_dir: String,
     stage: String,
     curl: String,
-    // a long op (extract / enrich / build) running on a worker thread, if any
+    // a long op (extract / enrich / mg / fetch / build) on a worker thread, if any
     job: Option<std::sync::mpsc::Receiver<Done>>,
     busy: String, // label of the running job ("" = idle)
 }
@@ -103,13 +115,15 @@ struct Done {
 impl Default for App {
     fn default() -> Self {
         Self {
+            tab: Tab::Library,
             rb_cli: "rb-cli".into(),
             metadata: String::new(),
+            mg_archive: String::new(),
             image_path: String::new(),
             dataset: "data/library.jsonl".into(),
             overrides: "data/overrides.jsonl".into(),
             rows: Vec::new(),
-            status: "Open a dataset, or pick an .hda and Extract its catalog.".into(),
+            status: "Step 1: open a dataset, or pick an .hda and extract its catalog.".into(),
             base_system: String::new(),
             launcher: "build/MacAtrium.bin".into(),
             out_image: "/tmp/macatrium.hda".into(),
@@ -149,7 +163,7 @@ enum Pick {
 fn path_row(ui: &mut egui::Ui, label: &str, value: &mut String, kind: Pick) {
     ui.horizontal(|ui| {
         ui.label(label);
-        ui.add(egui::TextEdit::singleline(value).desired_width(380.0));
+        ui.add(egui::TextEdit::singleline(value).desired_width(360.0));
         if ui.button("Browse…").clicked() {
             let dlg = rfd::FileDialog::new();
             let picked = match kind {
@@ -319,6 +333,62 @@ impl App {
         });
     }
 
+    /// Enrich from the local Macintosh Garden archive (68K-only; fills gaps + the
+    /// `source` attribution; colour detected offline from a scraped screenshot).
+    fn run_mg(&mut self, ctx: &egui::Context) {
+        if self.mg_archive.trim().is_empty() {
+            self.status = "Set the Macintosh Garden archive path first.".into();
+            return;
+        }
+        let dataset = self.dataset.clone();
+        let archive = self.mg_archive.clone();
+        self.spawn_job(ctx, "Enriching from Macintosh Garden", move || {
+            let p = PathBuf::from(&dataset);
+            match mg::run(&p, PathBuf::from(&archive).as_path(), &p, false, None) {
+                Ok(()) => Done { status: String::new(), dataset: None, reload: true },
+                Err(e) => Done { status: format!("MG enrich failed: {e}"), dataset: None, reload: false },
+            }
+        });
+    }
+
+    /// Fetch each dataset title's software from the Macintosh Garden mirror,
+    /// extract it with rb-cli, inject into the output `.hda`, and append a stub so
+    /// it shows in the catalog. Needs the output image to exist (build first).
+    fn run_fetch(&mut self, ctx: &egui::Context) {
+        if self.mg_archive.trim().is_empty() {
+            self.status = "Set the Macintosh Garden archive path first.".into();
+            return;
+        }
+        if self.out_image.trim().is_empty() {
+            self.status = "Set the output .hda to inject into first (build it on the Build step).".into();
+            return;
+        }
+        let archive = self.mg_archive.clone();
+        let dataset = self.dataset.clone();
+        let out = self.out_image.clone();
+        let apps_root = self.apps_root.clone();
+        let rb = self.rb_cli.clone();
+        let curl = self.curl.clone();
+        self.spawn_job(ctx, "Fetching software from Macintosh Garden", move || {
+            let ds = PathBuf::from(&dataset);
+            match fetch::run(
+                PathBuf::from(&archive).as_path(),
+                &[],
+                Some(ds.as_path()),
+                None,
+                Some(PathBuf::from(&out).as_path()),
+                &apps_root,
+                Some(ds.as_path()),
+                &rb,
+                &curl,
+                None,
+            ) {
+                Ok(()) => Done { status: format!("Fetched MG software into {out}"), dataset: None, reload: true },
+                Err(e) => Done { status: format!("MG fetch failed: {e}"), dataset: None, reload: false },
+            }
+        });
+    }
+
     /// The checked art-depth variants, ascending (e.g. ["1","8","24"]).
     fn art_depths(&self) -> Vec<String> {
         let mut v = Vec::new();
@@ -337,7 +407,7 @@ impl App {
         }
         let depths = self.art_depths();
         if depths.is_empty() {
-            self.status = "Select at least one art depth (1/4/8/16/24).".into();
+            self.status = "Select at least one art depth (1/4/8/16/24) under Advanced.".into();
             return;
         }
 
@@ -350,6 +420,7 @@ impl App {
         put(&mut cfg, "dataset", &self.dataset);
         if !self.overrides.trim().is_empty() { put(&mut cfg, "overrides", &self.overrides); }
         if !self.metadata.trim().is_empty() { put(&mut cfg, "metadata", &self.metadata); }
+        if !self.mg_archive.trim().is_empty() { put(&mut cfg, "mg_archive", &self.mg_archive); }
         put(&mut cfg, "platform", &self.platform);
         cfg.insert("detect_color".into(), Value::Bool(self.detect_color));
         cfg.insert("download_art".into(), Value::Bool(self.download_art));
@@ -410,24 +481,15 @@ impl App {
             Err(e) => Done { status: format!("Build failed: {e}"), dataset: None, reload: false },
         });
     }
-}
 
-impl eframe::App for App {
-    // eframe 0.34 hands us a root Ui (no panels). Layout is intentionally flat —
-    // top-level sibling widgets/closures — so each closure borrows only the
-    // fields it touches (no nested whole-`self` captures to fight the borrowck).
-    fn ui(&mut self, ui: &mut egui::Ui, _frame: &mut eframe::Frame) {
-        self.poll_job();                       // apply a finished background job
-        let busy = !self.busy.is_empty();      // a long op is running -> disable actions
-        let ctx = ui.ctx().clone();
+    // ---- the three workflow steps -------------------------------------------
 
-        ui.heading("MacAtrium Management UI");
-        ui.horizontal(|ui| {
-            ui.label("rb-cli:");
-            ui.text_edit_singleline(&mut self.rb_cli);
-            ui.label("LaunchBox Metadata.xml:");
-            ui.text_edit_singleline(&mut self.metadata);
-        });
+    fn tab_library(&mut self, ui: &mut egui::Ui, ctx: &egui::Context, busy: bool) {
+        ui.label(
+            egui::RichText::new("Pick a built .hda and extract its catalog, or open a dataset directly. Edit the Color/B&W + Mouse facets (and an optional launch hotkey) below, then Save.")
+                .small().weak(),
+        );
+        ui.add_space(4.0);
         ui.horizontal(|ui| {
             if ui.button("Pick .hda…").clicked() {
                 if let Some(p) = rfd::FileDialog::new()
@@ -437,25 +499,24 @@ impl eframe::App for App {
                     self.image_path = p.to_string_lossy().into_owned();
                 }
             }
-            ui.monospace(&self.image_path);
             if ui.add_enabled(!busy, egui::Button::new("Extract catalog")).clicked() {
-                self.extract_catalog(&ctx);
+                self.extract_catalog(ctx);
             }
-            ui.separator();
+            ui.monospace(&self.image_path);
+        });
+        ui.horizontal(|ui| {
             ui.label("Dataset:");
-            ui.text_edit_singleline(&mut self.dataset);
+            ui.add(egui::TextEdit::singleline(&mut self.dataset).desired_width(360.0));
             if ui.add_enabled(!busy, egui::Button::new("Open")).clicked() {
                 self.reload();
             }
         });
 
         ui.separator();
-
-        // Dataset table (its own scroll; kept compact to leave room for Build).
         egui::ScrollArea::vertical()
             .id_salt("rows")
-            .max_height(200.0)
             .auto_shrink([false, false])
+            .max_height(380.0)
             .show(ui, |ui| {
                 egui::Grid::new("catalog")
                     .striped(true)
@@ -478,8 +539,6 @@ impl eframe::App for App {
                             let c = ui.checkbox(&mut row.color, clabel);
                             let mlabel = if row.mouse { "Required" } else { "No mouse" };
                             let m = ui.checkbox(&mut row.mouse, mlabel);
-                            // A 1-char launch hotkey (gamepad button map); we keep
-                            // only the first char on save.
                             let h = ui.add(
                                 egui::TextEdit::singleline(&mut row.hotkey)
                                     .char_limit(1)
@@ -493,117 +552,179 @@ impl eframe::App for App {
                         }
                     });
             });
-
         ui.separator();
         ui.horizontal(|ui| {
             ui.label("overrides:");
-            ui.text_edit_singleline(&mut self.overrides);
+            ui.add(egui::TextEdit::singleline(&mut self.overrides).desired_width(300.0));
             if ui.add_enabled(!busy, egui::Button::new("Save overrides")).clicked() {
                 self.save_overrides();
             }
-            if ui.add_enabled(!busy, egui::Button::new("Enrich (LaunchBox)")).clicked() {
-                self.run_enrich(&ctx);
+        });
+    }
+
+    fn tab_enrich(&mut self, ui: &mut egui::Ui, ctx: &egui::Context, busy: bool) {
+        ui.label(
+            egui::RichText::new("Fill year / vendor / genre / description from public databases. Curated values are kept (gaps-only). Run on the open dataset.")
+                .small().weak(),
+        );
+        ui.add_space(6.0);
+
+        ui.group(|ui| {
+            ui.strong("LaunchBox Games Database");
+            path_row(ui, "Metadata.xml:", &mut self.metadata, Pick::File);
+            ui.horizontal(|ui| {
+                ui.checkbox(&mut self.detect_color, "auto-detect Color / B&W (downloads screenshots)");
+            });
+            if ui.add_enabled(!busy, egui::Button::new("Enrich from LaunchBox")).clicked() {
+                self.run_enrich(ctx);
             }
         });
 
-        ui.separator();
-        ui.heading("Build image");
-        path_row(ui, "base system:", &mut self.base_system, Pick::File);
-        path_row(ui, "launcher:", &mut self.launcher, Pick::File);
+        ui.add_space(6.0);
+        ui.group(|ui| {
+            ui.strong("Macintosh Garden  (68K-only)");
+            ui.label(
+                egui::RichText::new("Local scrape archive (metadata/*.ndjson + per-title images). Fills metadata + adds the \"Macintosh Garden\" attribution; colour is detected offline from a scraped screenshot.")
+                    .small().weak(),
+            );
+            path_row(ui, "MG archive:", &mut self.mg_archive, Pick::Folder);
+            if ui.add_enabled(!busy, egui::Button::new("Enrich from Macintosh Garden")).clicked() {
+                self.run_mg(ctx);
+            }
+        });
+
+        ui.add_space(6.0);
+        ui.group(|ui| {
+            ui.strong("Fetch software from Macintosh Garden");
+            ui.label(
+                egui::RichText::new("Downloads each matched title's software from the MG mirror, extracts it (rb-cli), injects it into the OUTPUT .hda under Apps/, and appends a catalog stub. Build the image on the Build step first, then fetch into it.")
+                    .small().weak(),
+            );
+            ui.horizontal(|ui| {
+                ui.label("into output:");
+                ui.monospace(&self.out_image);
+            });
+            if ui.add_enabled(!busy, egui::Button::new("Fetch software from Macintosh Garden")).clicked() {
+                self.run_fetch(ctx);
+            }
+        });
+    }
+
+    fn tab_build(&mut self, ui: &mut egui::Ui, ctx: &egui::Context, busy: bool) {
+        ui.label(
+            egui::RichText::new("Assemble a bootable .hda. Fill the three essentials and Build — everything else has sensible defaults under Advanced.")
+                .small().weak(),
+        );
+        ui.add_space(4.0);
+        path_row(ui, "base system .hda:", &mut self.base_system, Pick::File);
+        path_row(ui, "launcher (.bin):", &mut self.launcher, Pick::File);
         path_row(ui, "output .hda:", &mut self.out_image, Pick::Save);
-        path_row(ui, "dataset:", &mut self.dataset, Pick::File);
-        path_row(ui, "overrides:", &mut self.overrides, Pick::File);
-        path_row(ui, "metadata (LaunchBox):", &mut self.metadata, Pick::File);
-        ui.horizontal(|ui| {
-            ui.label("platform:");
-            ui.add(egui::TextEdit::singleline(&mut self.platform).desired_width(160.0));
-            ui.label("startup items:");
-            ui.add(egui::TextEdit::singleline(&mut self.startup_items).desired_width(240.0));
-        });
-        ui.horizontal(|ui| {
-            ui.checkbox(&mut self.download_art, "download box art (LaunchBox)");
-            ui.checkbox(&mut self.detect_color, "auto-detect Color / B&W");
-        });
-        path_row(ui, "startup sound (WAV):", &mut self.startup_sound, Pick::File);
-        path_row(ui, "shutdown sound (WAV):", &mut self.shutdown_sound, Pick::File);
-        ui.label(
-            egui::RichText::new(
-                "Optional PCM WAV chimes; leave blank for none. The launcher's \
-                 Settings turns each on/off (default off). Clips are capped at 7 \
-                 seconds — longer files are truncated.",
-            )
-            .small()
-            .weak(),
-        );
-        path_row(ui, "local art dir:", &mut self.art_dir, Pick::Folder);
-        ui.horizontal(|ui| {
-            ui.label("art depths:");
-            ui.checkbox(&mut self.d1, "1");
-            ui.checkbox(&mut self.d4, "4");
-            ui.checkbox(&mut self.d8, "8");
-            ui.checkbox(&mut self.d16, "16");
-            ui.checkbox(&mut self.d24, "24");
-            ui.separator();
-            ui.label("max px:");
-            ui.add(egui::TextEdit::singleline(&mut self.art_max).desired_width(56.0));
-        });
-        ui.label(
-            egui::RichText::new(
-                "Default 1/8/24 = dithered B&W + 256-colour + Millions; a deeper variant \
-                 down-converts to shallower screens. Tick a single box for one depth only.",
-            )
-            .small()
-            .weak(),
-        );
 
-        ui.collapsing("Harvest sources (donor disks)", |ui| {
-            let mut remove = None;
-            for (i, h) in self.harvest.iter_mut().enumerate() {
-                ui.group(|ui| {
-                    path_row(ui, "donor image:", &mut h.image, Pick::File);
-                    ui.label("apps (one path per line):");
-                    ui.add(egui::TextEdit::multiline(&mut h.apps).desired_rows(2).desired_width(440.0));
-                    ui.horizontal(|ui| {
-                        ui.label("scan glob (optional):");
-                        ui.text_edit_singleline(&mut h.scan);
-                        if ui.button("Remove").clicked() {
-                            remove = Some(i);
-                        }
-                    });
-                });
-            }
-            if let Some(i) = remove {
-                self.harvest.remove(i);
-            }
-            if ui.button("Add harvest source").clicked() {
-                self.harvest.push(HarvestUi::default());
-            }
+        ui.add_space(4.0);
+        ui.group(|ui| {
+            ui.strong("Content sources (optional)");
+            path_row(ui, "Macintosh Garden archive:", &mut self.mg_archive, Pick::Folder);
+            path_row(ui, "LaunchBox Metadata.xml:", &mut self.metadata, Pick::File);
+            ui.horizontal(|ui| {
+                ui.checkbox(&mut self.download_art, "download box art (LaunchBox)");
+                ui.checkbox(&mut self.detect_color, "auto-detect Color / B&W");
+            });
+            ui.label(
+                egui::RichText::new("With an MG archive set, the build enriches + bakes MG art (preferred), with LaunchBox as fallback.")
+                    .small().weak(),
+            );
         });
 
-        ui.collapsing("Advanced", |ui| {
-            ui.horizontal(|ui| {
-                ui.label("apps root:");
-                ui.text_edit_singleline(&mut self.apps_root);
-            });
-            ui.horizontal(|ui| {
-                ui.label("metadata dir:");
-                ui.text_edit_singleline(&mut self.metadata_dir);
-            });
-            ui.horizontal(|ui| {
-                ui.label("images dir:");
-                ui.text_edit_singleline(&mut self.images_dir);
-            });
-            path_row(ui, "stage dir:", &mut self.stage, Pick::Folder);
-            ui.horizontal(|ui| {
-                ui.label("curl:");
-                ui.text_edit_singleline(&mut self.curl);
-            });
-        });
-
-        if ui.add_enabled(!busy, egui::Button::new("Build image")).clicked() {
-            self.build_image(&ctx);
+        ui.add_space(6.0);
+        if ui.add_enabled(!busy, egui::Button::new(egui::RichText::new("Build image").strong())).clicked() {
+            self.build_image(ctx);
         }
 
+        ui.add_space(6.0);
+        ui.collapsing("Advanced", |ui| {
+            path_row(ui, "dataset:", &mut self.dataset, Pick::File);
+            path_row(ui, "overrides:", &mut self.overrides, Pick::File);
+            ui.horizontal(|ui| {
+                ui.label("platform:");
+                ui.add(egui::TextEdit::singleline(&mut self.platform).desired_width(160.0));
+                ui.label("startup items:");
+                ui.add(egui::TextEdit::singleline(&mut self.startup_items).desired_width(220.0));
+            });
+            ui.horizontal(|ui| {
+                ui.label("art depths:");
+                ui.checkbox(&mut self.d1, "1");
+                ui.checkbox(&mut self.d4, "4");
+                ui.checkbox(&mut self.d8, "8");
+                ui.checkbox(&mut self.d16, "16");
+                ui.checkbox(&mut self.d24, "24");
+                ui.separator();
+                ui.label("max px:");
+                ui.add(egui::TextEdit::singleline(&mut self.art_max).desired_width(56.0));
+            });
+            path_row(ui, "local art dir:", &mut self.art_dir, Pick::Folder);
+            path_row(ui, "startup sound (WAV):", &mut self.startup_sound, Pick::File);
+            path_row(ui, "shutdown sound (WAV):", &mut self.shutdown_sound, Pick::File);
+
+            ui.collapsing("Harvest sources (donor disks)", |ui| {
+                let mut remove = None;
+                for (i, h) in self.harvest.iter_mut().enumerate() {
+                    ui.group(|ui| {
+                        path_row(ui, "donor image:", &mut h.image, Pick::File);
+                        ui.label("apps (one path per line):");
+                        ui.add(egui::TextEdit::multiline(&mut h.apps).desired_rows(2).desired_width(440.0));
+                        ui.horizontal(|ui| {
+                            ui.label("scan glob (optional):");
+                            ui.text_edit_singleline(&mut h.scan);
+                            if ui.button("Remove").clicked() {
+                                remove = Some(i);
+                            }
+                        });
+                    });
+                }
+                if let Some(i) = remove {
+                    self.harvest.remove(i);
+                }
+                if ui.button("Add harvest source").clicked() {
+                    self.harvest.push(HarvestUi::default());
+                }
+            });
+
+            ui.collapsing("Paths & tools", |ui| {
+                ui.horizontal(|ui| { ui.label("rb-cli:"); ui.text_edit_singleline(&mut self.rb_cli); });
+                ui.horizontal(|ui| { ui.label("curl:"); ui.text_edit_singleline(&mut self.curl); });
+                ui.horizontal(|ui| { ui.label("apps root:"); ui.text_edit_singleline(&mut self.apps_root); });
+                ui.horizontal(|ui| { ui.label("metadata dir:"); ui.text_edit_singleline(&mut self.metadata_dir); });
+                ui.horizontal(|ui| { ui.label("images dir:"); ui.text_edit_singleline(&mut self.images_dir); });
+                path_row(ui, "stage dir:", &mut self.stage, Pick::Folder);
+            });
+        });
+    }
+}
+
+impl eframe::App for App {
+    // eframe 0.34 hands us a root Ui (no panels). The body is a three-step flow:
+    // a tab bar, the active step's content, then a persistent status/progress bar.
+    fn ui(&mut self, ui: &mut egui::Ui, _frame: &mut eframe::Frame) {
+        self.poll_job();                       // apply a finished background job
+        let busy = !self.busy.is_empty();      // a long op is running -> disable actions
+        let ctx = ui.ctx().clone();
+
+        ui.horizontal(|ui| {
+            ui.heading("MacAtrium Manager");
+            ui.separator();
+            ui.selectable_value(&mut self.tab, Tab::Library, "1 · Library");
+            ui.selectable_value(&mut self.tab, Tab::Enrich, "2 · Enrich");
+            ui.selectable_value(&mut self.tab, Tab::Build, "3 · Build");
+        });
+        ui.separator();
+
+        match self.tab {
+            Tab::Library => self.tab_library(ui, &ctx, busy),
+            Tab::Enrich => self.tab_enrich(ui, &ctx, busy),
+            Tab::Build => self.tab_build(ui, &ctx, busy),
+        }
+
+        // Persistent status / progress line at the bottom of every step.
         ui.separator();
         if busy {
             ui.horizontal(|ui| {
