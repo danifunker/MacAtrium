@@ -299,7 +299,8 @@ fn harvest_one(
 /// Append harvested stubs to a curated dataset, de-duplicated by `id` so existing
 /// (hand-enriched) entries are never clobbered and re-runs are idempotent.
 /// Returns (appended, skipped). The dataset file is created if absent.
-fn append_to_dataset(dataset: &Path, harvested: &[Harvested]) -> Result<(usize, usize)> {
+/// Shared with `atrium fetch` (MG-injected apps emit the same minimal stubs).
+pub fn append_to_dataset(dataset: &Path, harvested: &[Harvested]) -> Result<(usize, usize)> {
     let existing = std::fs::read_to_string(dataset).unwrap_or_default();
     let (out, appended, skipped) = merge_stubs(&existing, harvested);
     if appended > 0 {

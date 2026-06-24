@@ -126,6 +126,11 @@ enum Cmd {
         into: Option<PathBuf>,
         #[arg(long, default_value = "/MacAtrium/Apps")]
         apps_root: String,
+        /// Append a minimal dataset stub (id/name/kind/year/app pointing at the
+        /// injected APPL) to this dataset, de-duped by id — so the fetched title
+        /// shows in the catalog. `atrium mg`/`enrich` fill the rest later.
+        #[arg(long)]
+        append_to: Option<PathBuf>,
         #[arg(long, default_value = "rb-cli")]
         rb_cli: String,
         #[arg(long, default_value = "curl")]
@@ -319,10 +324,10 @@ fn main() -> Result<()> {
         Cmd::Mg { src, archive, out, overwrite, art_dir } => {
             mg::run(&src, &archive, &out, overwrite, art_dir.as_deref())?;
         }
-        Cmd::Fetch { archive, nids, src, downloads, into, apps_root, rb_cli, curl, stage } => {
+        Cmd::Fetch { archive, nids, src, downloads, into, apps_root, append_to, rb_cli, curl, stage } => {
             fetch::run(
                 &archive, &nids, src.as_deref(), downloads.as_deref(), into.as_deref(),
-                &apps_root, &rb_cli, &curl, stage.as_deref(),
+                &apps_root, append_to.as_deref(), &rb_cli, &curl, stage.as_deref(),
             )?;
         }
 

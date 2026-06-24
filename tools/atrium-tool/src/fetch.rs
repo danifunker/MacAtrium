@@ -10,10 +10,11 @@
 //! format handled in the later OS 9.2.2 phase.
 
 use crate::enrich::candidate_keys;
+use crate::harvest::{self, Harvested};
 use crate::rbcli::RbCli;
 use anyhow::{bail, Context, Result};
 use serde_json::Value;
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
 
 const MIRROR: &str = "https://gardenmirror.oldapplestuff.com";
@@ -167,6 +168,7 @@ pub fn run(
     downloads: Option<&Path>,
     into: Option<&Path>,
     apps_root: &str,
+    append_to: Option<&Path>,
     rb_cli: &str,
     curl: &str,
     stage: Option<&Path>,
@@ -195,6 +197,7 @@ pub fn run(
     eprintln!("fetch: {} target title(s)", targets.len());
 
     let (mut ok, mut skipped, mut injected) = (0usize, 0usize, 0usize);
+    let mut stubs: Vec<Harvested> = Vec::new();
     for nid in targets {
         let (kind_dir, rec) = match load_record(archive, nid) {
             Ok(r) => r,
@@ -245,10 +248,12 @@ pub fn run(
         // Optionally inject into the image under Apps/, preserving structure.
         if let Some(img) = into {
             let mut n = 0;
+            let mut roots: HashSet<String> = HashSet::new();
             for (f, rel, is_macbin) in &forks {
                 let dst_dir = if rel.is_empty() {
                     apps_root.trim_end_matches('/').to_string()
                 } else {
+                    roots.insert(rel.split('/').next().unwrap_or(rel).to_string());
                     format!("{}/{}", apps_root.trim_end_matches('/'), rel)
                 };
                 rb.mkdir_p(img, &dst_dir)?;
@@ -266,6 +271,56 @@ pub fn run(
                 injected += 1;
                 eprintln!("    injected {n} fork(s) -> {apps_root}");
             }
+            // Emit a minimal dataset stub: find the injected APPL (the launch
+            // target) and record id/name/kind/year/app — `atrium mg`/`enrich`
+            // fill the rest later (same pattern as harvest).
+            if append_to.is_some() && n > 0 {
+                let search_roots: Vec<String> = if roots.is_empty() {
+                    vec![apps_root.trim_end_matches('/').to_string()]
+                } else {
+                    roots.iter().map(|r| format!("{}/{}", apps_root.trim_end_matches('/'), r)).collect()
+                };
+                let mut appls: Vec<(String, String)> = Vec::new();
+                for r in &search_roots {
+                    collect_appls(&rb, img, r, &mut appls, 0);
+                }
+                match pick_appl_path(&appls, &title) {
+                    Some(full) => {
+                        let app_rel = full
+                            .strip_prefix("/MacAtrium/")
+                            .unwrap_or(full.trim_start_matches('/'))
+                            .to_string();
+                        let kind = if kind_dir == "apps" { "app" } else { "game" };
+                        let genre = rec
+                            .get("category")
+                            .or_else(|| rec.get("category_app"))
+                            .and_then(Value::as_array)
+                            .and_then(|a| a.first())
+                            .and_then(Value::as_str)
+                            .map(str::to_string);
+                        stubs.push(Harvested {
+                            id: harvest::slugify(&title),
+                            name: title.clone(),
+                            kind: kind.into(),
+                            year: rec.get("year").and_then(Value::as_str).and_then(|y| y.parse().ok()),
+                            genre,
+                            app_path: app_rel,
+                            files: Vec::new(),
+                        });
+                    }
+                    None => eprintln!("    note: no APPL found under {apps_root} — no stub emitted"),
+                }
+            }
+        }
+    }
+
+    if let Some(dataset) = append_to {
+        if !stubs.is_empty() {
+            let (appended, skipped_dups) = harvest::append_to_dataset(dataset, &stubs)?;
+            eprintln!(
+                "fetch: appended {appended} stub(s) to {} ({skipped_dups} already present)",
+                dataset.display()
+            );
         }
     }
 
@@ -294,6 +349,47 @@ fn collect_forks(root: &Path) -> Vec<(PathBuf, String, bool)> {
     let mut out = Vec::new();
     walk(root, "", &mut out);
     out
+}
+
+/// Recursively collect `(full_path, leaf_name)` for every `APPL` under `dir` on
+/// the image (depth-guarded).
+fn collect_appls(rb: &RbCli, image: &Path, dir: &str, out: &mut Vec<(String, String)>, depth: usize) {
+    if depth > 12 {
+        return;
+    }
+    let Ok(entries) = rb.ls(image, dir) else { return };
+    for e in entries {
+        if e.name.contains('/') {
+            continue;
+        }
+        let p = format!("{}/{}", dir.trim_end_matches('/'), e.name);
+        if e.is_dir {
+            collect_appls(rb, image, &p, out, depth + 1);
+        } else if e.ostype == "APPL" {
+            out.push((p, e.name));
+        }
+    }
+}
+
+fn common_prefix_len(a: &str, b: &str) -> usize {
+    a.bytes().zip(b.bytes()).take_while(|(x, y)| x == y).count()
+}
+
+/// Pick the launch-target APPL: skip a bundled Finder, then prefer the one whose
+/// leaf name best matches the title (longest shared slug prefix), then the
+/// shorter name (editors/extras tend to be "<game> <something>").
+fn pick_appl_path(appls: &[(String, String)], title: &str) -> Option<String> {
+    if appls.is_empty() {
+        return None;
+    }
+    let tslug = harvest::slugify(title);
+    let real: Vec<&(String, String)> = appls.iter().filter(|(_, n)| n != "Finder").collect();
+    let pool: Vec<&(String, String)> = if real.is_empty() { appls.iter().collect() } else { real };
+    pool.into_iter()
+        .max_by_key(|(_, n)| {
+            (common_prefix_len(&harvest::slugify(n), &tslug), std::cmp::Reverse(n.len()))
+        })
+        .map(|(p, _)| p.clone())
 }
 
 /// Minimal percent-encoding for a path segment (spaces, etc.); keeps the

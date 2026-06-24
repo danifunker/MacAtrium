@@ -201,9 +201,10 @@ atrium fetch --mg-archive ~/macgarden-archive --src data/library.jsonl --into ta
   structure-preserving (each path component sanitised HFS-safe).
 - Skips formats rb-cli can't open yet (`.zip`, disk images, `.sitx`) with a
   message — `.sitx` is a PPC/OS9-era format for the later OS 9.2.2 phase.
-- **Follow-up:** picking the launchable `APPL` and emitting a `library.jsonl`
-  stub (so the title appears in the catalog) is the remaining harvest-integration
-  step; `fetch` today injects the bytes, `harvest`-style stub emission comes next.
+- **`--append-to <dataset>`**: finds the injected launch-target `APPL` and appends
+  a minimal stub (`id/name/kind/year/genre/app`), de-duped by id, so the fetched
+  title shows in the catalog — `atrium mg`/`enrich` fill the rest (same pattern as
+  `harvest`). Remaining: `.zip`/inner-disk-image handling.
 
 ### `atrium merge`
 
