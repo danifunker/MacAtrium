@@ -49,7 +49,12 @@ static OSErr prefs_spec(Boolean create, FSSpec *spec, short *vrefOut)
                            &vref, &dirID);
     if (err != noErr) return err;
     if (vrefOut) *vrefOut = vref;
-    return FSMakeFSSpec(vref, dirID, PREFS_NAME, spec);
+    /* Build the spec directly (FSMakeFSSpec is a System-7 trap that faults on
+     * 6.0.8): the Preferences folder's dirID is the parent, PREFS_NAME the leaf. */
+    spec->vRefNum = vref;
+    spec->parID   = dirID;
+    BlockMoveData(PREFS_NAME, spec->name, (long)((const unsigned char *)PREFS_NAME)[0] + 1);
+    return noErr;
 }
 
 static int parse_int(const char *s)
@@ -161,7 +166,7 @@ OSErr prefs_save(const Prefs *p)
     err = prefs_spec(true, &spec, &vref);
     if (err != noErr && err != fnfErr) return err;
 
-    err = FSpCreate(&spec, PREFS_CREATOR, PREFS_TYPE, smSystemScript);
+    err = macfs_create(&spec, PREFS_CREATOR, PREFS_TYPE);   /* HCreate (6.0.8-safe) */
     if (err != noErr && err != dupFNErr) return err;   /* dupFNErr = already there */
 
     if (p->haveTheme) {
@@ -205,7 +210,7 @@ OSErr prefs_save(const Prefs *p)
         }
     }
 
-    err = FSpOpenDF(&spec, fsWrPerm, &refNum);
+    err = macfs_open_df(&spec, fsWrPerm, &refNum);   /* HOpen (6.0.8-safe) */
     if (err != noErr) return err;
 
     err = SetEOF(refNum, 0);                           /* drop any old content */

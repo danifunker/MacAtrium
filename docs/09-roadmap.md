@@ -63,13 +63,25 @@ Groundwork done (see [11 §C″](11-derisk-log.md)): 6.0.8 boots on the Mac II a
 MultiFinder activates via the boot-block shell swap (S3 ✅). Two confirmed
 blockers to fix:
 
-- [ ] **Replace FSSpec calls for System 6.** `FSMakeFSSpec`/`FSpOpenDF` are the
-      System-7 trap `0xAA52`; on base 6.0.8 they fault. Use the older File
-      Manager (`PBGetCatInfo`/`PBHOpen` by dir ID) in `macfs.c`, or add glue.
-- [ ] **Guard `WaitNextEvent`** (`TrapAvailable`, else `GetNextEvent`) — it needs
-      MultiFinder on System 6.
-- [ ] Then validate the single binary on 6.0.8 **+ MultiFinder** and confirm the
-      resident `Launch` path returns there.
+- [x] **Replace FSSpec calls for System 6.** Done — `macfs.c` resolves paths by
+      walking dir IDs (`PBGetCatInfo`) and opens/reads/creates via
+      `HOpen`/`HGetFInfo`/`HCreate` (classic HFS calls that work on 6.0.8 **and**
+      7.x — one code path, no FSSpec trap). Converted the other call sites too:
+      `launch.c` (`FSpGetFInfo`→`macfs_get_finfo`, plus a Gestalt-guarded
+      `ResolveAliasFile` — the Alias Manager is 7-only), `prefs.c` (build the spec
+      directly + `macfs_create`/`macfs_open_df`), `sound.c`
+      (`FSpOpenResFile`→`HOpenResFile`). **No FSSpec-trap calls remain.**
+- [x] **Guard `WaitNextEvent`** — version-gated: System 7+ uses `WaitNextEvent`,
+      6.x falls back to `GetNextEvent` + `SystemTask` (which still yields under
+      MultiFinder). Set from the probed `gestaltSystemVersion`.
+- [x] **No regression** — the new file code is verified on **System 7.1** (Mac II,
+      Snow): boots, loads the 12-item catalog, renders metadata + art.
+- [ ] **Deploy + validate on 6.0.8 + MultiFinder.** The code is ready; what's left
+      is deployment: the Startup-Items auto-launch is System-7-only, so 6.0.8 needs
+      the **boot-block shell swap** (`bbShellName`, Str15 at partition offset
+      `0x1A`, §C″). Add a small `rb-cli`/`atrium` "set shell name" helper, then
+      boot-to-launcher on 6.0.8 + MultiFinder and confirm the resident `Launch`
+      path returns there.
 - [ ] B&W path on a MacPlus-class config (Mini vMac / MacPlus core).
 - [ ] If a single binary proves impractical, cut a 6.0.8 build variant (fallback
       only).

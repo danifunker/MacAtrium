@@ -22,4 +22,12 @@ OSErr macfs_make_spec(const char *relToRoot, FSSpec *spec);
  * Caller frees *buf. *len excludes the terminator. */
 OSErr macfs_read_all(FSSpec *spec, char **buf, long *len);
 
+/* HFS File-Manager helpers that work on System 6.0.8 and 7.x alike (no FSSpec
+ * traps): open the data fork, read Finder info, create a file — all by the
+ * spec's (vRefNum, parID, name). Use these instead of FSpOpenDF / FSpGetFInfo /
+ * FSpCreate so the binary runs on base System 6 (docs/09 Milestone 4). */
+OSErr macfs_open_df(const FSSpec *spec, char perm, short *refNum);
+OSErr macfs_get_finfo(const FSSpec *spec, FInfo *info);
+OSErr macfs_create(const FSSpec *spec, OSType creator, OSType type);
+
 #endif /* MACATRIUM_MACFS_H */

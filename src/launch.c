@@ -8,6 +8,13 @@
 
 #include <Processes.h>
 #include <Files.h>   /* ResolveAliasFile comes from the multiversal header here */
+#include <Gestalt.h>
+
+/* Alias Manager presence bit (System 7+); on 6.0.8 the Alias Manager is absent
+ * and ResolveAliasFile would be an unimplemented trap. */
+#ifndef gestaltAliasMgrAttr
+#define gestaltAliasMgrAttr 'alis'
+#endif
 
 LaunchResult launch_app(const char *appRel, int canReturn, OSErr *outErr)
 {
@@ -27,16 +34,20 @@ LaunchResult launch_app(const char *appRel, int canReturn, OSErr *outErr)
     /* If the catalog points at an *alias* file, resolve it to the real app so
      * moved/aliased targets still launch (docs/08). A regular file resolves to
      * itself (wasAliased=false, spec unchanged), so the proven direct path is
-     * untouched; on any error we keep the original spec. */
+     * untouched; on any error we keep the original spec. The Alias Manager is
+     * System-7 only, so skip this on 6.0.8 (catalog paths there are direct). */
     {
-        FSSpec  resolved = spec;
-        Boolean isFolder, wasAliased;
-        if (ResolveAliasFile(&resolved, true, &isFolder, &wasAliased) == noErr && !isFolder)
-            spec = resolved;
+        long aliasAttr;
+        if (Gestalt(gestaltAliasMgrAttr, &aliasAttr) == noErr) {
+            FSSpec  resolved = spec;
+            Boolean isFolder, wasAliased;
+            if (ResolveAliasFile(&resolved, true, &isFolder, &wasAliased) == noErr && !isFolder)
+                spec = resolved;
+        }
     }
 
     /* Confirm the target actually exists before launching. */
-    err = FSpGetFInfo(&spec, &finfo);
+    err = macfs_get_finfo(&spec, &finfo);
     if (err != noErr) { *outErr = err; return LAUNCH_NOT_FOUND; }
 
     pb.launchBlockID       = extendedBlock;

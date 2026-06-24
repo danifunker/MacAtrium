@@ -58,6 +58,22 @@ static Ui        gUi;
 static WindowPtr gWin;
 static Prefs     gPrefs;
 
+/* WaitNextEvent is a MultiFinder/System-7 trap — absent on base System 6. We
+ * use it on System 7+ and fall back to GetNextEvent + SystemTask on 6.x (which
+ * still yields to MultiFinder). Set from the probed system version at startup. */
+static Boolean   gHasWNE = true;
+
+/* Fetch the next event, transparently using WaitNextEvent when present and
+ * GetNextEvent (with a SystemTask yield) when it isn't. */
+static Boolean next_event(EventRecord *evt)
+{
+    if (gHasWNE) {
+        return WaitNextEvent(everyEvent, evt, 10L, 0L);
+    }
+    SystemTask();
+    return GetNextEvent(everyEvent, evt);
+}
+
 static void toolbox_init(void)
 {
     InitGraf(&qd.thePort);
@@ -275,6 +291,7 @@ int main(void)
     install_ae_handlers();            /* required AE handlers (we're HLE-aware) */
     env_probe(&gEnv);                 /* match whatever depth the OS is set to;
                                          saves the original menu-bar height       */
+    gHasWNE = (gEnv.sysVers >= 0x0700);  /* WaitNextEvent only from System 7 up */
     prefs_load(&gPrefs);              /* saved theme / volume / selection */
     hide_menu_bar();                  /* true full-screen (restored for Launch
                                          Finder; gEnv keeps the original height) */
@@ -304,7 +321,7 @@ int main(void)
     if (gUi.sndStartup) sound_play_file("sounds/startup", 1);
 
     for (;;) {
-        if (!WaitNextEvent(everyEvent, &evt, 10L, 0L)) {
+        if (!next_event(&evt)) {
             /* Idle: load the settled selection's detail art (deferred so a fast
              * scroll never blocks on decoding a colour PICT), then repaint. */
             if (ui_idle(&gUi)) ui_draw(&gUi);

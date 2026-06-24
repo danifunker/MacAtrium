@@ -72,7 +72,9 @@ void sound_play_file(const char *relToRoot, int async)
     if (!gAvail) return;                            /* no Sound Manager */
     if (macfs_make_spec(relToRoot, &spec) != noErr) return;
 
-    refNum = FSpOpenResFile(&spec, fsRdPerm);
+    /* HOpenResFile (by vRefNum/dirID/name) instead of FSpOpenResFile — the FSSpec
+     * Resource Manager call is System-7 and faults on 6.0.8. */
+    refNum = HOpenResFile(spec.vRefNum, spec.parID, spec.name, fsRdPerm);
     if (refNum == -1) return;                       /* no such sound file */
 
     h = Get1Resource('snd ', 128);
