@@ -29,6 +29,31 @@
   matching ndjson line (verified for a sample). The ndjson is the easiest thing to
   process; the split files are just a convenience mirror.
 
+## Data store — one path for everything
+
+The MG **files** (per-title images + downloads) and the **metadata archives**
+(the `*.ndjson` dumps) live in **one directory**, the *data store*:
+
+```
+<store>/
+  metadata/games.ndjson  apps.ndjson    ← the metadata archives (extracted from the tarball)
+  games/<nid>/  apps/<nid>/             ← the scraped images (+ info.json)
+  downloads/<kind>/<nid>/               ← fetched software (atrium fetch)
+  index.{jsonl,csv}  manifest.csv
+```
+
+You specify it in **one place, however suits you** — every tool agrees:
+
+1. **Default:** `~/macgarden-archive` (no setup needed).
+2. **Env var:** `export MACATRIUM_MG_ARCHIVE=/path/to/store` — honoured by the
+   `atrium` CLI (`mg`, `fetch`), the Manager (pre-fills the field), and the
+   Python scraper/index tools. Set it once.
+3. **Explicit flag/field:** `--mg-archive <path>` (CLI), `mg_archive` (image
+   config JSON), or the **MG archive** field in the Manager — overrides the above.
+
+The source dump (`~/Infinite-Mac_*.tar.gz`) is only needed by the scraper, which
+auto-finds the newest one; after the first scrape only the data store matters.
+
 ## Record schema
 
 Each ndjson line is `{"nid": <int>, "data": {"game"|"app": { … }}}`. `nid` is

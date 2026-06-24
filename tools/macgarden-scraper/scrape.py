@@ -47,10 +47,22 @@ import urllib.parse
 import urllib.request
 from concurrent.futures import ThreadPoolExecutor, as_completed
 
+import glob
+
 SCREENSHOT_BASE = "https://macintoshgarden.org/sites/macintoshgarden.org/files/screenshots/"
 USER_AGENT = "MacAtrium-archive/0.1 (local research tool; contact: danifunkervogt@gmail.com)"
-DEFAULT_ARCHIVE = os.path.expanduser("~/Infinite-Mac_20260312_214929.tar.gz")
-DEFAULT_OUT = os.path.expanduser("~/macgarden-archive")
+
+
+def _default_archive_src():
+    """Newest ~/Infinite-Mac_*.tar.gz, so the user needn't know the dated name."""
+    hits = sorted(glob.glob(os.path.expanduser("~/Infinite-Mac_*.tar.gz")))
+    return hits[-1] if hits else os.path.expanduser("~/Infinite-Mac.tar.gz")
+
+
+# The data store: $MACATRIUM_MG_ARCHIVE, else ~/macgarden-archive (shared with the
+# atrium CLI and the Manager so one path drives everything).
+DEFAULT_ARCHIVE = _default_archive_src()
+DEFAULT_OUT = os.environ.get("MACATRIUM_MG_ARCHIVE") or os.path.expanduser("~/macgarden-archive")
 
 _stop = False
 

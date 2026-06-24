@@ -9,7 +9,7 @@ name = "atrium"
 path = "src/main.rs"
 
 [dependencies]
-clap = { version = "4", features = ["derive"] }
+clap = { version = "4", features = ["derive", "env"] }
 serde = { version = "1", features = ["derive"] }
 # preserve_order keeps dataset field order stable when `enrich` rewrites it.
 serde_json = { version = "1", features = ["preserve_order"] }

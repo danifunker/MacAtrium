@@ -22,6 +22,31 @@ use serde_json::{Map, Value};
 use std::collections::HashMap;
 use std::path::Path;
 
+/// Environment variable naming the Macintosh Garden **data store** — one
+/// directory holding everything MG: `metadata/*.ndjson`, the per-title images
+/// (`<kind>/<nid>/`), `downloads/`, and `index.{jsonl,csv}`. Set it once and every
+/// tool (CLI `mg`/`fetch`, the GUI, the scraper) defaults to it.
+pub const ARCHIVE_ENV: &str = "MACATRIUM_MG_ARCHIVE";
+
+/// The data-store root when none is given on the command line: `$MACATRIUM_MG_ARCHIVE`
+/// if set, else `~/macgarden-archive`.
+pub fn default_archive() -> std::path::PathBuf {
+    if let Some(p) = std::env::var_os(ARCHIVE_ENV) {
+        return std::path::PathBuf::from(p);
+    }
+    let home = std::env::var_os("HOME")
+        .or_else(|| std::env::var_os("USERPROFILE"))
+        .map(std::path::PathBuf::from)
+        .unwrap_or_else(|| std::path::PathBuf::from("."));
+    home.join("macgarden-archive")
+}
+
+/// Resolve an optional `--mg-archive` to a concrete path: the explicit value wins,
+/// otherwise [`default_archive`] (env var, then `~/macgarden-archive`).
+pub fn resolve_archive(explicit: Option<std::path::PathBuf>) -> std::path::PathBuf {
+    explicit.unwrap_or_else(default_archive)
+}
+
 struct MgRec {
     nid: i64,
     kind: &'static str, // "games" | "apps"

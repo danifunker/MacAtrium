@@ -90,9 +90,10 @@ enum Cmd {
         /// Curated source dataset to enrich (e.g. data/library.jsonl).
         #[arg(long)]
         src: PathBuf,
-        /// Macintosh Garden archive root (holds metadata/*.ndjson + <kind>/<nid>/).
-        #[arg(long = "mg-archive")]
-        archive: PathBuf,
+        /// Macintosh Garden data store (holds metadata/*.ndjson + <kind>/<nid>/).
+        /// Defaults to $MACATRIUM_MG_ARCHIVE, else ~/macgarden-archive.
+        #[arg(long = "mg-archive", env = "MACATRIUM_MG_ARCHIVE")]
+        archive: Option<PathBuf>,
         /// Output dataset (may equal --src to enrich in place).
         #[arg(long)]
         out: PathBuf,
@@ -109,9 +110,10 @@ enum Cmd {
     /// with rb-cli (StuffIt/CompactPro/MAR/BinHex/MacBinary), and optionally inject
     /// the forks into an image under Apps/. On-demand, per-title (Phase 2).
     Fetch {
-        /// Macintosh Garden archive root (for metadata + per-title info.json).
-        #[arg(long = "mg-archive")]
-        archive: PathBuf,
+        /// Macintosh Garden data store (for metadata + per-title info.json).
+        /// Defaults to $MACATRIUM_MG_ARCHIVE, else ~/macgarden-archive.
+        #[arg(long = "mg-archive", env = "MACATRIUM_MG_ARCHIVE")]
+        archive: Option<PathBuf>,
         /// MG node id(s) to fetch (repeatable).
         #[arg(long = "nid")]
         nids: Vec<i64>,
@@ -322,9 +324,13 @@ fn main() -> Result<()> {
             enrich::run(&src, &metadata, &out, &platform, overwrite, art_manifest.as_deref(), detect_color, &curl)?;
         }
         Cmd::Mg { src, archive, out, overwrite, art_dir } => {
+            let archive = mg::resolve_archive(archive);
+            eprintln!("mg: data store {}", archive.display());
             mg::run(&src, &archive, &out, overwrite, art_dir.as_deref())?;
         }
         Cmd::Fetch { archive, nids, src, downloads, into, apps_root, append_to, rb_cli, curl, stage } => {
+            let archive = mg::resolve_archive(archive);
+            eprintln!("fetch: data store {}", archive.display());
             fetch::run(
                 &archive, &nids, src.as_deref(), downloads.as_deref(), into.as_deref(),
                 &apps_root, append_to.as_deref(), &rb_cli, &curl, stage.as_deref(),

@@ -118,7 +118,8 @@ impl Default for App {
             tab: Tab::Library,
             rb_cli: "rb-cli".into(),
             metadata: String::new(),
-            mg_archive: String::new(),
+            // The MG data store: $MACATRIUM_MG_ARCHIVE, else ~/macgarden-archive.
+            mg_archive: mg::default_archive().display().to_string(),
             image_path: String::new(),
             dataset: "data/library.jsonl".into(),
             overrides: "data/overrides.jsonl".into(),

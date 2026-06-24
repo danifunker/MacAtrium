@@ -23,7 +23,9 @@ import os
 import re
 import sys
 
-DEFAULT_ARCHIVE = os.path.expanduser("~/macgarden-archive")
+# The data store: $MACATRIUM_MG_ARCHIVE, else ~/macgarden-archive (shared with the
+# atrium CLI, the Manager, and scrape.py so one path drives everything).
+DEFAULT_ARCHIVE = os.environ.get("MACATRIUM_MG_ARCHIVE") or os.path.expanduser("~/macgarden-archive")
 BOX_RE = re.compile(r"box|cover|_back|_front", re.I)
 SOURCES = [("games", "game", "games.ndjson"), ("apps", "app", "apps.ndjson")]
 
