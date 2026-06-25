@@ -245,6 +245,29 @@ static void save_prefs(void)
     (void)prefs_save(&p);
 }
 
+/* A brief centred notice shown after a per-game screen-depth switch and before the
+ * app launches, so it stays on screen while the depth change + app load take their
+ * moment (and the screen flashes). Caller must have re-fit the backend to the new
+ * depth first. */
+static void show_switch_message(void)
+{
+    Rect        b = gWin->portRect;
+    short       cx = (short)((b.left + b.right) / 2);
+    short       cy = (short)((b.top + b.bottom) / 2);
+    const char *msg = "Setting up the display - one moment...";
+    Rect        box;
+    short       w;
+
+    SetRect(&box, (short)(cx - 190), (short)(cy - 24), (short)(cx + 190), (short)(cy + 24));
+    render_begin(&gRender, gWin);
+    render_fill(&gRender, &box, FILL_PANEL);
+    render_frame(&gRender, &box);
+    render_text_size(&gRender, 12);
+    w = render_text_width(&gRender, msg);
+    render_text(&gRender, (short)(cx - w / 2), (short)(cy + 4), msg, INK_NORMAL);
+    render_end(&gRender, gWin);
+}
+
 static void do_launch(void)
 {
     const char  *app  = ui_current_app(&gUi);
@@ -279,8 +302,14 @@ static void do_launch(void)
         if (maxd > 0 && gEnv.hasColorQD) {
             short cur    = display_current_depth();
             short target = display_depth_at_most((short)maxd);
-            if (target > 0 && target != cur && display_set_depth(target) == noErr)
-                savedDepth = cur;
+            if (target > 0 && target != cur && display_set_depth(target) == noErr) {
+                savedDepth = cur;                      /* restore this on the app's quit */
+                /* Re-fit our backend to the new depth and post the notice AT that
+                 * depth, so it stays on screen while the app loads (a bare draw
+                 * before SetDepth would be wiped by the mode switch instantly). */
+                render_reset_for_depth(&gRender, &gEnv, target);
+                show_switch_message();
+            }
         }
     }
 
