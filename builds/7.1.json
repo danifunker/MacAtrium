@@ -1,0 +1,31 @@
+{
+  "system": "/home/dani/MacOS_SampleDisks/MacLC_7-1.hda",
+  "out": "/home/dani/MacAtrium-7.1-working.hda",
+  "launcher": "/home/dani/repos/MacAtrium/build/MacAtrium.bin",
+  "dataset": "/home/dani/repos/MacAtrium/data/library.jsonl",
+  "overrides": "/home/dani/repos/MacAtrium/data/overrides.jsonl",
+  "harvest": [
+    {
+      "image": "/home/dani/macpack-work/Supplement.vhd",
+      "apps": [
+        "/Games/01 Sys 6/Dark Castle 1.2",
+        "/Games/01 Sys 6/Beyond Dark Castle 1.1"
+      ]
+    },
+    {
+      "image": "/home/dani/MacOS_SampleDisks/MacLC_6-0-8-POP.hda",
+      "apps": [
+        "/Games/Prince of Persia \u0192"
+      ]
+    }
+  ],
+  "art_depths": [
+    "1",
+    "8"
+  ],
+  "art_max": 256,
+  "rb_cli": "/home/dani/repos/rusty-backup/target/release/rb-cli",
+  "startup_items": "/System Folder/Startup Items",
+  "finder_replace": false,
+  "mg_archive": "/home/dani/macgarden-archive"
+}

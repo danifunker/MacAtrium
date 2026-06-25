@@ -17,7 +17,7 @@
 
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
-use atrium::{enrich, fetch, image, merge, mg, rbcli::RbCli};
+use atrium::{config::{BuildConfig, HarvestSrc, Selection}, enrich, fetch, image, merge, mg, rbcli::RbCli, templates};
 use eframe::egui;
 use serde_json::{Map, Value};
 use std::path::PathBuf;
@@ -77,6 +77,11 @@ struct App {
     status: String,
     // ---- build image config (mirrors atrium image's Config) ----
     base_system: String,
+    base_os: String,           // template key ("" = use base_system .hda directly)
+    templates: Vec<String>,    // OS keys from the registry (combo box)
+    disk_size_mb: String,      // target image size in MB ("" = base size)
+    sel_mode: u8,              // 0 harvest-list, 1 All, 2 Manual list, 3 By category
+    sel_text: String,          // ids (list) or categories, comma/space/newline separated
     launcher: String,
     out_image: String,
     startup_items: String,
@@ -126,6 +131,11 @@ impl Default for App {
             rows: Vec::new(),
             status: "Step 1: open a dataset, or pick an .hda and extract its catalog.".into(),
             base_system: String::new(),
+            base_os: String::new(),
+            templates: templates::Registry::load_default().keys(),
+            disk_size_mb: String::new(),
+            sel_mode: 0,
+            sel_text: String::new(),
             launcher: "build/MacAtrium.bin".into(),
             out_image: "/tmp/macatrium.hda".into(),
             startup_items: "/System Folder/Startup Items".into(),
@@ -177,10 +187,6 @@ fn path_row(ui: &mut egui::Ui, label: &str, value: &mut String, kind: Pick) {
             }
         }
     });
-}
-
-fn put(m: &mut Map<String, Value>, k: &str, v: &str) {
-    m.insert(k.to_string(), Value::String(v.to_string()));
 }
 
 fn as_bool(m: &Map<String, Value>, k: &str, default: bool) -> bool {
@@ -402,8 +408,10 @@ impl App {
     }
 
     fn build_image(&mut self, ctx: &egui::Context) {
-        if self.base_system.trim().is_empty() || self.out_image.trim().is_empty() {
-            self.status = "Set base system + output paths first.".into();
+        if self.out_image.trim().is_empty()
+            || (self.base_os.trim().is_empty() && self.base_system.trim().is_empty())
+        {
+            self.status = "Set an output path + a base OS (template or custom .hda).".into();
             return;
         }
         let depths = self.art_depths();
@@ -412,72 +420,85 @@ impl App {
             return;
         }
 
-        // Assemble the same JSON config the CLI's `atrium image --config` takes.
-        // Optional fields are only emitted when set, so defaults apply otherwise.
-        let mut cfg = Map::new();
-        put(&mut cfg, "system", &self.base_system);
-        put(&mut cfg, "out", &self.out_image);
-        put(&mut cfg, "launcher", &self.launcher);
-        put(&mut cfg, "dataset", &self.dataset);
-        if !self.overrides.trim().is_empty() { put(&mut cfg, "overrides", &self.overrides); }
-        if !self.metadata.trim().is_empty() { put(&mut cfg, "metadata", &self.metadata); }
-        if !self.mg_archive.trim().is_empty() { put(&mut cfg, "mg_archive", &self.mg_archive); }
-        put(&mut cfg, "platform", &self.platform);
-        cfg.insert("detect_color".into(), Value::Bool(self.detect_color));
-        cfg.insert("download_art".into(), Value::Bool(self.download_art));
-        if !self.art_dir.trim().is_empty() { put(&mut cfg, "art_dir", &self.art_dir); }
-        cfg.insert(
-            "art_depths".into(),
-            Value::Array(depths.iter().map(|d| Value::String(d.clone())).collect()),
-        );
-        if let Ok(m) = self.art_max.trim().parse::<u64>() {
-            cfg.insert("art_max".into(), Value::from(m));
-        }
-        put(&mut cfg, "startup_items", &self.startup_items);
-        if !self.startup_sound.trim().is_empty() { put(&mut cfg, "startup_sound", &self.startup_sound); }
-        if !self.shutdown_sound.trim().is_empty() { put(&mut cfg, "shutdown_sound", &self.shutdown_sound); }
-        put(&mut cfg, "rb_cli", &self.rb_cli);
-        put(&mut cfg, "apps_root", &self.apps_root);
-        put(&mut cfg, "metadata_dir", &self.metadata_dir);
-        put(&mut cfg, "images_dir", &self.images_dir);
-        if !self.stage.trim().is_empty() { put(&mut cfg, "stage", &self.stage); }
-        put(&mut cfg, "curl", &self.curl);
-
-        let harvest: Vec<Value> = self
+        // Build the shared model directly — no JSON re-encoding. The schema lives
+        // once in atrium::config::BuildConfig, so the GUI and CLI can't drift.
+        let opt = |s: &str| -> Option<PathBuf> {
+            let t = s.trim();
+            if t.is_empty() { None } else { Some(PathBuf::from(t)) }
+        };
+        let harvest: Vec<HarvestSrc> = self
             .harvest
             .iter()
             .filter(|h| !h.image.trim().is_empty())
-            .map(|h| {
-                let mut o = Map::new();
-                o.insert("image".into(), Value::String(h.image.trim().to_string()));
-                let apps: Vec<Value> = h
+            .map(|h| HarvestSrc {
+                image: PathBuf::from(h.image.trim()),
+                apps: h
                     .apps
                     .lines()
                     .map(str::trim)
                     .filter(|s| !s.is_empty())
-                    .map(|s| Value::String(s.to_string()))
-                    .collect();
-                if !apps.is_empty() {
-                    o.insert("apps".into(), Value::Array(apps));
-                }
-                if !h.scan.trim().is_empty() {
-                    o.insert("scan".into(), Value::String(h.scan.trim().to_string()));
-                }
-                Value::Object(o)
+                    .map(String::from)
+                    .collect(),
+                scan: {
+                    let t = h.scan.trim();
+                    if t.is_empty() { None } else { Some(t.to_string()) }
+                },
             })
             .collect();
-        if !harvest.is_empty() {
-            cfg.insert("harvest".into(), Value::Array(harvest));
-        }
 
-        let cfg_path = std::env::temp_dir().join("macatrium-mgmt-build.json");
-        if let Err(e) = std::fs::write(&cfg_path, serde_json::to_string_pretty(&Value::Object(cfg)).unwrap()) {
-            self.status = format!("Config write failed: {e}");
-            return;
-        }
+        // base OS: a template key wins; otherwise the explicit .hda.
+        let base_os = {
+            let b = self.base_os.trim();
+            if b.is_empty() { None } else { Some(b.to_string()) }
+        };
+        let system = if base_os.is_some() { None } else { Some(PathBuf::from(self.base_system.trim())) };
+        let words = |s: &str| -> Vec<String> {
+            s.split(|c| c == ',' || c == '\n' || c == ' ' || c == '\t')
+                .map(str::trim)
+                .filter(|t| !t.is_empty())
+                .map(String::from)
+                .collect()
+        };
+        let selection = match self.sel_mode {
+            1 => Some(Selection::All),
+            2 => Some(Selection::List { ids: words(&self.sel_text) }),
+            3 => Some(Selection::Categories { categories: words(&self.sel_text) }),
+            _ => None,
+        };
+
+        let cfg = BuildConfig {
+            system,
+            base_os,
+            disk_size_mb: self.disk_size_mb.trim().parse::<u64>().ok(),
+            selection,
+            out: PathBuf::from(self.out_image.trim()),
+            launcher: PathBuf::from(self.launcher.trim()),
+            dataset: PathBuf::from(self.dataset.trim()),
+            startup_items: self.startup_items.trim().to_string(),
+            overrides: opt(&self.overrides),
+            metadata: opt(&self.metadata),
+            mg_archive: opt(&self.mg_archive),
+            platform: self.platform.trim().to_string(),
+            detect_color: self.detect_color,
+            curl: self.curl.trim().to_string(),
+            harvest,
+            art_dir: opt(&self.art_dir),
+            art_depths: depths.clone(),
+            art_max: self.art_max.trim().parse::<u32>().ok(),
+            download_art: self.download_art,
+            rb_cli: self.rb_cli.trim().to_string(),
+            apps_root: self.apps_root.trim().to_string(),
+            metadata_dir: self.metadata_dir.trim().to_string(),
+            images_dir: self.images_dir.trim().to_string(),
+            stage: opt(&self.stage),
+            startup_sound: opt(&self.startup_sound),
+            shutdown_sound: opt(&self.shutdown_sound),
+            ..BuildConfig::default()
+        };
+
         let out = self.out_image.clone();
         let label = format!("Building image ({})", depths.join("/"));
-        self.spawn_job(ctx, &label, move || match image::run(&cfg_path) {
+        self.spawn_job(ctx, &label, move || match image::run(&cfg) {
             Ok(()) => Done { status: format!("Built image -> {out}"), dataset: None, reload: false },
             Err(e) => Done { status: format!("Build failed: {e}"), dataset: None, reload: false },
         });
@@ -617,9 +638,50 @@ impl App {
                 .small().weak(),
         );
         ui.add_space(4.0);
-        path_row(ui, "base system .hda:", &mut self.base_system, Pick::File);
+        ui.horizontal(|ui| {
+            ui.label("base OS:");
+            let cur = if self.base_os.is_empty() { "(custom .hda)".to_string() } else { self.base_os.clone() };
+            let tmpls = self.templates.clone();
+            egui::ComboBox::from_id_salt("base_os")
+                .selected_text(cur)
+                .show_ui(ui, |ui| {
+                    ui.selectable_value(&mut self.base_os, String::new(), "(custom .hda)");
+                    for k in &tmpls {
+                        ui.selectable_value(&mut self.base_os, k.clone(), k.as_str());
+                    }
+                });
+            ui.separator();
+            ui.label("disk size MB:");
+            ui.add(egui::TextEdit::singleline(&mut self.disk_size_mb).desired_width(64.0));
+            ui.label(egui::RichText::new("≤2048; blank = base size").small().weak());
+        });
+        if self.base_os.trim().is_empty() {
+            path_row(ui, "base system .hda:", &mut self.base_system, Pick::File);
+        }
         path_row(ui, "launcher (.bin):", &mut self.launcher, Pick::File);
         path_row(ui, "output .hda:", &mut self.out_image, Pick::Save);
+
+        ui.add_space(4.0);
+        ui.group(|ui| {
+            ui.strong("Apps to include");
+            ui.horizontal(|ui| {
+                ui.radio_value(&mut self.sel_mode, 0u8, "Harvest list (Advanced)");
+                ui.radio_value(&mut self.sel_mode, 1u8, "All");
+                ui.radio_value(&mut self.sel_mode, 2u8, "Manual list");
+                ui.radio_value(&mut self.sel_mode, 3u8, "By category");
+            });
+            match self.sel_mode {
+                2 => {
+                    ui.label("dataset ids (comma / space / newline separated):");
+                    ui.add(egui::TextEdit::multiline(&mut self.sel_text).desired_rows(2).desired_width(440.0));
+                }
+                3 => {
+                    ui.label("categories (comma separated):");
+                    ui.add(egui::TextEdit::singleline(&mut self.sel_text).desired_width(440.0));
+                }
+                _ => {}
+            }
+        });
 
         ui.add_space(4.0);
         ui.group(|ui| {

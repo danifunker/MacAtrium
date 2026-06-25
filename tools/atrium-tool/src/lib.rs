@@ -5,6 +5,8 @@
 //! of truth, the GUI is a thin front-end over it.
 
 pub mod catalog;
+pub mod config;
+pub mod donors;
 pub mod enrich;
 pub mod fetch;
 pub mod harvest;
@@ -14,5 +16,8 @@ pub mod macroman;
 pub mod merge;
 pub mod mg;
 pub mod pict;
+pub mod preflight;
 pub mod rbcli;
+pub mod selection;
 pub mod snd;
+pub mod templates;

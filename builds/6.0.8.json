@@ -1,0 +1,20 @@
+{
+  "base_os": "6.0.8",
+  "out": "/home/dani/MacAtrium-608-working.hda",
+  "launcher": "/home/dani/repos/MacAtrium/build/MacAtrium.bin",
+  "dataset": "/home/dani/repos/MacAtrium/data/library.jsonl",
+  "overrides": "/home/dani/repos/MacAtrium/data/overrides.jsonl",
+  "selection": {
+    "mode": "categories",
+    "categories": [
+      "Action"
+    ]
+  },
+  "mg_archive": "/home/dani/macgarden-archive",
+  "art_depths": [
+    "1",
+    "8"
+  ],
+  "rb_cli": "/home/dani/repos/rusty-backup/target/release/rb-cli",
+  "disk_size_mb": 120
+}

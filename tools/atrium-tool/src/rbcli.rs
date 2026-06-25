@@ -149,6 +149,34 @@ impl RbCli {
         self.run(&["put-macbinary", &img, &h, "--dst-dir", dst_dir, "--force", "-q"])?;
         Ok(())
     }
+
+    /// Grow (or re-block) the classic-HFS volume in `image` to `size_mb` MB by
+    /// cloning it into a fresh APM disk at `output`. Used to size a built image to
+    /// the requested target. The clone preserves the volume (boot blocks, blessed
+    /// System Folder, files) and re-wraps it bootable.
+    pub fn expand(&self, image: &Path, size_mb: u64, output: &Path) -> Result<()> {
+        let img = image.to_string_lossy();
+        let out = output.to_string_lossy();
+        let size = format!("{size_mb}M");
+        self.run(&["expand", &img, "--size", &size, "--output", &out, "-q"])?;
+        Ok(())
+    }
+
+    /// True if `path` (a file or directory) exists inside the image. Implemented
+    /// by listing the parent and checking for the leaf, so it works for the
+    /// space/`ƒ`-containing names our app paths carry. Any rb-cli error (missing
+    /// parent, etc.) reads as "does not exist".
+    pub fn exists(&self, image: &Path, path: &str) -> bool {
+        let trimmed = path.trim_end_matches('/');
+        let (parent, leaf) = match trimmed.rsplit_once('/') {
+            Some((p, l)) if !l.is_empty() => (if p.is_empty() { "/" } else { p }, l),
+            _ => return false,
+        };
+        match self.ls(image, parent) {
+            Ok(entries) => entries.iter().any(|e| e.name == leaf),
+            Err(_) => false,
+        }
+    }
 }
 
 fn parse_ls_line(line: &str) -> Option<Entry> {

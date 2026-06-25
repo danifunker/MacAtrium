@@ -419,7 +419,7 @@ fn main() -> Result<()> {
             )?;
         }
         Cmd::Image { config } => {
-            image::run(&config)?;
+            image::run_from_path(&config)?;
         }
     }
     Ok(())

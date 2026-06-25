@@ -1,0 +1,14 @@
+{
+  "6.0.8": {
+    "hda": "/home/dani/MacOS_SampleDisks/MacLC_6-0-8-POP.hda",
+    "label": "System 6.0.8 (Color QuickDraw, PoP base)",
+    "finder_replace": true,
+    "startup_items": "/System Folder/Startup Items"
+  },
+  "7.1": {
+    "hda": "/home/dani/MacOS_SampleDisks/MacLC_7-1.hda",
+    "label": "System 7.1",
+    "finder_replace": false,
+    "startup_items": "/System Folder/Startup Items"
+  }
+}

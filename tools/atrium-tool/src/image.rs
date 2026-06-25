@@ -13,113 +13,25 @@
 use crate::rbcli::RbCli;
 use crate::{catalog, enrich, harvest, icons, merge, mg, pict, snd};
 use anyhow::{Context, Result};
-use serde::Deserialize;
+use crate::config::BuildConfig;
 use serde_json::Value;
 use std::path::{Path, PathBuf};
 
-fn d_startup() -> String { "/System Folder/Startup Items".into() }
-fn d_platform() -> String { "Apple Mac OS".into() }
-fn d_rbcli() -> String { "rb-cli".into() }
-fn d_apps_root() -> String { "/MacAtrium/Apps".into() }
-fn d_metadir() -> String { "/MacAtrium/metadata".into() }
-fn d_imagesdir() -> String { "/MacAtrium/images".into() }
-fn d_artdepth() -> String { "8".into() }
-fn d_curl() -> String { "curl".into() }
-fn d_sounds_dir() -> String { "/MacAtrium/sounds".into() }
-
-#[derive(Deserialize)]
-struct HarvestSrc {
-    image: PathBuf,
-    #[serde(default)]
-    apps: Vec<String>,
-    #[serde(default)]
-    scan: Option<String>,
-}
-
-#[derive(Deserialize)]
-struct Config {
-    /// Base bootable System image to build on top of.
-    system: PathBuf,
-    /// Output image to produce (overwritten).
-    out: PathBuf,
-    /// The launcher MacBinary (build/MacAtrium.bin) to install.
-    launcher: PathBuf,
-    /// Curated dataset (copied; never mutated by the build).
-    dataset: PathBuf,
-    #[serde(default = "d_startup")]
-    startup_items: String,
-    /// Manual overrides overlay (applied after enrich).
-    #[serde(default)]
-    overrides: Option<PathBuf>,
-    /// LaunchBox Metadata.xml — if set, enrich the dataset.
-    #[serde(default)]
-    metadata: Option<PathBuf>,
-    /// Macintosh Garden archive root — if set, enrich (68K-only) before LaunchBox
-    /// (so MG wins for gaps) and stage MG box-front/screenshot art for the art pass.
-    #[serde(default)]
-    mg_archive: Option<PathBuf>,
-    #[serde(default = "d_platform")]
-    platform: String,
-    /// Auto-detect color/B&W from LaunchBox screenshots during enrich.
-    #[serde(default)]
-    detect_color: bool,
-    #[serde(default = "d_curl")]
-    curl: String,
-    /// Apps to harvest from donor images into the output.
-    #[serde(default)]
-    harvest: Vec<HarvestSrc>,
-    /// Directory of source artwork named `<id>.png` / `.jpg` — converted to PICT.
-    #[serde(default)]
-    art_dir: Option<PathBuf>,
-    #[serde(default = "d_artdepth")]
-    art_depth: String,
-    /// Generate multiple depth variants (e.g. ["1","8"]) named `<id>.<depth>.pict`
-    /// with the catalog `image` set to the base path, so the launcher picks the
-    /// variant matching the screen depth. Empty → a single `<id>.pict` at art_depth.
-    #[serde(default)]
-    art_depths: Vec<String>,
-    /// Downscale art so its longest side is at most this many pixels.
-    #[serde(default)]
-    art_max: Option<u32>,
-    /// Download Box-Front art from LaunchBox (needs `metadata`) when no local
-    /// art_dir file exists for an item.
-    #[serde(default)]
-    download_art: bool,
-    #[serde(default = "d_rbcli")]
-    rb_cli: String,
-    #[serde(default = "d_apps_root")]
-    apps_root: String,
-    #[serde(default = "d_metadir")]
-    metadata_dir: String,
-    #[serde(default = "d_imagesdir")]
-    images_dir: String,
-    /// Staging dir for intermediates (default: a temp dir).
-    #[serde(default)]
-    stage: Option<PathBuf>,
-    /// Optional startup chime (PCM WAV) baked into the image; the launcher plays
-    /// it on launch when the user turns Startup Sound on. Capped at 7 seconds.
-    #[serde(default)]
-    startup_sound: Option<PathBuf>,
-    /// Optional shutdown chime (PCM WAV) — played on Shut Down when enabled.
-    #[serde(default)]
-    shutdown_sound: Option<PathBuf>,
-    /// Where the chimes live on the volume (the launcher reads sounds/startup,
-    /// sounds/shutdown under /MacAtrium).
-    #[serde(default = "d_sounds_dir")]
-    sounds_dir: String,
-    /// System 6 appliance: install the launcher *as* the Finder (in the System
-    /// Folder, typed FNDR/MACS) so the boot launches it as the shell. System 6 has
-    /// no Startup Items folder, so this is the auto-launch path there. Replaces
-    /// the real Finder (no Finder fallback — a true single-app appliance). Leave
-    /// false for the 7.x Startup-Items deployment.
-    #[serde(default)]
-    finder_replace: bool,
+/// Set the Finder `hasBundle` flag (and clear `hasBeenInited`) in a MacBinary
+/// header, so the Finder reads the app's `BNDL` and shows its real icon instead of
+/// the generic one. fdFlags' high byte is at MacBinary offset 73; hasBundle = 0x20,
+/// hasBeenInited = 0x01. The launcher already ships `ICN#`/`icl8`/`BNDL`/`FREF` —
+/// only this flag was missing (so a normal-app deploy showed the generic icon).
+fn set_bundle_bit(bytes: &mut [u8]) {
+    if bytes.len() > 73 {
+        bytes[73] = (bytes[73] | 0x20) & !0x01;
+    }
 }
 
 /// Install the launcher *as* `/System Folder/Finder` (typed FNDR/MACS) so a
 /// System-6 boot launches it as the shell. Patches the MacBinary internal name to
 /// "Finder", injects it (overwriting the real Finder), and retypes it.
-fn install_as_finder(rb: &RbCli, cfg: &Config, stage: &Path) -> Result<()> {
+fn install_as_finder(rb: &RbCli, cfg: &BuildConfig, stage: &Path) -> Result<()> {
     let mut bytes = std::fs::read(&cfg.launcher)
         .with_context(|| format!("reading launcher {}", cfg.launcher.display()))?;
     anyhow::ensure!(bytes.len() > 128, "launcher .bin too small to be MacBinary");
@@ -128,6 +40,7 @@ fn install_as_finder(rb: &RbCli, cfg: &Config, stage: &Path) -> Result<()> {
     for k in 0..63 {                        // filename field (63 bytes)
         bytes[2 + k] = if k < name.len() { name[k] } else { 0 };
     }
+    set_bundle_bit(&mut bytes);
     let patched = stage.join("Finder.bin");
     std::fs::write(&patched, &bytes)?;
     rb.put_macbinary(&cfg.out, &patched, "/System Folder")?;   // lands as "Finder" (--force)
@@ -153,6 +66,49 @@ fn dataset_records(path: &Path) -> Result<Vec<(String, Option<String>)>> {
         }
     }
     Ok(recs)
+}
+
+/// Keep only dataset records whose `app` file is actually present on the volume,
+/// writing the survivors to `dst`. The dataset is the full curated library, but
+/// a build only harvests a subset of those titles — listing the rest in the
+/// catalog means selecting one launches nothing and the launcher reports a
+/// File-System error -43 (fnfErr). Filtering here keeps the on-screen catalog in
+/// lockstep with what's on disk. Records with no `app` are left in place (the
+/// catalog generator requires `app` and skips them anyway). Returns the display
+/// names of the dropped titles, for the build log.
+fn filter_present_apps(rb: &RbCli, image: &Path, src: &Path, dst: &Path) -> Result<Vec<String>> {
+    let text = std::fs::read_to_string(src)?;
+    let mut out = String::new();
+    let mut dropped = Vec::new();
+    for line in text.lines() {
+        let t = line.trim();
+        let keep = if t.is_empty() || t.starts_with('#') || t.starts_with("//") {
+            true
+        } else if let Ok(v) = serde_json::from_str::<Value>(t) {
+            match v.get("app").and_then(Value::as_str) {
+                Some(a) if !a.is_empty() => {
+                    let full = format!("/MacAtrium/{}", a.trim_start_matches('/'));
+                    if rb.exists(image, &full) {
+                        true
+                    } else {
+                        dropped.push(
+                            v.get("name").and_then(Value::as_str).unwrap_or(a).to_string(),
+                        );
+                        false
+                    }
+                }
+                _ => true, // no app field — catalog::run will skip it
+            }
+        } else {
+            true // unparseable line — leave it for catalog::run to handle
+        };
+        if keep {
+            out.push_str(line);
+            out.push('\n');
+        }
+    }
+    std::fs::write(dst, out)?;
+    Ok(dropped)
 }
 
 /// A filesystem-safe base name for an item's baked art/icon files. Classic HFS
@@ -192,7 +148,7 @@ fn find_art(dir: &Path, id: &str) -> Option<PathBuf> {
 /// has no box art. Never fails the build — a missing or odd app yields `None`.
 fn bake_icon(
     rb: &RbCli,
-    cfg: &Config,
+    cfg: &BuildConfig,
     stage: &Path,
     images_rel: &str,
     id: &str,
@@ -239,7 +195,7 @@ fn bake_icon(
 /// for the single-depth case. `None` if nothing decoded.
 fn bake_variants(
     rb: &RbCli,
-    cfg: &Config,
+    cfg: &BuildConfig,
     stage: &Path,
     images_rel: &str,
     name: &str,
@@ -299,7 +255,7 @@ mod tests {
 /// Bake one WAV chime into a sound file (`<sounds_dir>/<name>`) on the volume:
 /// an empty data fork plus a resource fork holding a `snd ` resource. Warns when
 /// the clip is over the 7-second cap (it's truncated).
-fn bake_sound(rb: &RbCli, cfg: &Config, stage: &Path, wav: &Path, name: &str) -> Result<()> {
+fn bake_sound(rb: &RbCli, cfg: &BuildConfig, stage: &Path, wav: &Path, name: &str) -> Result<()> {
     let (rsrc, secs) = snd::build_resfork_from_wav(wav)
         .with_context(|| format!("encoding sound {}", wav.display()))?;
     if secs > snd::MAX_SECS {
@@ -320,11 +276,23 @@ fn bake_sound(rb: &RbCli, cfg: &Config, stage: &Path, wav: &Path, name: &str) ->
     Ok(())
 }
 
-pub fn run(config: &Path) -> Result<()> {
-    let cfg: Config = serde_json::from_str(
+/// CLI convenience (a *view* helper): load a [`BuildConfig`] from a JSON file and
+/// run it. The GUI builds the `BuildConfig` directly and calls [`run`].
+pub fn run_from_path(config: &Path) -> Result<()> {
+    let cfg: BuildConfig = serde_json::from_str(
         &std::fs::read_to_string(config).with_context(|| format!("reading {}", config.display()))?,
     )
     .with_context(|| format!("parsing config {}", config.display()))?;
+    run(&cfg)
+}
+
+/// The build **controller**: assemble a bootable image from a [`BuildConfig`].
+/// Both the CLI and the GUI call this with the same model.
+pub fn run(cfg: &BuildConfig) -> Result<()> {
+    // Resolve base_os -> system + deploy mode via the template registry first, so
+    // the rest of the controller works against a fully-populated config.
+    let resolved = crate::templates::resolve(cfg)?;
+    let cfg = &resolved;
 
     let rb = RbCli::new(&cfg.rb_cli);
     let stage = cfg
@@ -334,16 +302,76 @@ pub fn run(config: &Path) -> Result<()> {
     std::fs::create_dir_all(&stage)?;
 
     // 1. base system -> out
-    eprintln!("[1/7] base system  {} -> {}", cfg.system.display(), cfg.out.display());
-    std::fs::copy(&cfg.system, &cfg.out)
-        .with_context(|| format!("copying {} -> {}", cfg.system.display(), cfg.out.display()))?;
+    let system = cfg.system.as_ref().expect("resolve() guarantees system is set");
+    eprintln!("[1/7] base system  {} -> {}", system.display(), cfg.out.display());
+    std::fs::copy(system, &cfg.out)
+        .with_context(|| format!("copying {} -> {}", system.display(), cfg.out.display()))?;
+
+    // 1b. preflight: project disk usage before doing the expensive work, and warn
+    // if it won't fit the target (~95% estimate; not a hard gate).
+    {
+        let n_items: u64 = match &cfg.selection {
+            Some(sel) => crate::selection::resolve(&cfg.dataset, sel, cfg.base_os.as_deref())
+                .map(|(ids, _)| ids.len() as u64)
+                .unwrap_or(0),
+            None => cfg.harvest.iter().map(|h| h.apps.len() as u64).sum(),
+        };
+        let est = crate::preflight::estimate(cfg, 0, n_items);
+        let mb = |b: u64| b / (1024 * 1024);
+        let tgt = if est.target_bytes > 0 {
+            format!(", target {} MB", mb(est.target_bytes))
+        } else {
+            String::new()
+        };
+        eprintln!(
+            "[preflight] ~{} MB projected (base {} + art ~{} for {} item(s)){}",
+            mb(est.total()),
+            mb(est.base_bytes),
+            mb(est.art_bytes),
+            n_items,
+            tgt
+        );
+        if !est.fits() {
+            eprintln!("[preflight] WARNING: projection exceeds target — raise disk_size_mb (≤2048)");
+        }
+    }
+
+    // 1c. grow the image to the requested size (disk-size controller).
+    crate::preflight::apply_disk_size(&rb, cfg)?;
 
     // 2. working copy of the dataset (the build never mutates the source)
     let work = stage.join("dataset.jsonl");
     std::fs::copy(&cfg.dataset, &work)
         .with_context(|| format!("copying dataset {}", cfg.dataset.display()))?;
 
-    // 3. harvest apps from donor images into the output + append stubs
+    // 3. harvest apps from donor images into the output + append stubs. Two paths,
+    // both may run: a high-level `selection` (dataset ids/categories → donor
+    // registry) and the low-level explicit `harvest` list (manual override).
+    if let Some(sel) = &cfg.selection {
+        let donors = crate::donors::Registry::load_default();
+        let (plan, unresolved) =
+            crate::selection::harvest_plan(&work, sel, cfg.base_os.as_deref(), &donors)?;
+        if !unresolved.is_empty() {
+            eprintln!(
+                "[2/7] selection    {} selected app(s) skipped (no source/donor): {}",
+                unresolved.len(),
+                unresolved.join(", ")
+            );
+        }
+        eprintln!("[2/7] selection    harvest {} donor group(s)", plan.len());
+        for (image, apps) in &plan {
+            harvest::run(
+                &cfg.rb_cli,
+                image,
+                apps,
+                None,
+                &stage.join("apps"),
+                Some(&cfg.out),
+                &cfg.apps_root,
+                Some(&work),
+            )?;
+        }
+    }
     if !cfg.harvest.is_empty() {
         eprintln!("[2/7] harvest      {} donor source(s)", cfg.harvest.len());
         for h in &cfg.harvest {
@@ -499,10 +527,20 @@ pub fn run(config: &Path) -> Result<()> {
         }
     }
 
-    // 7. catalog (generate + inject) and launcher install
+    // 7. catalog: list ONLY titles whose app is actually on the volume (a
+    // phantom entry would -43 on launch), then generate + inject.
+    let present = stage.join("dataset.present.jsonl");
+    let dropped = filter_present_apps(&rb, &cfg.out, &work, &present)?;
+    if !dropped.is_empty() {
+        eprintln!(
+            "[6/7] catalog      dropped {} not-installed title(s): {}",
+            dropped.len(),
+            dropped.join(", ")
+        );
+    }
     eprintln!("[6/7] catalog      generate + inject");
     let cat = stage.join("catalog.jsonl");
-    let report = catalog::run(&work, &cat, false, false)?;
+    let report = catalog::run(&present, &cat, false, false)?;
     catalog::inject(&cfg.rb_cli, &cfg.out, &cat, &cfg.metadata_dir, Some(&stage))?;
 
     if cfg.finder_replace {
@@ -511,7 +549,15 @@ pub fn run(config: &Path) -> Result<()> {
     } else {
         eprintln!("[7/7] launcher     install into {}", cfg.startup_items);
         rb.mkdir_p(&cfg.out, &cfg.startup_items)?;
-        rb.put_macbinary(&cfg.out, &cfg.launcher, &cfg.startup_items)?;
+        // Set the bundle bit so the Finder shows the app's real icon (it's a
+        // browsable app here, unlike the finder_replace appliance).
+        let mut bytes = std::fs::read(&cfg.launcher)
+            .with_context(|| format!("reading launcher {}", cfg.launcher.display()))?;
+        anyhow::ensure!(bytes.len() > 128, "launcher .bin too small to be MacBinary");
+        set_bundle_bit(&mut bytes);
+        let patched = stage.join("MacAtrium.bundle.bin");
+        std::fs::write(&patched, &bytes)?;
+        rb.put_macbinary(&cfg.out, &patched, &cfg.startup_items)?;
     }
 
     // Optional startup / shutdown chimes (WAV -> snd resource on the volume).
