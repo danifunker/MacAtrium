@@ -229,6 +229,7 @@ static void save_prefs(void)
     p.sndStartup = gUi.sndStartup;   p.haveSndStartup = 1;
     p.sndShutdown = gUi.sndShutdown; p.haveSndShutdown = 1;
     p.catList = gUi.catList;         p.haveCatList = 1;
+    p.depth = display_current_depth();  p.haveDepth = (p.depth > 0);  /* boot-depth pref */
 
     p.category[0] = '\0';
     p.item[0]     = '\0';
@@ -276,33 +277,42 @@ static void do_launch(void)
     LaunchResult lr;
     char         msg[96];
     short        savedDepth = 0;      /* >0 → restore this depth after launch */
+    int          returns;
 
     if (!app) return;
 
-    /* On the bare System-6 appliance the launch is non-returning: we won't run
-     * again until the System relaunches us as the shell, so hand the game the
-     * environment it expects — give the menu bar its height back (we hid it) and
-     * reset the cursor. (On System 7 / MultiFinder the launch returns and the
-     * post-launch block below restores everything instead.) */
-    if (!gEnv.canLaunchReturn) {
+    /* The returning, working-directory-setting extended _Launch identifies the app
+     * by FSSpec (launchAppSpec) — a System-7 Process Manager feature. MultiFinder
+     * 6.x reports gestaltLaunchCanReturn too, but its _Launch predates FSSpec and
+     * rejects the System-7 block with fnfErr (-43). So only take the returning
+     * extended path on System 7+; on System 6 (bare OR MultiFinder) use the classic
+     * Segment-Loader launch (which works under MultiFinder, and there the Process
+     * Manager still sets the launched app's working directory). */
+    returns = gEnv.canLaunchReturn && (gEnv.sysVers >= 0x0700);
+
+    /* A non-returning launch won't run us again until the System relaunches us, so
+     * hand the game the environment it expects — give the menu bar its height back
+     * (we hid it) and reset the cursor. (A returning launch restores below.) */
+    if (!returns) {
         restore_menu_bar();
         InitCursor();
     }
 
-    /* Per-game launch depth (catalog `maxDepth`, maintained in the overrides DB):
-     * run this title at the highest supported depth ≤ maxDepth, SETTING the screen
-     * there before launch (raises a low boot depth OR lowers a deep one). Some
-     * titles need an exact depth — Dark Castle needs 1-bit (maxDepth 1); Prince of
-     * Persia only does colour at 8-bit and B&W otherwise, never 16/24-bit
-     * (maxDepth 8). No value (0) launches at the current depth (the default). On a
-     * returning launch (System 7) we restore below; on the bare System-6 appliance
-     * the relaunched MacAtrium restores its own depth at startup. */
+    /* Per-game launch depth (catalog `maxDepth`, in the overrides DB) is a CAP:
+     * it only ever LOWERS the screen, for titles that bomb above a certain depth
+     * (Dark Castle needs 1-bit, maxDepth 1). We NEVER auto-raise — a game whose cap
+     * is at or above the current depth runs at the current depth, untouched (so
+     * Prince of Persia, maxDepth 8, just runs at whatever colour depth the screen
+     * is on; it is not forced anywhere). Raising the depth for a game that wants
+     * more is the user's call (prompt/Settings), not automatic. maxDepth 0 = no
+     * cap. On a returning launch we restore below; on the bare appliance the
+     * relaunched MacAtrium comes up at its own default depth. */
     {
-        int maxd = ui_current_maxdepth(&gUi);
-        if (maxd > 0 && gEnv.hasColorQD) {
-            short cur    = display_current_depth();
-            short target = display_depth_at_most((short)maxd);
-            if (target > 0 && target != cur && display_set_depth(target) == noErr) {
+        int   maxd = ui_current_maxdepth(&gUi);
+        short cur  = display_current_depth();
+        if (maxd > 0 && gEnv.hasColorQD && cur > (short)maxd) {
+            short target = display_depth_at_most((short)maxd);   /* highest ≤ cap */
+            if (target > 0 && target < cur && display_set_depth(target) == noErr) {
                 savedDepth = cur;                      /* restore this on the app's quit */
                 /* Re-fit our backend to the new depth and post the notice AT that
                  * depth, so it stays on screen while the app loads (a bare draw
@@ -313,12 +323,12 @@ static void do_launch(void)
         }
     }
 
-    lr = launch_app(app, gEnv.canLaunchReturn, &lerr);
+    lr = launch_app(app, returns, &lerr);
 
     /* Reached on a returning launch (System 7) or a FAILED non-returning one.
      * Restore the capped depth and, on the appliance, re-hide the menu bar. */
     if (savedDepth > 0) (void)display_set_depth(savedDepth);
-    if (!gEnv.canLaunchReturn) {
+    if (!returns) {
         hide_menu_bar();
         CalcVis((WindowPeek)gWin);
     }
@@ -354,6 +364,60 @@ static void do_launch(void)
     ui_draw(&gUi);
 }
 
+/* Dispatch a UiCommand from ui_key() / ui_click(). The side-effecting actions
+ * (launch / Finder / power / persist) live here so the UI layer stays draw+state
+ * only; both the keyboard and the mouse paths funnel through it. */
+static void handle_ui_command(UiCommand cmd)
+{
+    switch (cmd) {
+        case UI_LAUNCH:   do_launch(); save_prefs(); break;
+        case UI_SHOW_FINDER:
+            restore_menu_bar();    /* the Finder needs its menus */
+            if (!sysctl_show_finder()) {
+                ui_set_status(&gUi, "Finder not resident - use Restart.");
+                hide_menu_bar();   /* stayed put -> full-screen again */
+                CalcVis((WindowPeek)gWin);
+                ui_draw(&gUi);
+            }
+            break;
+        case UI_OPEN_CDEV: {
+            /* Open the chosen control panel via the Finder: give the menu bar
+             * back, send the odoc, and front the Finder so the cdev is visible.
+             * On resume (osEvt) we re-hide the bar. */
+            const CtlPanel *cp = ui_current_cdev(&gUi);
+            if (cp) {
+                OSErr oe;
+                restore_menu_bar();
+                oe = ctlpanels_open(cp);
+                if (oe == noErr) {
+                    (void)sysctl_show_finder();
+                } else {
+                    char m[48];
+                    gUi.mode = UI_MODE_LIST;   /* so the status shows */
+                    strcpy(m, "Open control panel failed (err ");
+                    append_long(m, oe);
+                    strcat(m, ")");
+                    ui_set_status(&gUi, m);
+                    hide_menu_bar();
+                    CalcVis((WindowPeek)gWin);
+                    ui_draw(&gUi);
+                }
+            }
+            break;
+        }
+        case UI_RESTART:  save_prefs(); sysctl_restart();  break;
+        case UI_SHUTDOWN:
+            save_prefs();
+            /* Shutdown chime — synchronous so it finishes before the machine
+             * powers off. No-op if none is baked. */
+            if (gUi.sndShutdown) sound_play_file("sounds/shutdown", 0);
+            sysctl_shutdown();
+            break;
+        case UI_PREFS_DIRTY: save_prefs(); break;
+        default: break;
+    }
+}
+
 int main(void)
 {
     EventRecord evt;
@@ -374,12 +438,30 @@ int main(void)
     CalcVis((WindowPeek)gWin);         /* claim the reclaimed top strip */
     render_init(&gRender, &gEnv);
 
-    /* Colour depth is USER-CONTROLLED: come up at whatever depth the OS booted
-     * (we no longer force 256 colours at startup — some screens are 1-bit-only and
-     * the choice is the user's). The user sets it in Settings → Color Depth, which
-     * only offers depths the card actually supports (display_depths → HasDepth).
-     * (Persisting that choice across boots is a TODO, pending the System-6 launch-
-     * model decision below.) */
+    /* Colour depth persists in the video card's slot PRAM (display_set_default_depth
+     * → cscSetDefaultMode), so the *system* boots at the chosen depth and we just
+     * match it. Two cases:
+     *   • saved choice (prefs `depth`): re-assert it as the boot default (self-heals
+     *     if PRAM was zapped) and apply it to the live screen if it isn't already;
+     *   • first boot / no saved choice: bootstrap to the best colour depth ≤ 8-bit
+     *     and make THAT the boot default, so the next boot comes up in colour from
+     *     the system — out-of-box colour without forcing it every boot.
+     * The chosen depth is recorded by save_prefs (current depth) on the next save,
+     * which makes the bootstrap one-time: a user who picks 1-bit then stays 1-bit.
+     * display_depth_at_most() clamps a saved depth to what this card supports. */
+    if (gEnv.hasColorQD) {
+        short want = (gPrefs.haveDepth && gPrefs.depth > 0)
+                     ? display_depth_at_most((short)gPrefs.depth)
+                     : display_depth_at_most(8);
+        if (want >= 1) {
+            (void)display_set_default_depth(want);             /* persist as the boot default */
+            if (want != display_current_depth() && display_set_depth(want) == noErr) {
+                gEnv.pixelSize = want;                          /* so art/UI pick the colour variant */
+                gEnv.useColor  = (gEnv.hasColorQD && want >= 4);
+                render_reset_for_depth(&gRender, &gEnv, want);
+            }
+        }
+    }
 
     if (gPrefs.haveTheme) render_set_theme(&gRender, gPrefs.theme);
     if (gPrefs.haveVol && sound_available()) sound_apply_vol(gPrefs.vol);  /* no boot beep */
@@ -422,55 +504,7 @@ int main(void)
                         keyCode == 0x0C) {
                         quit_to_finder();          /* does not return */
                     }
-                    UiCommand cmd = ui_key(&gUi, c);
-                    switch (cmd) {
-                        case UI_LAUNCH:   do_launch(); save_prefs(); break;
-                        case UI_SHOW_FINDER:
-                            restore_menu_bar();    /* the Finder needs its menus */
-                            if (!sysctl_show_finder()) {
-                                ui_set_status(&gUi, "Finder not resident - use Restart.");
-                                hide_menu_bar();   /* stayed put -> full-screen again */
-                                CalcVis((WindowPeek)gWin);
-                                ui_draw(&gUi);
-                            }
-                            break;
-                        case UI_OPEN_CDEV: {
-                            /* Open the chosen control panel via the Finder: give
-                             * the menu bar back, send the odoc, and front the
-                             * Finder so the cdev is visible. On resume (osEvt) we
-                             * re-hide the bar. */
-                            const CtlPanel *cp = ui_current_cdev(&gUi);
-                            if (cp) {
-                                OSErr oe;
-                                restore_menu_bar();
-                                oe = ctlpanels_open(cp);
-                                if (oe == noErr) {
-                                    (void)sysctl_show_finder();
-                                } else {
-                                    char m[48];
-                                    gUi.mode = UI_MODE_LIST;   /* so the status shows */
-                                    strcpy(m, "Open control panel failed (err ");
-                                    append_long(m, oe);
-                                    strcat(m, ")");
-                                    ui_set_status(&gUi, m);
-                                    hide_menu_bar();
-                                    CalcVis((WindowPeek)gWin);
-                                    ui_draw(&gUi);
-                                }
-                            }
-                            break;
-                        }
-                        case UI_RESTART:  save_prefs(); sysctl_restart();  break;
-                        case UI_SHUTDOWN:
-                            save_prefs();
-                            /* Shutdown chime — synchronous so it finishes before
-                             * the machine powers off. No-op if none is baked. */
-                            if (gUi.sndShutdown) sound_play_file("sounds/shutdown", 0);
-                            sysctl_shutdown();
-                            break;
-                        case UI_PREFS_DIRTY: save_prefs(); break;
-                        default: break;
-                    }
+                    handle_ui_command(ui_key(&gUi, c));
                     break;
                 }
                 case updateEvt: {
@@ -480,9 +514,22 @@ int main(void)
                     EndUpdate(w);
                     break;
                 }
-                case mouseDown:
-                    SelectWindow(gWin);
+                case mouseDown: {
+                    /* The launcher is a single full-screen window, so a content
+                     * click maps straight to a UI hit-test. Convert to window-local
+                     * and let ui_click() return the command to dispatch. */
+                    WindowPtr w;
+                    short part = FindWindow(evt.where, &w);
+                    if (part == inContent && w == gWin) {
+                        Point p = evt.where;
+                        SetPort(gWin);
+                        GlobalToLocal(&p);
+                        handle_ui_command(ui_click(&gUi, p));
+                    } else {
+                        SelectWindow(gWin);
+                    }
                     break;
+                }
                 case kHighLevelEvent:
                     if (gHasWNE)                 /* AppleEvent Manager is System 7+ */
                         AEProcessAppleEvent(&evt);   /* dispatch to the handlers above */

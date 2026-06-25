@@ -91,6 +91,7 @@ void prefs_load(Prefs *p)
     p->sndStartup = 0; p->haveSndStartup = 0;
     p->sndShutdown = 0; p->haveSndShutdown = 0;
     p->catList = 0; p->haveCatList = 0;
+    p->depth = 0; p->haveDepth = 0;
     p->category[0] = '\0';
     p->item[0]     = '\0';
     p->haveSel = 0;
@@ -137,6 +138,9 @@ void prefs_load(Prefs *p)
         } else if (strcmp(key, "categorieslist") == 0) {
             p->catList = (strcmp(val, "on") == 0) ? 1 : 0;
             p->haveCatList = 1;
+        } else if (strcmp(key, "depth") == 0) {
+            int v = parse_int(val);
+            if (v > 0) { p->depth = v; p->haveDepth = 1; }
         } else if (strcmp(key, "category") == 0) {
             strncpy(p->category, val, sizeof p->category - 1);
             p->category[sizeof p->category - 1] = '\0';
@@ -209,6 +213,11 @@ OSErr prefs_save(const Prefs *p)
     if (p->haveCatList) {
         append_str(body, &n, sizeof body, "categorieslist=");
         append_str(body, &n, sizeof body, p->catList ? "on" : "off");
+        append_str(body, &n, sizeof body, "\r");
+    }
+    if (p->haveDepth) {
+        append_str(body, &n, sizeof body, "depth=");
+        append_int(body, &n, sizeof body, p->depth);
         append_str(body, &n, sizeof body, "\r");
     }
     if (p->haveSel && p->category[0]) {

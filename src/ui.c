@@ -209,6 +209,15 @@ static int art_pane_w(int W)
 #define GEAR_X 8                /* settings affordance: left edge */
 #define GEAR_W 24               /* ...and reserved width (title starts after) */
 
+/* Mouse affordances on the browse screen (docs/07): the carousel ◀▶ arrows and
+ * the Launch button below the selected icon. Sizes are fixed so hit-testing in
+ * ui_click() needs no font metrics (which aren't reliable outside a draw pass). */
+#define ARROW_W  26
+#define ARROW_H  28
+#define LAUNCH_W 84
+#define LAUNCH_H 22
+#define CATBAND_HALF 80         /* clickable half-width of the centred "^ cat v" */
+
 /* The Settings affordance at the header's left — a little 3-slider icon. A frame
  * around it shows it's focused (reached by pressing Left at the first category;
  * Enter then opens the Settings panel). */
@@ -279,25 +288,94 @@ static void draw_tile(Ui *u, int catIdx, const CatItem *it, short cx, short cy, 
  * detail panel (the selected game's art + name / developer / genre / blurb).
  * Reuses the lazily-cached app icons (carousel) and the depth-matched art
  * loader (detail pane), so a move is mostly cheap icon blits. */
+/* Browse-screen geometry, computed once and shared by draw_carousel() (drawing)
+ * and ui_click() (hit-testing) so the drawn pixels and the clickable rects can
+ * never drift apart. Holds the band rects, the centre/side tile metrics, and the
+ * mouse-control rects (gear, category band, the ◀▶ arrows, the Launch button). */
+typedef struct {
+    int   W, H;
+    short clx;                       /* content left edge (cat list or 0)        */
+    short carTop, carBot, detTop, detBot;
+    int   hasItems, count, center;
+    short cx, iconCy, centSz, half, sideSz, sideGap;
+    int   nside;
+    Rect  gear, catBand, leftArrow, rightArrow, launchBtn;
+    short catMidX;                   /* split: click < = prev cat, >= = next cat */
+} CarLayout;
+
+static void carousel_layout(Ui *u, CarLayout *L)
+{
+    int       W = win_w(u), H = win_h(u);
+    ModelCat *cat = model_cur_cat(u->m);
+    int       usable = H - HEADER_H - HINT_H;
+    int       carH   = usable * 42 / 100;
+    if (carH < 120) carH = 120;
+
+    L->W = W; L->H = H;
+    L->clx    = (short)(u->catList ? CATLIST_W : 0);
+    L->carTop = HEADER_H;
+    L->carBot = (short)(HEADER_H + carH);
+    L->detTop = (short)(L->carBot + 1);
+    L->detBot = (short)(H - HINT_H);
+    L->count  = cat ? cat->count : 0;
+    L->center = u->m->curItem;
+    L->hasItems = (cat && cat->count > 0);
+
+    SetRect(&L->gear, (short)(GEAR_X - 4), 3,
+            (short)(GEAR_X + GEAR_W - 4), (short)(HEADER_H - 4));
+    L->catMidX = (short)(W / 2);
+    SetRect(&L->catBand, (short)(W / 2 - CATBAND_HALF), 2,
+            (short)(W / 2 + CATBAND_HALF), (short)(HEADER_H - 2));
+
+    SetRect(&L->leftArrow,  0, 0, 0, 0);
+    SetRect(&L->rightArrow, 0, 0, 0, 0);
+    SetRect(&L->launchBtn,  0, 0, 0, 0);
+    L->cx = L->iconCy = L->centSz = L->half = L->sideSz = 0;
+    L->sideGap = 8; L->nside = 0;
+
+    if (L->hasItems) {
+        short cx     = (short)((L->clx + W) / 2);
+        short iconCy = (short)(L->carTop + (carH - 22) / 2);
+        short centSz = (short)(carH - 44);
+        short sideSz, half, top;
+        int   nside;
+        if (centSz > 76) centSz = 76;
+        if (centSz < 40) centSz = 40;
+        sideSz = (short)(centSz * 9 / 16);
+        half   = (short)(centSz / 2);
+        /* leave room for an arrow button at each edge so tiles never sit under it */
+        nside  = ((W - L->clx) / 2 - half - MARGIN - ARROW_W) / (sideSz + L->sideGap);
+        if (nside > 4) nside = 4;
+        if (nside < 1) nside = 1;
+
+        L->cx = cx; L->iconCy = iconCy; L->centSz = centSz;
+        L->half = half; L->sideSz = sideSz; L->nside = nside;
+
+        SetRect(&L->leftArrow,  (short)(L->clx + MARGIN), (short)(iconCy - ARROW_H / 2),
+                (short)(L->clx + MARGIN + ARROW_W), (short)(iconCy + ARROW_H / 2));
+        SetRect(&L->rightArrow, (short)(W - MARGIN - ARROW_W), (short)(iconCy - ARROW_H / 2),
+                (short)(W - MARGIN), (short)(iconCy + ARROW_H / 2));
+        top = (short)(iconCy + half + 6);
+        SetRect(&L->launchBtn, (short)(cx - LAUNCH_W / 2), top,
+                (short)(cx + LAUNCH_W / 2), (short)(top + LAUNCH_H));
+    }
+}
+
 static void draw_carousel(Ui *u)
 {
     Render        *r   = u->r;
     Model         *m   = u->m;
-    int            W   = win_w(u), H = win_h(u);
     ModelCat      *cat = model_cur_cat(m);
     const CatItem *cur = model_cur_item(m);
     Rect           full = u->win->portRect;
     char           num[16];
-    int            usable = H - HEADER_H - HINT_H;
-    int            carH   = usable * 42 / 100;
-    short          carTop = HEADER_H;
-    short          carBot, detTop, detBot;
-    short          clx = (short)(u->catList ? CATLIST_W : 0);  /* content left edge */
+    CarLayout      L;
+    int            W, H;
+    short          clx, carTop, carBot, detTop, detBot;
 
-    if (carH < 120) carH = 120;
-    carBot = (short)(HEADER_H + carH);
-    detTop = (short)(carBot + 1);
-    detBot = (short)(H - HINT_H);
+    carousel_layout(u, &L);
+    W = L.W; H = L.H; clx = L.clx;
+    carTop = L.carTop; carBot = L.carBot; detTop = L.detTop; detBot = L.detBot;
 
     render_fill(r, &full, FILL_BG);
 
@@ -356,22 +434,14 @@ static void draw_carousel(Ui *u)
     if (!cat || cat->count == 0) {
         const char *t = "(no items in this category)";
         render_text(r, (short)(clx + (W - clx - render_text_width(r, t)) / 2),
-                    (short)(carTop + carH / 2), t, INK_DIM);
+                    (short)((carTop + carBot) / 2), t, INK_DIM);
     } else {
-        int   center  = m->curItem;
-        short cx      = (short)((clx + W) / 2);
-        short iconCy  = (short)(carTop + (carH - 22) / 2);
-        short centSz  = (short)(carH - 44);
-        short sideSz, sideGap = 8, half;
-        int   nside, k;
-
-        if (centSz > 76) centSz = 76;
-        if (centSz < 40) centSz = 40;
-        sideSz = (short)(centSz * 9 / 16);
-        half   = (short)(centSz / 2);
-        nside  = ((W - clx) / 2 - half - MARGIN) / (sideSz + sideGap);
-        if (nside > 4) nside = 4;
-        if (nside < 1) nside = 1;
+        int   center  = L.center;
+        short cx      = L.cx;
+        short iconCy  = L.iconCy;
+        short centSz  = L.centSz;
+        short sideSz  = L.sideSz, sideGap = L.sideGap, half = L.half;
+        int   nside   = L.nside, k;
 
         /* side tiles outer -> inner (centre drawn last, on top) */
         for (k = nside; k >= 1; k--) {
@@ -391,6 +461,28 @@ static void draw_carousel(Ui *u)
             SetRect(&f, (short)(cx - half - 3), (short)(iconCy - half - 3),
                     (short)(cx + half + 3), (short)(iconCy + half + 3));
             render_frame(r, &f);
+        }
+        /* ◀▶ navigation arrows flanking the carousel (dim at the ends) */
+        {
+            short tw;
+            render_frame(r, &L.leftArrow);
+            tw = render_text_width(r, "<");
+            render_text(r, (short)(L.leftArrow.left + (ARROW_W - tw) / 2),
+                        (short)(iconCy + 5), "<",
+                        center > 0 ? INK_NORMAL : INK_DIM);
+            render_frame(r, &L.rightArrow);
+            tw = render_text_width(r, ">");
+            render_text(r, (short)(L.rightArrow.left + (ARROW_W - tw) / 2),
+                        (short)(iconCy + 5), ">",
+                        center < cat->count - 1 ? INK_NORMAL : INK_DIM);
+        }
+        /* Launch button directly below the selected icon */
+        {
+            short tw = render_text_width(r, "Launch");
+            render_fill(r, &L.launchBtn, FILL_SEL);
+            render_frame(r, &L.launchBtn);
+            render_text(r, (short)(L.launchBtn.left + (LAUNCH_W - tw) / 2),
+                        (short)(L.launchBtn.top + LAUNCH_H - 6), "Launch", INK_SELECTED);
         }
         if (cur) {
             short nw = render_text_width(r, cur->name);
@@ -952,6 +1044,9 @@ static void apply_depth(Ui *u, short depth)
 {
     if (display_set_depth(depth) != noErr) return;
     u->env->pixelSize = display_current_depth();   /* re-read what we actually got */
+    /* Persist it as the boot default in slot PRAM so the system comes up here next
+     * time (the launcher then just matches it). main also saves the depth to prefs. */
+    (void)display_set_default_depth(u->env->pixelSize);
     u->env->useColor  = (u->env->hasColorQD && u->env->pixelSize >= 4);
     render_reset_for_depth(u->r, u->env, u->env->pixelSize);
     if (u->listArt) {                              /* art variant is depth-specific */
@@ -962,9 +1057,9 @@ static void apply_depth(Ui *u, short depth)
 }
 
 /* Change the selected Settings row's value by `dir` (-1 / +1). Returns 1 if a
- * *persisted* preference (theme / volume) changed, so main can save prefs.
- * Color Depth is deliberately not persisted (docs/16: startup matches the OS
- * depth), so it returns 0. */
+ * *persisted* preference (theme / volume / colour depth) changed, so main can
+ * save prefs. Colour depth now persists via slot PRAM (apply_depth →
+ * display_set_default_depth) plus the prefs `depth` key (docs/15). */
 static int settings_adjust(Ui *u, int dir)
 {
     switch (u->setSel) {
@@ -972,15 +1067,17 @@ static int settings_adjust(Ui *u, int dir)
             render_toggle_theme(u->r);
             u->bgValid = 0;                         /* carousel colours changed */
             return 1;
-        case 1: {                                  /* Color Depth (not persisted) */
+        case 1: {                                  /* Color Depth (persisted) */
             int i, cur = 0;
             for (i = 0; i < u->ndepths; i++)
                 if (u->depths[i] == u->env->pixelSize) cur = i;
             cur += dir;
             if (cur < 0) cur = 0;
             if (cur >= u->ndepths) cur = u->ndepths - 1;
-            if (u->ndepths > 0 && u->depths[cur] != u->env->pixelSize)
+            if (u->ndepths > 0 && u->depths[cur] != u->env->pixelSize) {
                 apply_depth(u, u->depths[cur]);
+                return 1;                           /* persist the new boot depth */
+            }
             return 0;
         }
         case 2:                                    /* Volume (persisted) */
@@ -1181,4 +1278,155 @@ UiCommand ui_key(Ui *u, char ch)
     }
     ui_draw(u);
     return cmd;
+}
+
+/* Mouse equivalent of ui_key: hit-test a window-local click (main does the
+ * GlobalToLocal) and return the same UiCommand the keyboard path would, redrawing
+ * first so the click gives immediate feedback. Mirrors ui_key's per-mode shape.
+ * Browse screen: the gear opens the menu hub; the ◀▶ arrows and a side tile move
+ * the selection; the centred "^ cat v" band changes category (left half = prev,
+ * right = next); the Launch button launches. Modal panels hit-test their rows and
+ * dismiss on a click outside the panel (the universal mouse "Back"). */
+UiCommand ui_click(Ui *u, Point pt)
+{
+    /* Safe (no-catalog) screen: a click opens the Esc menu so Restart / Shut Down
+     * stay reachable with the mouse. */
+    if (u->safe) {
+        u->mode = UI_MODE_MENU; u->menuSel = 0;
+        ui_draw(u);
+        return UI_NONE;
+    }
+
+    if (u->mode == UI_MODE_MENU) {
+        int   W = win_w(u), H = win_h(u);
+        int   pw = 240, ph = MENU_N * (ROW_H + 4) + 44;
+        short px = (short)((W - pw) / 2), py = (short)((H - ph) / 2);
+        Rect  panel;
+        int   i;
+        SetRect(&panel, px, py, (short)(px + pw), (short)(py + ph));
+        if (!PtInRect(pt, &panel)) { u->mode = UI_MODE_LIST; ui_draw(u); return UI_NONE; }
+        for (i = 0; i < MENU_N; i++) {
+            short y0 = (short)(py + 36 + i * (ROW_H + 4));
+            Rect  rr;
+            SetRect(&rr, (short)(px + 4), y0, (short)(px + pw - 4), (short)(y0 + ROW_H));
+            if (PtInRect(pt, &rr)) {
+                UiCommand c;
+                u->menuSel = i;
+                c = menu_select(u);
+                ui_draw(u);
+                return c;
+            }
+        }
+        ui_draw(u);
+        return UI_NONE;
+    }
+
+    if (u->mode == UI_MODE_SETTINGS) {
+        int   W = win_w(u), H = win_h(u);
+        int   pw = 320, ph = SET_N * (ROW_H + 6) + 56;
+        short px = (short)((W - pw) / 2), py = (short)((H - ph) / 2);
+        Rect  panel;
+        int   i, dirty = 0;
+        SetRect(&panel, px, py, (short)(px + pw), (short)(py + ph));
+        if (!PtInRect(pt, &panel)) { u->mode = UI_MODE_LIST; ui_draw(u); return UI_NONE; }
+        for (i = 0; i < SET_N; i++) {
+            short y0 = (short)(py + 40 + i * (ROW_H + 6));
+            Rect  rr;
+            SetRect(&rr, (short)(px + 4), y0, (short)(px + pw - 4), (short)(y0 + ROW_H));
+            if (PtInRect(pt, &rr)) {
+                if (i == SET_ROW_CTLPANELS) {        /* action row: open the cdev list */
+                    u->ncdevs  = ctlpanels_list(u->cdevs, CTLPANEL_MAX);
+                    u->cdevSel = 0; u->cdevTop = 0;
+                    u->mode = UI_MODE_CTLPANELS;
+                } else if (i == u->setSel) {         /* re-click the selected row adjusts */
+                    dirty = settings_adjust(u, +1);
+                } else {                             /* first click just selects */
+                    u->setSel = i;
+                }
+                break;
+            }
+        }
+        ui_draw(u);
+        return dirty ? UI_PREFS_DIRTY : UI_NONE;
+    }
+
+    if (u->mode == UI_MODE_CTLPANELS) {
+        int   W = win_w(u), H = win_h(u);
+        int   pw = 320, rows = 9, ph = rows * (ROW_H + 2) + 56;
+        short px = (short)((W - pw) / 2), py = (short)((H - ph) / 2);
+        Rect  panel;
+        int   i;
+        SetRect(&panel, px, py, (short)(px + pw), (short)(py + ph));
+        if (!PtInRect(pt, &panel)) { u->mode = UI_MODE_SETTINGS; ui_draw(u); return UI_NONE; }
+        for (i = 0; i < rows; i++) {
+            int   idx = u->cdevTop + i;
+            short y0  = (short)(py + 38 + i * (ROW_H + 2));
+            Rect  rr;
+            if (idx >= u->ncdevs) break;
+            SetRect(&rr, (short)(px + 4), y0, (short)(px + pw - 4), (short)(y0 + ROW_H));
+            if (PtInRect(pt, &rr)) {
+                if (idx == u->cdevSel) { ui_draw(u); return UI_OPEN_CDEV; }  /* re-click opens */
+                u->cdevSel = idx;
+                break;
+            }
+        }
+        ui_draw(u);
+        return UI_NONE;
+    }
+
+    /* Full-screen info / preview cards: any click returns to the list. */
+    if (u->mode == UI_MODE_INFO || u->mode == UI_MODE_PREVIEW) {
+        if (u->previewPic) { art_dispose(u->previewPic); u->previewPic = 0; }
+        u->mode = UI_MODE_LIST;
+        ui_draw(u);
+        return UI_NONE;
+    }
+
+    /* ---- browse screen (UI_MODE_LIST) ---- */
+    {
+        CarLayout L;
+        carousel_layout(u, &L);
+        u->settingsFocus = 0;                        /* a click takes focus off the gear */
+
+        if (PtInRect(pt, &L.gear)) {                 /* gear -> the menu hub */
+            u->mode = UI_MODE_MENU; u->menuSel = 0;
+            ui_draw(u);
+            return UI_NONE;
+        }
+        if (PtInRect(pt, &L.catBand)) {              /* "^ cat v": left half prev, right next */
+            model_move_cat(u->m, pt.h < L.catMidX ? -1 : +1);
+            ui_draw(u);
+            return UI_NONE;
+        }
+        if (L.hasItems) {
+            if (PtInRect(pt, &L.launchBtn) && model_cur_item(u->m)) {
+                u->status[0] = '\0';
+                ui_draw(u);
+                return UI_LAUNCH;
+            }
+            if (PtInRect(pt, &L.leftArrow))  { model_move_item(u->m, -1); ui_draw(u); return UI_NONE; }
+            if (PtInRect(pt, &L.rightArrow)) { model_move_item(u->m, +1); ui_draw(u); return UI_NONE; }
+            {   /* a visible side tile -> jump the selection to it */
+                int k;
+                for (k = 1; k <= L.nside; k++) {
+                    short off = (short)(L.half + L.sideGap + L.sideSz / 2 +
+                                        (k - 1) * (L.sideSz + L.sideGap));
+                    short h = (short)(L.sideSz / 2);
+                    Rect  lt, rt;
+                    SetRect(&lt, (short)(L.cx - off - h), (short)(L.iconCy - h),
+                            (short)(L.cx - off + h), (short)(L.iconCy + h));
+                    SetRect(&rt, (short)(L.cx + off - h), (short)(L.iconCy - h),
+                            (short)(L.cx + off + h), (short)(L.iconCy + h));
+                    if (L.center - k >= 0 && PtInRect(pt, &lt)) {
+                        model_move_item(u->m, -k); ui_draw(u); return UI_NONE;
+                    }
+                    if (L.center + k < L.count && PtInRect(pt, &rt)) {
+                        model_move_item(u->m, +k); ui_draw(u); return UI_NONE;
+                    }
+                }
+            }
+        }
+        ui_draw(u);
+        return UI_NONE;
+    }
 }

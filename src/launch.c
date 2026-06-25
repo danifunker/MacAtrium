@@ -79,11 +79,26 @@ LaunchResult launch_app(const char *appRel, int canReturn, OSErr *outErr)
     {
         struct OldLaunch { StringPtr pfName; short param; long pad[2]; } olb;
         WDPBRec wd;
+
+        /* Set the launched app's default directory to ITS OWN folder, the way the
+         * Finder does — so a companion-file app (Prince of Persia → Persia(BW/
+         * COLOR/LC)) finds its siblings by name. PBHSetVol alone was not enough
+         * (the app still bombed -43): the Segment Loader launch carries the default
+         * directory across as the new app's, but it must be a real *Working
+         * Directory* (the Finder's mechanism), not just a SetVol of vRefNum+dirID.
+         * So OpenWD a WD on the app's parent and SetVol to it before launching. */
         memset(&wd, 0, sizeof wd);
-        wd.ioNamePtr = NULL;
-        wd.ioVRefNum = spec.vRefNum;
-        wd.ioWDDirID = spec.parID;
-        (void)PBHSetVolSync(&wd);            /* default dir = app's parent */
+        wd.ioNamePtr  = NULL;
+        wd.ioVRefNum  = spec.vRefNum;
+        wd.ioWDDirID  = spec.parID;
+        wd.ioWDProcID = 'ERIK';              /* WD signature (as the Finder uses) */
+        if (PBOpenWDSync(&wd) == noErr)
+            (void)SetVol(NULL, wd.ioVRefNum);   /* default dir = the app's folder WD */
+        else {
+            wd.ioVRefNum = spec.vRefNum;     /* fallback: old PBHSetVol path */
+            wd.ioWDDirID = spec.parID;
+            (void)PBHSetVolSync(&wd);
+        }
 
         olb.pfName = (StringPtr)spec.name;   /* FSSpec.name is a Pascal Str63 */
         olb.param  = 0;                      /* 0 = launch (replace), don't sublaunch */

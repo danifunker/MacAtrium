@@ -65,6 +65,7 @@ typedef struct {
 void      ui_init(Ui *u, Env *env, Render *r, Model *m, WindowPtr win, int safe);
 void      ui_draw(Ui *u);
 UiCommand ui_key(Ui *u, char ch);
+UiCommand ui_click(Ui *u, Point pt);   /* mouse: hit-test a window-local click */
 
 /* Idle work: lazily load the selected item's detail art (deferred so scrolling
  * stays cheap). Returns 1 if it loaded something and the caller should redraw.

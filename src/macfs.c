@@ -40,6 +40,25 @@ OSErr macfs_boot_vref(short *vref)
             err = GetVol(0L, &v);
         }
         if (err != noErr) return err;
+
+        /* GetVol returns the default *working directory* refNum. Under MultiFinder
+         * (and any time our app's default dir isn't the volume root) that is a
+         * WDRefNum, not the volume's real vRefNum. HFS catalog calls (PBGetCatInfo,
+         * HOpen, HGetFInfo) tolerate a WDRefNum, so the catalog and art still load —
+         * but the Process Manager's launch path needs a *real* vRefNum in the
+         * FSSpec, and a WDRefNum there fails with fnfErr (-43). Normalize to the
+         * real vRefNum via PBHGetVInfo (ioVolIndex 0 ⇒ look the volume up by
+         * ioVRefNum, returning its real refNum). FindFolder already yields a real
+         * vRefNum, so this is a harmless no-op on System 7. */
+        {
+            HParamBlockRec hp;
+            memset(&hp, 0, sizeof hp);
+            hp.volumeParam.ioNamePtr  = NULL;
+            hp.volumeParam.ioVRefNum  = v;
+            hp.volumeParam.ioVolIndex = 0;
+            if (PBHGetVInfoSync(&hp) == noErr) v = hp.volumeParam.ioVRefNum;
+        }
+
         gBootVRef = v;
         gHaveBoot = true;
     }

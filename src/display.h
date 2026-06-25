@@ -24,4 +24,14 @@ OSErr display_set_depth(short depth);
 /* Largest supported depth ≤ cap (for a per-game max-depth cap). 0 if none. */
 short display_depth_at_most(short cap);
 
+/* Persist `depth` as the *boot* depth in the video card's slot PRAM — the same
+ * mechanism the Monitors control panel uses (the video driver's
+ * `cscSetDefaultMode` control call). On the next restart the card's PrimaryInit
+ * brings the screen up at this depth, so the system (and the launcher, which
+ * matches the OS depth) come up here without anyone forcing it. Sets the *boot*
+ * depth only — call display_set_depth() too if you also want it applied now.
+ * Returns noErr on success; paramErr if there's no Color QD / the depth is
+ * unsupported, or the driver's error code. */
+OSErr display_set_default_depth(short depth);
+
 #endif /* MACATRIUM_DISPLAY_H */

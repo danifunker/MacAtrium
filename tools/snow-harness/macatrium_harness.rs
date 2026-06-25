@@ -8,9 +8,16 @@
 //
 // Usage:
 //   macatrium_harness <rom> <mdc_rom> <hdd.img> <out_dir> <max_cycles> \
-//       [--snap-every N] [--keys "CYCLE:KEY;CYCLE:KEY;..."] [--wall-secs S]
+//       [--snap-every N] [--keys "CYCLE:KEY;CYCLE:KEY;..."] [--wall-secs S] \
+//       [--pram FILE]
 //
 // KEY names: l f r q enter return esc up down left right space  (lowercase)
+// A click is scheduled with KEY = `click@X,Y` (absolute framebuffer pixels), e.g.
+//   --keys "2500000000:click@320,160;3000000000:click@600,300"
+//
+// --pram FILE persists PRAM in FILE (created if absent). Requires the harness to
+// be built with snow_core's `mmap` feature; without it persist_pram cannot write
+// back (and SCSI disks are read-only too).
 
 use std::collections::BTreeMap;
 use std::fs::{self, File};
@@ -24,6 +31,14 @@ use snow_core::emulator::comm::{EmulatorCommand, EmulatorEvent, EmulatorSpeed};
 use snow_core::keymap::{KeyEvent, Keymap};
 use snow_core::mac::{ExtraROMs, MacModel};
 use snow_core::tickable::Tickable;
+
+/// A scheduled input action fired at a given cycle mark.
+#[derive(Clone, Copy)]
+enum Act {
+    Key(u8, bool),      // scancode, is-down
+    MouseAbs(u16, u16), // warp cursor to absolute framebuffer pixel (x, y)
+    MouseBtn(bool),     // mouse button down/up (position unchanged)
+}
 
 fn scancode(name: &str) -> Option<u8> {
     Some(match name {
@@ -67,40 +82,51 @@ fn main() -> Result<()> {
 
     let mut snap_every: u64 = 100_000_000;
     let mut wall_secs: u64 = 1800;
-    // schedule[cycle] = (scancode, down?)
-    let mut schedule: BTreeMap<u64, Vec<(u8, bool)>> = BTreeMap::new();
+    let mut pram_path: Option<String> = None;
+    // schedule[cycle] = input actions due at that cycle
+    let mut schedule: BTreeMap<u64, Vec<Act>> = BTreeMap::new();
     let mut i = 6;
     while i < a.len() {
         match a[i].as_str() {
             "--snap-every" => { snap_every = a[i + 1].parse()?; i += 2; }
             "--wall-secs"  => { wall_secs  = a[i + 1].parse()?; i += 2; }
+            "--pram"       => { pram_path  = Some(a[i + 1].clone()); i += 2; }
             "--keys" => {
                 const CMD: u8 = 0x37; // Command (universal scancode)
                 const OPT: u8 = 0x3A; // Option
                 for tok in a[i + 1].split(';').filter(|s| !s.is_empty()) {
                     let (c, k) = tok.split_once(':').expect("CYCLE:KEY");
                     let cyc: u64 = c.parse()?;
-                    if let Some(base) = k.strip_prefix("cmd-opt-") {
+                    if let Some(coords) = k.strip_prefix("click@") {
+                        // Mouse click at absolute framebuffer (x,y): warp the cursor,
+                        // then press + release the button a few ms apart.
+                        let (xs, ys) = coords.split_once(',').expect("click@X,Y");
+                        let x: u16 = xs.parse()?;
+                        let y: u16 = ys.parse()?;
+                        schedule.entry(cyc).or_default().push(Act::MouseAbs(x, y));
+                        schedule.entry(cyc + 1_000_000).or_default().push(Act::MouseBtn(true));
+                        schedule.entry(cyc + 3_000_000).or_default().push(Act::MouseBtn(false));
+                    } else if let Some(base) = k.strip_prefix("cmd-opt-") {
                         // Cmd+Option chord: both modifiers down, key tap, both up.
                         let sc = scancode(base).unwrap_or_else(|| panic!("unknown key {base}"));
-                        schedule.entry(cyc).or_default().push((CMD, true));
-                        schedule.entry(cyc).or_default().push((OPT, true));
-                        schedule.entry(cyc + 1_000_000).or_default().push((sc, true));
-                        schedule.entry(cyc + 3_000_000).or_default().push((sc, false));
-                        schedule.entry(cyc + 4_000_000).or_default().push((OPT, false));
-                        schedule.entry(cyc + 4_000_000).or_default().push((CMD, false));
+                        schedule.entry(cyc).or_default().push(Act::Key(CMD, true));
+                        schedule.entry(cyc).or_default().push(Act::Key(OPT, true));
+                        schedule.entry(cyc + 1_000_000).or_default().push(Act::Key(sc, true));
+                        schedule.entry(cyc + 3_000_000).or_default().push(Act::Key(sc, false));
+                        schedule.entry(cyc + 4_000_000).or_default().push(Act::Key(OPT, false));
+                        schedule.entry(cyc + 4_000_000).or_default().push(Act::Key(CMD, false));
                     } else if let Some(base) = k.strip_prefix("cmd-") {
                         // Command-modified chord: Cmd down, key tap, Cmd up.
                         let sc = scancode(base).unwrap_or_else(|| panic!("unknown key {base}"));
-                        schedule.entry(cyc).or_default().push((CMD, true));
-                        schedule.entry(cyc + 1_000_000).or_default().push((sc, true));
-                        schedule.entry(cyc + 3_000_000).or_default().push((sc, false));
-                        schedule.entry(cyc + 4_000_000).or_default().push((CMD, false));
+                        schedule.entry(cyc).or_default().push(Act::Key(CMD, true));
+                        schedule.entry(cyc + 1_000_000).or_default().push(Act::Key(sc, true));
+                        schedule.entry(cyc + 3_000_000).or_default().push(Act::Key(sc, false));
+                        schedule.entry(cyc + 4_000_000).or_default().push(Act::Key(CMD, false));
                     } else {
                         let sc = scancode(k).unwrap_or_else(|| panic!("unknown key {k}"));
                         // press now, release ~3M cycles later (a few ms)
-                        schedule.entry(cyc).or_default().push((sc, true));
-                        schedule.entry(cyc + 3_000_000).or_default().push((sc, false));
+                        schedule.entry(cyc).or_default().push(Act::Key(sc, true));
+                        schedule.entry(cyc + 3_000_000).or_default().push(Act::Key(sc, false));
                     }
                 }
                 i += 2;
@@ -118,6 +144,14 @@ fn main() -> Result<()> {
 
     let extra = [ExtraROMs::MDC12(&mdc)];
     let (mut emu, frame_recv) = Emulator::new(&rom, &extra, model)?;
+
+    // Persist PRAM across runs (boot depth / monitor settings live in slot PRAM).
+    // Needs the `mmap` feature or this is a silent no-op (load-only, no write-back).
+    if let Some(ref p) = pram_path {
+        emu.persist_pram(std::path::Path::new(p));
+        log::info!("PRAM persisted in {p}");
+    }
+
     let cmd = emu.create_cmd_sender();
     let events = emu.create_event_recv();
 
@@ -165,14 +199,30 @@ fn main() -> Result<()> {
         // fire any scheduled key edges that are due
         while fire_i < fired.len() && fired[fire_i] <= cyc {
             let at = fired[fire_i];
-            for (sc, down) in schedule.get(&at).unwrap() {
-                let ev = if *down {
-                    KeyEvent::KeyDown(*sc, Keymap::Universal)
-                } else {
-                    KeyEvent::KeyUp(*sc, Keymap::Universal)
-                };
-                cmd.send(EmulatorCommand::KeyEvent(ev))?;
-                log::info!("cyc {at}: key sc=0x{sc:02X} down={down}");
+            for act in schedule.get(&at).unwrap() {
+                match *act {
+                    Act::Key(sc, down) => {
+                        let ev = if down {
+                            KeyEvent::KeyDown(sc, Keymap::Universal)
+                        } else {
+                            KeyEvent::KeyUp(sc, Keymap::Universal)
+                        };
+                        cmd.send(EmulatorCommand::KeyEvent(ev))?;
+                        log::info!("cyc {at}: key sc=0x{sc:02X} down={down}");
+                    }
+                    Act::MouseAbs(x, y) => {
+                        cmd.send(EmulatorCommand::MouseUpdateAbsolute { x, y })?;
+                        log::info!("cyc {at}: mouse abs ({x},{y})");
+                    }
+                    Act::MouseBtn(down) => {
+                        cmd.send(EmulatorCommand::MouseUpdateRelative {
+                            relx: 0,
+                            rely: 0,
+                            btn: Some(down),
+                        })?;
+                        log::info!("cyc {at}: mouse btn down={down}");
+                    }
+                }
             }
             fire_i += 1;
         }
