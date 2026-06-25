@@ -95,13 +95,22 @@ pub fn run(base: &Path, overlay: &Path, out: &Path, fill_missing: bool) -> Resul
         out_text.push('\n');
     }
 
-    // Append overlay records that didn't match any base id (brand-new entries).
+    // Append overlay records that didn't match any base id — but ONLY complete
+    // ones (with name + app). A partial override (e.g. just `maxDepth`/`color`)
+    // for a title not in *this* build is an augment, not a new entry; appending
+    // it as an incomplete record would break the catalog compile. The overrides
+    // DB is shared across builds, so silently skip such partials here.
     let mut added = 0usize;
+    let mut skipped = 0usize;
     for id in &order {
         if applied.contains(id) {
             continue;
         }
         let rec = &overrides[id];
+        if missing(rec, "name") || missing(rec, "app") {
+            skipped += 1; // partial override for a title not in this build
+            continue;
+        }
         out_text.push_str(&serde_json::to_string(&Value::Object(rec.clone()))?);
         out_text.push('\n');
         added += 1;
@@ -109,7 +118,8 @@ pub fn run(base: &Path, overlay: &Path, out: &Path, fill_missing: bool) -> Resul
 
     std::fs::write(out, &out_text).with_context(|| format!("writing {}", out.display()))?;
     eprintln!(
-        "merge: {} override(s) applied ({changed} field change(s)), {added} new record(s) appended -> {}",
+        "merge: {} override(s) applied ({changed} field change(s)), {added} new record(s) appended, \
+         {skipped} partial(s) skipped (not in this build) -> {}",
         applied.len(),
         out.display()
     );

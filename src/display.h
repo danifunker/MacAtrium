@@ -21,4 +21,7 @@ short display_current_depth(void);
  * Returns noErr on success. */
 OSErr display_set_depth(short depth);
 
+/* Largest supported depth ≤ cap (for a per-game max-depth cap). 0 if none. */
+short display_depth_at_most(short cap);
+
 #endif /* MACATRIUM_DISPLAY_H */

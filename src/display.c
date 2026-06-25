@@ -47,3 +47,13 @@ OSErr display_set_depth(short depth)
     flags = (depth > 1) ? (1 << gdDevType) : 0;
     return SetDepth(gd, depth, 1 << gdDevType, flags);
 }
+
+short display_depth_at_most(short cap)
+{
+    short list[NCAND];
+    int   n = display_depths(list, NCAND), i;
+    short best = 0;
+    for (i = 0; i < n; i++)
+        if (list[i] <= cap && list[i] > best) best = list[i];
+    return best;
+}

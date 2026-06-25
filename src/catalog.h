@@ -34,6 +34,8 @@ typedef struct {
     char shot[ITEM_PATH_LEN];                /* screenshot base path, "" if absent */
     char icon[ITEM_PATH_LEN];                /* list-row icon base path, "" if absent */
     char hotkey;                             /* launch hotkey char, 0 if none */
+    int  maxDepth;                           /* cap screen to this bpp before launch;
+                                              * 0 = no cap (launch at current depth) */
 } CatItem;
 
 typedef struct {

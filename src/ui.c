@@ -153,6 +153,13 @@ const char *ui_current_name(Ui *u)
     return it ? it->name : 0;
 }
 
+/* Per-game max colour depth (bpp) from the catalog; 0 = no cap. */
+int ui_current_maxdepth(Ui *u)
+{
+    const CatItem *it = model_cur_item(u->m);
+    return it ? it->maxDepth : 0;
+}
+
 const CtlPanel *ui_current_cdev(Ui *u)
 {
     if (u->cdevSel < 0 || u->cdevSel >= u->ncdevs) return 0;

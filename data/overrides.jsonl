@@ -3,14 +3,26 @@
 #
 #   • the facets LaunchBox doesn't carry — `color` (true=Color/false=B&W) and
 #     `mouse` (true=Mouse Required/false=No Mouse);
+#   • `maxDepth` — the deepest screen depth (bpp: 1/4/8/16/32) a title tolerates.
+#     Some games refuse or crash above it (Dark Castle needs 1-bit; others bomb
+#     at 8-bit), so the launcher drops the screen to the closest supported depth
+#     <= maxDepth before launching, then restores. Absent = no cap (launch at the
+#     current colour depth). This facet has NO metadata source — it's curated
+#     here, the canonical "problem games" database. (A later pass will launch each
+#     title to discover which need a cap; for now this holds the known ones.)
 #   • corrections to anything `atrium enrich` got wrong (e.g. a publisher name);
 #   • whole records for titles `enrich` couldn't match (give id+name+app+facets).
 #
-# Each line is a PARTIAL record keyed by `id`; only the fields you set are
-# applied. Pipeline order: harvest -> enrich (LaunchBox, fills gaps) -> merge
-# (this file, wins) -> catalog/pict. Lines starting with '#' or '//' are ignored.
-#
+# Each line is a PARTIAL record keyed by `id` (the slug, e.g. "dark-castle");
+# only the fields you set are applied. Pipeline order: harvest -> enrich
+# (LaunchBox, fills gaps) -> merge (this file, wins) -> catalog/pict. Lines
+# starting with '#' or '//' are ignored.
+
+# --- known problem games: require a 1-bit screen (verified in Snow) ---
+{"id":"dark-castle","color":false,"maxDepth":1}
+{"id":"beyond-dark-castle","color":false,"maxDepth":1}
+{"id":"asteroids","color":false,"maxDepth":1}
+
 # Examples (delete/replace with real data):
 # {"id":"prince-of-persia","color":true,"mouse":false}
-# {"id":"dark-castle","color":false,"mouse":true}
 # {"id":"glider","name":"Glider","kind":"game","year":1991,"vendor":"Casady & Greene","color":true,"mouse":true,"genre":["Arcade"],"app":"Apps/Glider/Glider"}

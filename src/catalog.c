@@ -76,6 +76,9 @@ static int item_from_object(const JsonObject *o, CatItem *it)
     f = json_get(o, "hotkey");
     if (f && f->type == JT_STR && f->str[0]) it->hotkey = f->str[0];
 
+    f = json_get(o, "maxDepth");
+    if (f && f->type == JT_NUM) it->maxDepth = (int)f->num;
+
     return 1;
 }
 

@@ -75,6 +75,7 @@ void      ui_set_status(Ui *u, const char *msg);
 /* The current item's app path (for main to launch); NULL if none. */
 const char *ui_current_app(Ui *u);
 const char *ui_current_name(Ui *u);
+int         ui_current_maxdepth(Ui *u);
 
 /* The selected control panel (for main to open via the Finder); NULL if none. */
 const CtlPanel *ui_current_cdev(Ui *u);

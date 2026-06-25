@@ -252,6 +252,7 @@ static void do_launch(void)
     OSErr        lerr  = noErr;
     LaunchResult lr;
     char         msg[96];
+    short        savedDepth = 0;      /* >0 → restore this depth after launch */
 
     if (!app) return;
 
@@ -265,19 +266,30 @@ static void do_launch(void)
         InitCursor();
     }
 
-    /* System-6-era games overwhelmingly require a 1-bit (two-colour) screen:
-     * Dark Castle refuses to start otherwise ("set the main screen to two
-     * colours"), and others bomb at 8-bit. Drop to 1-bit before launching on
-     * System 6, where our library is all B&W. The launch is non-returning there,
-     * so the relaunched MacAtrium restores its own colour depth at startup. (On
-     * System 7+ the curated library is colour, so we leave the depth alone.) */
-    if (gEnv.sysVers < 0x0700 && gEnv.hasColorQD)
-        (void)display_set_depth(1);
+    /* Per-game colour-depth cap (catalog `maxDepth`, maintained in the overrides
+     * DB). Some titles refuse or crash above a given depth — Dark Castle needs a
+     * 1-bit screen, others bomb at 8-bit. If this game caps below the current
+     * depth, drop to the closest supported depth ≤ the cap before launching. No
+     * cap (0) launches at the current colour depth (the default). On a returning
+     * launch (System 7 / MultiFinder) we restore below; on the bare System-6
+     * appliance the relaunched MacAtrium restores its own depth at startup. */
+    {
+        int maxd = ui_current_maxdepth(&gUi);
+        if (maxd > 0 && gEnv.hasColorQD) {
+            short cur = display_current_depth();
+            if (cur > maxd) {
+                short target = display_depth_at_most((short)maxd);
+                if (target > 0 && display_set_depth(target) == noErr)
+                    savedDepth = cur;
+            }
+        }
+    }
 
     lr = launch_app(app, gEnv.canLaunchReturn, &lerr);
 
-    /* The non-returning launch only gets here if it FAILED — we're still the
-     * shell, so re-hide the bar and report. */
+    /* Reached on a returning launch (System 7) or a FAILED non-returning one.
+     * Restore the capped depth and, on the appliance, re-hide the menu bar. */
+    if (savedDepth > 0) (void)display_set_depth(savedDepth);
     if (!gEnv.canLaunchReturn) {
         hide_menu_bar();
         CalcVis((WindowPeek)gWin);

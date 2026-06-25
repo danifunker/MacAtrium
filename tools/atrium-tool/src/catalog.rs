@@ -45,6 +45,13 @@ struct SourceItem {
     /// true → "Color", false → "B&W", absent → no colour facet.
     #[serde(default)]
     color: Option<bool>,
+    /// Max colour depth (bpp: 1/4/8/16/32) this title tolerates. Some titles
+    /// refuse or crash above a given depth (Dark Castle needs 1-bit), so the
+    /// launcher drops the screen to the closest available depth ≤ this before
+    /// launching, then restores. Absent → launch at the current screen depth.
+    /// This facet has no metadata source — it lives in the curated overrides DB.
+    #[serde(rename = "maxDepth", default)]
+    max_depth: Option<i64>,
     /// true → "Mouse Required", false → "No Mouse", absent → no mouse facet.
     #[serde(default)]
     mouse: Option<bool>,
@@ -117,6 +124,10 @@ struct OutItem {
     /// Metadata/art attribution (e.g. "Macintosh Garden"); omitted if none.
     #[serde(skip_serializing_if = "Option::is_none")]
     source: Option<String>,
+    /// Max colour depth (bpp) the launcher caps the screen to before launching
+    /// this title; omitted → no cap (launch at the current depth).
+    #[serde(rename = "maxDepth", skip_serializing_if = "Option::is_none")]
+    max_depth: Option<i64>,
 }
 
 /// Top-level category for a `kind` value.
@@ -314,6 +325,7 @@ fn build(src_text: &str) -> Result<(Vec<OutItem>, Report)> {
             hotkey,
             icon: it.icon,
             source: it.source.map(|s| s.chars().take(ITEM_SOURCE_LEN).collect()),
+            max_depth: it.max_depth,
         });
     }
 
