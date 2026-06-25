@@ -39,12 +39,16 @@ base (`MacLC_6-0-8.hda` → `/System Folder/MultiFinder`, `ZSYS MACS`). It just 
 but likewise boots the plain Finder.
 
 **Key unknown to settle first (blocks both A and B):** how to **activate
-MultiFinder** in the build. Setting boot-block `bbShellName` to `"MultiFinder"`
-earlier just booted the plain Finder, so activation needs more than that — System
-6's *Special → Set Startup → MultiFinder* writes some flag we must replicate
-(candidates: a boot-block field beyond `bbShellName`, a Finder-prefs/`finf` flag,
-or a System-resource bit). **Ask the user how PoP was set to run on `-POP.hda`**
-(Set Startup? double-click?) — that pins what a working config looks like.
+MultiFinder** in the build. **SOLVED (2026-06-25, Spike R):** activation = one
+boot-block field, **`bbHelloName` (Str15 @ +0x5A)**, set `"Finder"` →
+`"MultiFinder"`. **`bbShellName` (+0x1A) is NOT the field** (stays `"Finder"`) —
+that's exactly why earlier `bbShellName→MultiFinder` swaps just booted the plain
+Finder. The "auto-open an app" marking is a separate file **`/System
+Folder/Finder Startup`** (`FDOC/MACS`): empty data fork, one **`'fndr'` id 0**
+resource listing `(appName, volName, dirIDs)`. Found by diffing a clean
+(Finder-set) image against a user-produced MultiFinder-set image — full write-up,
+hex evidence, and how to patch it via `dd`/`rb-cli`:
+**[20-system6-multifinder-set-startup-on-disk.md](20-system6-multifinder-set-startup-on-disk.md)**.
 
 ---
 
