@@ -15,6 +15,16 @@ must be confirmed on a real System/emulator/core before we depend on them (🔬)
 > build/inject/debug steps). Next action: pull the repo onto that machine and run
 > the launch-return spike to settle the L1/L3/S* runtime items below.
 
+> **🔬 PARKED ISSUE — System-6 launches need the Process Manager (MultiFinder).**
+> The bare 6.0.8 appliance runs MacAtrium as the shell with no Finder/MultiFinder,
+> so the classic Segment-Loader launch can't set a launched app's working directory
+> → companion-file apps bomb with **`File System error -43`** (verified: Prince of
+> Persia), and there's no launch-and-return. Fix needs MultiFinder (already
+> installed on the base, not activated). **Spike plan + handoff:
+> [19-multifinder-process-manager-spike.md](19-multifinder-process-manager-spike.md)**
+> (Spike A: MacAtrium as the shell under MultiFinder — priority; B: startup app;
+> C: keep 6.0.8 for self-contained games, route the rest to 7.1/9.2.2).
+
 ## Open decisions (❓)
 
 | # | Question | Leaning / notes |

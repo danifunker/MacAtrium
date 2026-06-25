@@ -374,21 +374,12 @@ int main(void)
     CalcVis((WindowPeek)gWin);         /* claim the reclaimed top strip */
     render_init(&gRender, &gEnv);
 
-    /* Come up in colour when the hardware can do it. Some setups (notably 6.0.8)
-     * boot the screen in 1-bit even though the card supports 8-bit. Switch the
-     * screen here — SetDepth at startup *does* take effect — but deliberately
-     * DON'T update gEnv.pixelSize: that leaves a discrepancy the first ui_idle()
-     * poll detects, which re-fits the backend to colour AND forces the repaint
-     * (without it the screen keeps showing the stale B&W frame). Prefer 8-bit
-     * (the carousel/art sweet spot); the user can still drop to 1-bit in Settings,
-     * and launching a System-6 game drops to 1-bit for the game. */
-    if (gEnv.hasColorQD && gEnv.pixelSize < 4) {
-        short depths[8];
-        int   n = display_depths(depths, 8), i, best = 0;
-        for (i = 0; i < n; i++)
-            if (depths[i] >= 4 && depths[i] <= 8 && depths[i] > best) best = depths[i];
-        if (best >= 4) (void)display_set_depth((short)best);
-    }
+    /* Colour depth is USER-CONTROLLED: come up at whatever depth the OS booted
+     * (we no longer force 256 colours at startup — some screens are 1-bit-only and
+     * the choice is the user's). The user sets it in Settings → Color Depth, which
+     * only offers depths the card actually supports (display_depths → HasDepth).
+     * (Persisting that choice across boots is a TODO, pending the System-6 launch-
+     * model decision below.) */
 
     if (gPrefs.haveTheme) render_set_theme(&gRender, gPrefs.theme);
     if (gPrefs.haveVol && sound_available()) sound_apply_vol(gPrefs.vol);  /* no boot beep */
