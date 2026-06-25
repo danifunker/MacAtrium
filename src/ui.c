@@ -771,6 +771,18 @@ static void draw_info(Ui *u)
 
 void ui_draw(Ui *u)
 {
+    /* Keep the colour backend matched to the live screen depth on *every* repaint,
+     * including ones that bypass ui_idle's poll — e.g. the updateEvt the system
+     * posts when the screen depth changes (our startup 1-bit->8-bit bump). Without
+     * this, that first repaint paints with the stale (B&W) backend and the screen
+     * stays black until the user happens to press a key. Lightweight: only re-fits
+     * when the depth actually differs; ui_idle still does the full re-fit (art and
+     * icon caches are depth-specific). */
+    {
+        short now = display_current_depth();
+        if (u->r->depth != now) render_reset_for_depth(u->r, u->env, now);
+    }
+
     render_begin(u->r, u->win);
     /* A mode change (overlay opened/closed/switched) needs one full repaint so
      * the previous panel is cleared before the new view draws. */
@@ -805,6 +817,27 @@ void ui_draw(Ui *u)
 int ui_idle(Ui *u)
 {
     const CatItem *cur;
+
+    /* Pick up a screen-depth change made *outside* MacAtrium — the Monitors
+     * control panel, or the emulator's own video setting — so colour engages
+     * (or B&W falls back) without a trip through our Settings. Our own Settings
+     * path goes through apply_depth(); this covers everything else. On a machine
+     * with no Color QD (or only 1-bit available) display_current_depth() stays
+     * at 1, so this is a no-op. Checked every idle tick (GetMainDevice is cheap). */
+    {
+        short now = display_current_depth();
+        if (now != u->env->pixelSize) {
+            u->env->pixelSize = now;
+            u->env->useColor  = (u->env->hasColorQD && now >= 4);
+            render_reset_for_depth(u->r, u->env, now);
+            if (u->listArt) { art_dispose(u->listArt); u->listArt = 0; }
+            u->artFor = 0;                       /* art variant is depth-specific  */
+            dispose_row_icons(u);                /* icl8/ICN# variant too          */
+            u->bgValid = 0;                      /* whole screen must repaint      */
+            return 1;
+        }
+    }
+
     if (u->safe || u->mode != UI_MODE_LIST) return 0;  /* only the carousel defers art */
     cur = model_cur_item(u->m);
     if (cur == u->artFor) return 0;                 /* already loaded -> no work */

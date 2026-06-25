@@ -26,6 +26,7 @@
 #include "sound.h"
 #include "prefs.h"
 #include "controlpanels.h"
+#include "display.h"
 #include "mac_compat.h"
 
 #include <string.h>
@@ -254,7 +255,33 @@ static void do_launch(void)
 
     if (!app) return;
 
+    /* On the bare System-6 appliance the launch is non-returning: we won't run
+     * again until the System relaunches us as the shell, so hand the game the
+     * environment it expects — give the menu bar its height back (we hid it) and
+     * reset the cursor. (On System 7 / MultiFinder the launch returns and the
+     * post-launch block below restores everything instead.) */
+    if (!gEnv.canLaunchReturn) {
+        restore_menu_bar();
+        InitCursor();
+    }
+
+    /* System-6-era games overwhelmingly require a 1-bit (two-colour) screen:
+     * Dark Castle refuses to start otherwise ("set the main screen to two
+     * colours"), and others bomb at 8-bit. Drop to 1-bit before launching on
+     * System 6, where our library is all B&W. The launch is non-returning there,
+     * so the relaunched MacAtrium restores its own colour depth at startup. (On
+     * System 7+ the curated library is colour, so we leave the depth alone.) */
+    if (gEnv.sysVers < 0x0700 && gEnv.hasColorQD)
+        (void)display_set_depth(1);
+
     lr = launch_app(app, gEnv.canLaunchReturn, &lerr);
+
+    /* The non-returning launch only gets here if it FAILED — we're still the
+     * shell, so re-hide the bar and report. */
+    if (!gEnv.canLaunchReturn) {
+        hide_menu_bar();
+        CalcVis((WindowPeek)gWin);
+    }
 
     /* We are back: the child quit (launchContinue honoured). Pull ourselves
      * forward and redraw with selection intact. The child drew its own menu bar,
@@ -306,6 +333,23 @@ int main(void)
     gWin = make_window(&gEnv);
     CalcVis((WindowPeek)gWin);         /* claim the reclaimed top strip */
     render_init(&gRender, &gEnv);
+
+    /* Come up in colour when the hardware can do it. Some setups (notably 6.0.8)
+     * boot the screen in 1-bit even though the card supports 8-bit. Switch the
+     * screen here — SetDepth at startup *does* take effect — but deliberately
+     * DON'T update gEnv.pixelSize: that leaves a discrepancy the first ui_idle()
+     * poll detects, which re-fits the backend to colour AND forces the repaint
+     * (without it the screen keeps showing the stale B&W frame). Prefer 8-bit
+     * (the carousel/art sweet spot); the user can still drop to 1-bit in Settings,
+     * and launching a System-6 game drops to 1-bit for the game. */
+    if (gEnv.hasColorQD && gEnv.pixelSize < 4) {
+        short depths[8];
+        int   n = display_depths(depths, 8), i, best = 0;
+        for (i = 0; i < n; i++)
+            if (depths[i] >= 4 && depths[i] <= 8 && depths[i] > best) best = depths[i];
+        if (best >= 4) (void)display_set_depth((short)best);
+    }
+
     if (gPrefs.haveTheme) render_set_theme(&gRender, gPrefs.theme);
     if (gPrefs.haveVol && sound_available()) sound_apply_vol(gPrefs.vol);  /* no boot beep */
 
