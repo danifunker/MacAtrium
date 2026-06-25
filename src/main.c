@@ -266,22 +266,21 @@ static void do_launch(void)
         InitCursor();
     }
 
-    /* Per-game colour-depth cap (catalog `maxDepth`, maintained in the overrides
-     * DB). Some titles refuse or crash above a given depth — Dark Castle needs a
-     * 1-bit screen, others bomb at 8-bit. If this game caps below the current
-     * depth, drop to the closest supported depth ≤ the cap before launching. No
-     * cap (0) launches at the current colour depth (the default). On a returning
-     * launch (System 7 / MultiFinder) we restore below; on the bare System-6
-     * appliance the relaunched MacAtrium restores its own depth at startup. */
+    /* Per-game launch depth (catalog `maxDepth`, maintained in the overrides DB):
+     * run this title at the highest supported depth ≤ maxDepth, SETTING the screen
+     * there before launch (raises a low boot depth OR lowers a deep one). Some
+     * titles need an exact depth — Dark Castle needs 1-bit (maxDepth 1); Prince of
+     * Persia only does colour at 8-bit and B&W otherwise, never 16/24-bit
+     * (maxDepth 8). No value (0) launches at the current depth (the default). On a
+     * returning launch (System 7) we restore below; on the bare System-6 appliance
+     * the relaunched MacAtrium restores its own depth at startup. */
     {
         int maxd = ui_current_maxdepth(&gUi);
         if (maxd > 0 && gEnv.hasColorQD) {
-            short cur = display_current_depth();
-            if (cur > maxd) {
-                short target = display_depth_at_most((short)maxd);
-                if (target > 0 && display_set_depth(target) == noErr)
-                    savedDepth = cur;
-            }
+            short cur    = display_current_depth();
+            short target = display_depth_at_most((short)maxd);
+            if (target > 0 && target != cur && display_set_depth(target) == noErr)
+                savedDepth = cur;
         }
     }
 

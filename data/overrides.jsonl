@@ -18,10 +18,14 @@
 # (LaunchBox, fills gaps) -> merge (this file, wins) -> catalog/pict. Lines
 # starting with '#' or '//' are ignored.
 
-# --- known problem games: require a 1-bit screen (verified in Snow) ---
+# --- per-game launch depth (verified in Snow) ---
+# maxDepth = run the game at the highest supported depth <= this (the launcher
+# SETS the screen there before launch). 1 = needs a 1-bit B&W screen; 8 = does
+# colour only at 8-bit (never 16/24-bit), so cap+set to 256 colours.
 {"id":"dark-castle","color":false,"maxDepth":1}
 {"id":"beyond-dark-castle","color":false,"maxDepth":1}
 {"id":"asteroids","color":false,"maxDepth":1}
+{"id":"prince-of-persia","color":true,"maxDepth":8}
 
 # Examples (delete/replace with real data):
 # {"id":"prince-of-persia","color":true,"mouse":false}
