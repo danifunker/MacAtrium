@@ -29,11 +29,19 @@ add_application(MacAtrium
     src/display.c
     src/sound.c
     src/prefs.c
+    src/mem.c                # MEM_DEBUG on-screen memory probe (no-op unless -DMEM_DEBUG=ON)
     src/macatrium.r          # overrides SIZE (-1): 4 MB partition + suspend/resume
     src/macatrium-icon.r     # Finder app icon (greenhouse): ICN#/icl8/BNDL/FREF
     TYPE "APPL"
     CREATOR "ATRM"
 )
+
+# Dev-only on-screen memory probe (overlay top-left), for sizing the SIZE
+# partition. OFF by default so production builds exclude it entirely.
+option(MEM_DEBUG "On-screen memory probe overlay (dev only)" OFF)
+if(MEM_DEBUG)
+    target_compile_definitions(MacAtrium PRIVATE MEM_DEBUG)
+endif()
 
 # Keep the binary small: drop unused code and MacsBug symbols.
 set_target_properties(MacAtrium PROPERTIES COMPILE_OPTIONS -ffunction-sections)

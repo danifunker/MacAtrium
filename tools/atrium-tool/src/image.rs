@@ -28,6 +28,22 @@ fn set_bundle_bit(bytes: &mut [u8]) {
     }
 }
 
+/// Patch the launcher's `'SIZE'` (-1) memory partition for this build, if the
+/// config asks for one (`app_mem_kb`). A failure to find/patch the resource only
+/// warns — the launcher keeps its built-in 2 MB / 1 MB rather than failing the
+/// build. Both install paths call this on the launcher bytes before injection.
+fn apply_app_mem(cfg: &BuildConfig, bytes: &mut [u8]) {
+    let Some((pref_kb, min_kb)) = cfg.effective_app_mem() else { return };
+    match crate::size_rsrc::patch_app_mem(bytes, pref_kb * 1024, min_kb * 1024) {
+        Ok((old_p, old_m)) => eprintln!(
+            "[size] launcher partition -> {pref_kb} KB / {min_kb} KB (was {} KB / {} KB)",
+            old_p / 1024,
+            old_m / 1024
+        ),
+        Err(e) => eprintln!("[size] WARNING: keeping launcher default ({e:#})"),
+    }
+}
+
 /// Install the launcher *as* `/System Folder/Finder` (typed FNDR/MACS) so a
 /// System-6 boot launches it as the shell. Patches the MacBinary internal name to
 /// "Finder", injects it (overwriting the real Finder), and retypes it.
@@ -41,6 +57,7 @@ fn install_as_finder(rb: &RbCli, cfg: &BuildConfig, stage: &Path) -> Result<()> 
         bytes[2 + k] = if k < name.len() { name[k] } else { 0 };
     }
     set_bundle_bit(&mut bytes);
+    apply_app_mem(cfg, &mut bytes);
     let patched = stage.join("Finder.bin");
     std::fs::write(&patched, &bytes)?;
     rb.put_macbinary(&cfg.out, &patched, "/System Folder")?;   // lands as "Finder" (--force)
@@ -176,11 +193,13 @@ fn bake_icon(
     // 8-bit colour icl8 (optional): bake a small 8-bit PICT injected as the
     // `.8.pict` depth variant, so colour screens get a colour icon (1-bit
     // screens keep the ICN# .raw). The icl8 indexes the standard Mac palette,
-    // which `icons::app_icl8_png` resolves into a PNG for `pict`.
+    // which `icons::app_icl8_png` resolves into a PNG for `pict`. Skipped for a
+    // black-&-white build (Mac Plus / SE): those screens never read it.
     let pngfile = stage.join(format!("{id}.icon.png"));
-    if matches!(icons::app_icl8_png(&hqx_bytes, &pngfile), Ok(true)) {
+    if cfg.wants_color_art() && matches!(icons::app_icl8_png(&hqx_bytes, &pngfile), Ok(true)) {
         let pictfile = stage.join(format!("{id}.icon.8.pict"));
-        if pict::run(&pngfile, &pictfile, pict::Depth::Eight, true, None).is_ok() {
+        // The icon is already tiny (≤32px); no art bound applies.
+        if pict::run(&pngfile, &pictfile, pict::Depth::Eight, true, u32::MAX, u32::MAX).is_ok() {
             let pdst = format!("{}/{}.icon.8.pict", cfg.images_dir.trim_end_matches('/'), id);
             let _ = rb.put_typed(&cfg.out, &pictfile, &pdst, "PICT", "ttxt");
         }
@@ -204,6 +223,7 @@ fn bake_variants(
     multi: bool,
 ) -> Result<Option<String>> {
     let mut any = false;
+    let (aw, ah) = cfg.art_bounds();
     for d in depths {
         let sfx = if multi { format!(".{}", d.bits()) } else { String::new() };
         // 1-bit ships as a raw CopyBits bitmap (.raw); colour depths as PICT.
@@ -211,9 +231,9 @@ fn bake_variants(
         let ext = if raw { "raw" } else { "pict" };
         let stagefile = stage.join(format!("{name}{sfx}.{ext}"));
         let ok = if raw {
-            pict::run_raw1(src, &stagefile, cfg.art_max).is_ok()
+            pict::run_raw1(src, &stagefile, aw, ah).is_ok()
         } else {
-            pict::run(src, &stagefile, *d, true, cfg.art_max).is_ok()
+            pict::run(src, &stagefile, *d, true, aw, ah).is_ok()
         };
         if !ok {
             continue; // skip art that won't decode rather than fail the build
@@ -566,6 +586,7 @@ pub fn run(cfg: &BuildConfig) -> Result<()> {
             .with_context(|| format!("reading launcher {}", cfg.launcher.display()))?;
         anyhow::ensure!(bytes.len() > 128, "launcher .bin too small to be MacBinary");
         set_bundle_bit(&mut bytes);
+        apply_app_mem(&cfg, &mut bytes);
         let patched = stage.join("MacAtrium.bundle.bin");
         std::fs::write(&patched, &bytes)?;
         rb.put_macbinary(&cfg.out, &patched, &cfg.startup_items)?;

@@ -175,3 +175,45 @@ OSErr macfs_read_all(FSSpec *spec, char **buf, long *len)
     *buf = p;
     return noErr;
 }
+
+OSErr macfs_read_handle(const FSSpec *spec, long skip, Handle *out, long *len)
+{
+    short  refNum;
+    long   eof, count;
+    OSErr  err;
+    Handle h;
+
+    *out = 0;
+    *len = 0;
+
+    err = macfs_open_df(spec, fsRdPerm, &refNum);
+    if (err != noErr) return err;
+
+    err = GetEOF(refNum, &eof);
+    if (err != noErr) { FSClose(refNum); return err; }
+    if (eof <= skip) { FSClose(refNum); return eofErr; }   /* header only / empty */
+
+    count = eof - skip;
+    h = NewHandle(count);                                   /* the file's only copy */
+    if (!h) { FSClose(refNum); return memFullErr; }
+
+    err = SetFPos(refNum, fsFromStart, skip);
+    if (err != noErr) { DisposeHandle(h); FSClose(refNum); return err; }
+
+    HLock(h);                                               /* pin while FSRead writes it */
+    {
+        long c = count;
+        err = FSRead(refNum, &c, *h);                       /* eofErr => read it all */
+        if (err == eofErr) err = noErr;
+        count = c;
+    }
+    HUnlock(h);
+    FSClose(refNum);
+
+    if (err != noErr) { DisposeHandle(h); return err; }
+    if (count <= 0)   { DisposeHandle(h); return eofErr; }
+    SetHandleSize(h, count);                                /* trim a short read */
+    *out = h;
+    *len = count;
+    return noErr;
+}

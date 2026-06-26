@@ -22,6 +22,13 @@ OSErr macfs_make_spec(const char *relToRoot, FSSpec *spec);
  * Caller frees *buf. *len excludes the terminator. */
 OSErr macfs_read_all(FSSpec *spec, char **buf, long *len);
 
+/* Read a file's data fork from byte `skip` to EOF straight into a fresh
+ * relocatable Handle (caller DisposeHandles it). Avoids the read-all-then-copy
+ * staging buffer, halving the peak memory of loading a PICT (we skip its
+ * 512-byte file header). `*len` is the bytes read. eofErr if the file is no
+ * longer than `skip`. */
+OSErr macfs_read_handle(const FSSpec *spec, long skip, Handle *out, long *len);
+
 /* HFS File-Manager helpers that work on System 6.0.8 and 7.x alike (no FSSpec
  * traps): open the data fork, read Finder info, create a file — all by the
  * spec's (vRefNum, parID, name). Use these instead of FSpOpenDF / FSpGetFInfo /

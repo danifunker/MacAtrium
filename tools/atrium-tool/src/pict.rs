@@ -448,19 +448,20 @@ fn build_pict(w: u16, h: u16, rgba: &[u8], depth: Depth, pack: bool) -> (Vec<u8>
     (data, colors)
 }
 
-/// Decode an image file to RGBA8, optionally downscaling so the longest side is
-/// at most `max` px (aspect preserved; never upscales). Returns (w, h, rgba).
-fn load_rgba(input: &Path, max: Option<u32>) -> Result<(u16, u16, Vec<u8>)> {
+/// Decode an image file to RGBA8, downscaling to fit within a `max_w` x `max_h`
+/// pixel box (aspect preserved; never upscales). Pass `u32::MAX` for no bound.
+/// Returns (w, h, rgba).
+fn load_rgba(input: &Path, max_w: u32, max_h: u32) -> Result<(u16, u16, Vec<u8>)> {
     let mut dynimg = image::ImageReader::open(input)
         .with_context(|| format!("opening {}", input.display()))?
         .with_guessed_format()
         .with_context(|| format!("reading {}", input.display()))?
         .decode()
         .with_context(|| format!("decoding {}", input.display()))?;
-    if let Some(m) = max {
-        if dynimg.width() > m || dynimg.height() > m {
-            dynimg = dynimg.resize(m, m, image::imageops::FilterType::Lanczos3);
-        }
+    if dynimg.width() > max_w || dynimg.height() > max_h {
+        // `resize` fits within (max_w, max_h) keeping aspect; guarded so it only
+        // ever shrinks (never upscales a smaller source).
+        dynimg = dynimg.resize(max_w, max_h, image::imageops::FilterType::Lanczos3);
     }
     let img = dynimg.to_rgba8();
     let (w, h) = img.dimensions();
@@ -471,8 +472,15 @@ fn load_rgba(input: &Path, max: Option<u32>) -> Result<(u16, u16, Vec<u8>)> {
 /// Convert an image file to a PICT file (512-byte header + picture data).
 /// `max` (if set) downscales so the longest side is at most `max` px (aspect
 /// preserved; never upscales) — docs/06 "sized to the target resolution".
-pub fn run(input: &Path, output: &Path, depth: Depth, pack: bool, max: Option<u32>) -> Result<Stats> {
-    let (w, h, rgba) = load_rgba(input, max)?;
+pub fn run(
+    input: &Path,
+    output: &Path,
+    depth: Depth,
+    pack: bool,
+    max_w: u32,
+    max_h: u32,
+) -> Result<Stats> {
+    let (w, h, rgba) = load_rgba(input, max_w, max_h)?;
     let (data, colors) = build_pict(w, h, &rgba, depth, pack);
 
     let mut bytes = vec![0u8; 512]; // PICT file header
@@ -525,8 +533,8 @@ fn build_raw1(w: u16, h: u16, rgba: &[u8]) -> (Vec<u8>, usize) {
 }
 
 /// Convert an image file to a raw 1-bit bitmap sidecar (see `build_raw1`).
-pub fn run_raw1(input: &Path, output: &Path, max: Option<u32>) -> Result<Stats> {
-    let (w, h, rgba) = load_rgba(input, max)?;
+pub fn run_raw1(input: &Path, output: &Path, max_w: u32, max_h: u32) -> Result<Stats> {
+    let (w, h, rgba) = load_rgba(input, max_w, max_h)?;
     let (bytes, _rowbytes) = build_raw1(w, h, &rgba);
     std::fs::write(output, &bytes).with_context(|| format!("writing {}", output.display()))?;
     Ok(Stats {

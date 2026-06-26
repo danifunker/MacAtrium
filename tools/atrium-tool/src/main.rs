@@ -368,11 +368,13 @@ fn main() -> Result<()> {
         }
 
         Cmd::Pict { input, out, depth, no_pack, raw, max } => {
+            // CLI `--max` is a longest-side cap (square box); absent => no bound.
+            let (mw, mh) = max.map(|m| (m, m)).unwrap_or((u32::MAX, u32::MAX));
             let s = if raw {
-                pict::run_raw1(&input, &out, max)?
+                pict::run_raw1(&input, &out, mw, mh)?
             } else {
                 let d = pict::Depth::parse(&depth)?;
-                pict::run(&input, &out, d, !no_pack, max)?
+                pict::run(&input, &out, d, !no_pack, mw, mh)?
             };
             eprintln!(
                 "pict: {}x{} {}-bit ({}) -> {} ({} bytes)",

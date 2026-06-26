@@ -82,44 +82,61 @@ static int item_from_object(const JsonObject *o, CatItem *it)
     return 1;
 }
 
-int catalog_parse(const char *buf, long len, Catalog *cat)
+/* Advance `*i` past one line in buf[0..len); return that line's length (the
+ * bytes before its CR/LF/CRLF terminator). Shared by count + parse so both walk
+ * lines identically. */
+static long next_line(const char *buf, long len, long *i)
+{
+    long start = *i;
+    while (*i < len && buf[*i] != '\n' && buf[*i] != '\r') (*i)++;
+    long lineLen = *i - start;
+    if (*i < len && buf[*i] == '\r') {         /* swallow CR, CRLF as one */
+        (*i)++;
+        if (*i < len && buf[*i] == '\n') (*i)++;
+    } else if (*i < len && buf[*i] == '\n') {
+        (*i)++;
+    }
+    return lineLen;
+}
+
+int catalog_count_lines(const char *buf, long len)
 {
     long i = 0;
+    int  n = 0;
+    while (i < len) {
+        if (next_line(buf, len, &i) > 0) n++;
+    }
+    return n;
+}
 
-    cat->nitems  = 0;
-    cat->dropped = 0;
+int catalog_parse_into(const char *buf, long len, CatItem *items, int cap, int *dropped)
+{
+    long i = 0;
+    int  nitems = 0;
+    int  drop = 0;
 
     while (i < len) {
         long start = i;
-        /* find end of line (CR, LF, or CRLF) */
-        while (i < len && buf[i] != '\n' && buf[i] != '\r') i++;
-        long lineLen = i - start;
-        /* swallow the line terminator (handles CRLF as one) */
-        if (i < len && buf[i] == '\r') {
-            i++;
-            if (i < len && buf[i] == '\n') i++;
-        } else if (i < len && buf[i] == '\n') {
-            i++;
-        }
-
+        long lineLen = next_line(buf, len, &i);
         if (lineLen <= 0) continue;            /* blank line */
 
         JsonObject obj;
         int r = json_parse_object(buf + start, lineLen, &obj);
         if (r <= 0) {
-            if (r < 0) cat->dropped++;         /* malformed (not just blank) */
+            if (r < 0) drop++;                 /* malformed (not just blank) */
             continue;
         }
 
-        if (cat->nitems >= MAX_ITEMS) break;
+        if (nitems >= cap) break;
 
         CatItem it;
         if (item_from_object(&obj, &it)) {
-            cat->items[cat->nitems++] = it;
+            items[nitems++] = it;
         } else {
-            cat->dropped++;
+            drop++;
         }
     }
 
-    return cat->nitems;
+    if (dropped) *dropped = drop;
+    return nitems;
 }

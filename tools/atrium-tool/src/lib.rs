@@ -19,5 +19,6 @@ pub mod pict;
 pub mod preflight;
 pub mod rbcli;
 pub mod selection;
+pub mod size_rsrc;
 pub mod snd;
 pub mod templates;

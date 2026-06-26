@@ -9,6 +9,7 @@
 #include "model.h"
 
 #include <stdio.h>
+#include <stdlib.h>
 #include <string.h>
 
 static int g_fail = 0;
@@ -84,6 +85,20 @@ static const char *SAMPLE =
     "{\"id\":\"prince-of-persia\",\"name\":\"Prince of Persia\",\"categories\":[\"Games\",\"Action\"],\"app\":\"Apps/Prince of Persia/Prince of Persia\",\"year\":1992}\n"
     "{\"id\":\"dark-castle\",\"name\":\"Dark Castle\",\"categories\":[\"Games\",\"Action\"],\"app\":\"Apps/Dark Castle/Dark Castle\",\"year\":1986}\n"
     "{\"id\":\"lemmings\",\"name\":\"Lemmings\",\"categories\":[\"Games\",\"Puzzle\"],\"app\":\"Apps/Lemmings/Lemmings\",\"year\":1991}\n";
+
+/* Test convenience mirroring main.c's load_catalog: count lines, allocate the
+ * items array (malloc here; the launcher uses NewPtr), then parse into it. The
+ * short-lived test process intentionally leaks the small arrays. */
+static int catalog_parse(const char *buf, long len, Catalog *cat)
+{
+    int cap = catalog_count_lines(buf, len);
+    if (cap > MAX_ITEMS) cap = MAX_ITEMS;
+    cat->items   = cap > 0 ? (CatItem *)malloc((size_t)cap * sizeof(CatItem)) : 0;
+    cat->cap     = cat->items ? cap : 0;
+    cat->dropped = 0;
+    cat->nitems  = catalog_parse_into(buf, len, cat->items, cat->cap, &cat->dropped);
+    return cat->nitems;
+}
 
 static void test_catalog_basic(void)
 {

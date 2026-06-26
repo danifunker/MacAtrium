@@ -36,6 +36,8 @@ typedef struct {
     WindowPtr  win;
     int        mode;
     int        menuSel;
+    int        menuRows[5];   /* visible Esc-menu rows (MROW_*), built per-environment */
+    int        nmenu;         /* count in menuRows[] */
     int        safe;          /* 1 = "no catalog" recoverable screen */
     char       status[96];    /* transient line (e.g. launch error)  */
     Art       *previewPic;    /* loaded art while in UI_MODE_PREVIEW  */

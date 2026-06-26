@@ -18,8 +18,10 @@
 #define ICON_GUT 22            /* icon column width incl. the gap before the name */
 #define CATLIST_W 140          /* width of the optional categories list panel (left) */
 
-static const char *kMenuItems[] = { "Settings", "Show Finder", "Exit to Finder", "Restart", "Shut Down" };
-#define MENU_N 5
+/* Esc-menu row kinds and their labels (indexed by kind). The visible set per run
+ * is built into Ui::menuRows by ui_init (Finder rows omitted on the boot shell). */
+enum { MROW_SETTINGS, MROW_SHOW_FINDER, MROW_EXIT, MROW_RESTART, MROW_SHUTDOWN };
+static const char *kMenuLabel[] = { "Settings", "Show Finder", "Exit to Finder", "Restart", "Shut Down" };
 
 /* ---- small helpers -------------------------------------------------------- */
 
@@ -124,6 +126,22 @@ void ui_init(Ui *u, Env *env, Render *r, Model *m, WindowPtr win, int safe)
         int i;
         for (i = 0; i < MAX_ITEMS; i++) u->rowIcon[i] = 0;   /* lazy row-icon cache */
     }
+    /* Build the Esc menu for this environment. "Show Finder" / "Exit to Finder"
+     * only make sense when a separate Finder process exists to front or hand back
+     * to — true on System 7 (we're a Startup Item) or System 6 + MultiFinder. On
+     * the System-6 boot-shell build the launcher replaced the Finder, so those
+     * rows are dropped (canLaunchReturn is false: no Process Manager / Finder). */
+    {
+        int k = 0;
+        u->menuRows[k++] = MROW_SETTINGS;
+        if (env->canLaunchReturn) {
+            u->menuRows[k++] = MROW_SHOW_FINDER;
+            u->menuRows[k++] = MROW_EXIT;
+        }
+        u->menuRows[k++] = MROW_RESTART;
+        u->menuRows[k++] = MROW_SHUTDOWN;
+        u->nmenu = k;
+    }
 }
 
 /* The art base path to show for an item, honouring the Artwork setting: the
@@ -169,6 +187,25 @@ const CtlPanel *ui_current_cdev(Ui *u)
 /* ---- drawing -------------------------------------------------------------- */
 
 static Art *load_item_art(Ui *u, const char *image);   /* defined below */
+
+/* Load the current selection's detail art if it isn't already loaded for that
+ * item. Returns 1 if it (re)loaded, 0 if already current. Drives both the
+ * deferred path (ui_idle, so a fast scroll on the direct-draw System-6 build
+ * doesn't lurch on each PICT decode) and the synchronous path (draw_carousel on
+ * the off-screen System-7 build, so the cover appears in the same repaint as the
+ * move instead of flashing in on a second pass). */
+static int ensure_art_loaded(Ui *u)
+{
+    const CatItem *cur = model_cur_item(u->m);
+    if (cur == u->artFor) return 0;            /* already loaded for this item */
+    if (u->listArt) { art_dispose(u->listArt); u->listArt = 0; }
+    if (cur) {
+        const char *base = art_base(u, cur);
+        if (base && base[0]) u->listArt = load_item_art(u, base);
+    }
+    u->artFor = cur;
+    return 1;
+}
 
 /* The small list-row icon for catalog item `catIdx`, lazily loaded and cached
  * (depth-matched like art: 1-bit ICN# .raw, or the icl8 .8.pict on colour
@@ -406,9 +443,13 @@ static void draw_carousel(Ui *u)
         }
     }
 
-    /* The detail art is NOT loaded here — decoding a colour PICT on every move
-     * makes scrolling lurch. ui_idle() loads it once the selection settles; until
-     * then the detail pane shows the (already-cached) icon, so a move is cheap. */
+    /* Off-screen (System 7+) path: load the selected cover *now* so it lands in
+     * this same repaint as the move — no deferred second pass that flashes it in.
+     * Cheap: the compositing GWorld blits once and the size-capped PICTs decode
+     * fast. The direct-draw System-6 path skips this and keeps the deferred load
+     * (ui_idle) so a fast scroll there never lurches on a per-move PICT decode;
+     * its detail pane just stays empty until the selection settles. */
+    if (u->r->useOffscreen) ensure_art_loaded(u);
 
     /* ---- header: gear, title, the category (with ^v), and N / M ---- */
     render_text_size(r, 12);
@@ -508,11 +549,11 @@ static void draw_carousel(Ui *u)
         SetRect(&ar, ax0, ay0, ax1, ay1);
         render_frame(r, &ar);
         {
-            /* The art is loaded lazily by ui_idle once the selection settles, so a
-             * fast scroll never blocks on decoding a colour PICT. While it's still
-             * loading we leave the frame empty (no icon flash) — the art just
-             * appears once. "(no art)" shows only after loading found nothing. */
-            int loaded = (cur && cur == u->artFor);   /* ui_idle has run for this item */
+            /* Cover is loaded synchronously above (off-screen path) or by ui_idle
+             * once the selection settles (direct-draw path). Until it has run for
+             * this item the frame stays empty — no flash; "(no art)" shows only
+             * after a load found nothing. */
+            int loaded = (cur && cur == u->artFor);   /* cover loaded for this item */
             if (loaded && u->listArt) {
                 Rect inner;
                 SetRect(&inner, (short)(ax0 + 4), (short)(ay0 + 4),
@@ -754,7 +795,7 @@ static void draw_menu(Ui *u)
     Render *r = u->r;
     int     W = win_w(u), H = win_h(u);
     int     pw = 240;
-    int     ph = MENU_N * (ROW_H + 4) + 44;
+    int     ph = u->nmenu * (ROW_H + 4) + 44;
     short   px = (short)((W - pw) / 2);
     short   py = (short)((H - ph) / 2);
     Rect    panel, rr;
@@ -767,13 +808,13 @@ static void draw_menu(Ui *u)
     render_text(r, (short)(px + MARGIN), (short)(py + 22), "MacAtrium  Menu", INK_TITLE);
     render_hline(r, px, (short)(px + pw), (short)(py + 30));
 
-    for (i = 0; i < MENU_N; i++) {
+    for (i = 0; i < u->nmenu; i++) {
         short y0   = (short)(py + 36 + i * (ROW_H + 4));
         short base = (short)(y0 + ROW_H - 5);
         int   sel  = (i == u->menuSel);
         SetRect(&rr, (short)(px + 4), y0, (short)(px + pw - 4), (short)(y0 + ROW_H));
         render_fill(r, &rr, sel ? FILL_SEL : FILL_PANEL);
-        render_text(r, (short)(px + MARGIN), base, kMenuItems[i],
+        render_text(r, (short)(px + MARGIN), base, kMenuLabel[u->menuRows[i]],
                     sel ? INK_SELECTED : INK_NORMAL);
     }
 }
@@ -920,8 +961,6 @@ void ui_draw(Ui *u)
 
 int ui_idle(Ui *u)
 {
-    const CatItem *cur;
-
     /* Pick up a screen-depth change made *outside* MacAtrium — the Monitors
      * control panel, or the emulator's own video setting — so colour engages
      * (or B&W falls back) without a trip through our Settings. Our own Settings
@@ -942,28 +981,20 @@ int ui_idle(Ui *u)
         }
     }
 
-    if (u->safe || u->mode != UI_MODE_LIST) return 0;  /* only the carousel defers art */
-    cur = model_cur_item(u->m);
-    if (cur == u->artFor) return 0;                 /* already loaded -> no work */
-    if (u->listArt) { art_dispose(u->listArt); u->listArt = 0; }
-    if (cur) {
-        const char *base = art_base(u, cur);
-        if (base && base[0]) u->listArt = load_item_art(u, base);
-    }
-    u->artFor = cur;
-    return 1;                                        /* loaded -> caller redraws */
+    if (u->safe || u->mode != UI_MODE_LIST) return 0;  /* only the carousel loads art */
+    return ensure_art_loaded(u);                       /* deferred load (System 6) */
 }
 
 /* ---- input ---------------------------------------------------------------- */
 
 static UiCommand menu_select(Ui *u)
 {
-    switch (u->menuSel) {
-        case 0: u->mode = UI_MODE_SETTINGS; u->setSel = 0; return UI_NONE;  /* Settings */
-        case 1: u->mode = UI_MODE_LIST; return UI_SHOW_FINDER;
-        case 2: u->mode = UI_MODE_LIST; return UI_QUIT;        /* Exit to Finder */
-        case 3: u->mode = UI_MODE_LIST; return UI_RESTART;
-        case 4: u->mode = UI_MODE_LIST; return UI_SHUTDOWN;
+    switch (u->menuRows[u->menuSel]) {
+        case MROW_SETTINGS:    u->mode = UI_MODE_SETTINGS; u->setSel = 0; return UI_NONE;
+        case MROW_SHOW_FINDER: u->mode = UI_MODE_LIST; return UI_SHOW_FINDER;
+        case MROW_EXIT:        u->mode = UI_MODE_LIST; return UI_QUIT;
+        case MROW_RESTART:     u->mode = UI_MODE_LIST; return UI_RESTART;
+        case MROW_SHUTDOWN:    u->mode = UI_MODE_LIST; return UI_SHUTDOWN;
     }
     u->mode = UI_MODE_LIST;
     return UI_NONE;
@@ -1209,7 +1240,7 @@ UiCommand ui_key(Ui *u, char ch)
     if (u->mode == UI_MODE_MENU) {
         switch (ch) {
             case kCharUp:    if (u->menuSel > 0) u->menuSel--; break;
-            case kCharDown:  if (u->menuSel < MENU_N - 1) u->menuSel++; break;
+            case kCharDown:  if (u->menuSel < u->nmenu - 1) u->menuSel++; break;
             case kCharReturn:
             case kCharEnter: cmd = menu_select(u); break;
             case kCharEscape: u->mode = UI_MODE_LIST; break;
@@ -1305,13 +1336,13 @@ UiCommand ui_click(Ui *u, Point pt)
 
     if (u->mode == UI_MODE_MENU) {
         int   W = win_w(u), H = win_h(u);
-        int   pw = 240, ph = MENU_N * (ROW_H + 4) + 44;
+        int   pw = 240, ph = u->nmenu * (ROW_H + 4) + 44;
         short px = (short)((W - pw) / 2), py = (short)((H - ph) / 2);
         Rect  panel;
         int   i;
         SetRect(&panel, px, py, (short)(px + pw), (short)(py + ph));
         if (!PtInRect(pt, &panel)) { u->mode = UI_MODE_LIST; ui_draw(u); return UI_NONE; }
-        for (i = 0; i < MENU_N; i++) {
+        for (i = 0; i < u->nmenu; i++) {
             short y0 = (short)(py + 36 + i * (ROW_H + 4));
             Rect  rr;
             SetRect(&rr, (short)(px + 4), y0, (short)(px + pw - 4), (short)(y0 + ROW_H));

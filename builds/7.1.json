@@ -23,7 +23,10 @@
     "1",
     "8"
   ],
-  "art_max": 256,
+  "app_mem_kb": [
+    1024,
+    768
+  ],
   "rb_cli": "/home/dani/repos/rusty-backup/target/release/rb-cli",
   "startup_items": "/System Folder/Startup Items",
   "finder_replace": false,

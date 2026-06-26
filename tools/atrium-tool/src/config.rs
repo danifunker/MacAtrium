@@ -18,6 +18,15 @@ pub fn d_metadir() -> String { "/MacAtrium/metadata".into() }
 pub fn d_imagesdir() -> String { "/MacAtrium/images".into() }
 pub fn d_artdepth() -> String { "8".into() }
 pub fn d_curl() -> String { "curl".into() }
+
+/// Default art bound (px) when neither `max_art_size` nor `art_max` is set.
+/// The art is never shown truly full-screen: the largest pane is the ~694px-tall
+/// info-card / preview art rect on a 1024x768 screen (`H - header - hint -
+/// margins`). 720 (that height + headroom) keeps box art pixel-sharp in every
+/// view while shrinking a multi-MB scan to a couple hundred KB — DrawPicture
+/// renders it fast and it fits a System-6 machine's RAM (an 8.5 MB PoP cover
+/// failed to load on 6.0.8). OS 9 builds with a bigger screen can override.
+pub const DEFAULT_ART_BOUND: (u32, u32) = (720, 720);
 pub fn d_sounds_dir() -> String { "/MacAtrium/sounds".into() }
 
 /// Hard ceiling for a built image: classic HFS tops out at 2 GB in practice.
@@ -114,9 +123,18 @@ pub struct BuildConfig {
     /// Generate multiple depth variants (e.g. ["1","8"]) named `<id>.<depth>.pict`.
     #[serde(default)]
     pub art_depths: Vec<String>,
-    /// Downscale art so its longest side is at most this many pixels.
+    /// Legacy: downscale art so its longest side is at most this many pixels
+    /// (a square bound). Prefer `max_art_size`. When neither is set the default
+    /// bound applies (see [`BuildConfig::art_bounds`]).
     #[serde(default)]
     pub art_max: Option<u32>,
+    /// Downscale art to fit within this pixel box, written `"WxH"` (e.g.
+    /// `"1024x768"` for a classic Mac, `"1280x854"` on OS 9). Aspect is kept and
+    /// art is never upscaled. Sized so the full-screen preview is sharp at the
+    /// target resolution while box-art scans don't bake into multi-MB PICTs.
+    /// Takes precedence over `art_max`; default `1024x768` (see `art_bounds`).
+    #[serde(default)]
+    pub max_art_size: Option<String>,
     /// Download Box-Front art from LaunchBox (needs `metadata`).
     #[serde(default)]
     pub download_art: bool,
@@ -144,6 +162,65 @@ pub struct BuildConfig {
     /// boot launches it as the shell. Leave false for the 7.x Startup-Items deploy.
     #[serde(default)]
     pub finder_replace: bool,
+    /// Memory partition baked into the launcher's `'SIZE'` (-1) resource for this
+    /// build, as `[preferred_kb, minimum_kb]`. `None` keeps the launcher binary's
+    /// built-in 2 MB / 1 MB. Set it small for a compact B&W target (Mac Plus/SE)
+    /// where 2 MB starves System 6 + the launched game — see `effective_app_mem`.
+    #[serde(default)]
+    pub app_mem_kb: Option<[u32; 2]>,
+}
+
+/// The compact B&W (Mac Plus/SE) partition default in KB: `(preferred, minimum)`.
+/// These machines cap at 4 MB total, draw 1-bit direct (no off-screen GWorld) and
+/// load only small 1-bit `.raw` art, so the shell's real peak is a few hundred KB.
+/// 512/384 is verified in Snow: a 6.0.8 B&W appliance boots, loads its catalog,
+/// navigates (cover load/dispose churn) and launches a game inside this partition.
+pub const COMPACT_APP_MEM_KB: (u32, u32) = (512, 384);
+
+/// Parse a `"WxH"` art-size string (e.g. `"1024x768"`) into `(w, h)`. Accepts a
+/// lower- or upper-case `x` separator; returns `None` on any malformed/zero input.
+pub fn parse_wh(s: &str) -> Option<(u32, u32)> {
+    let mut it = s.trim().split(['x', 'X']);
+    let w: u32 = it.next()?.trim().parse().ok()?;
+    let h: u32 = it.next()?.trim().parse().ok()?;
+    if it.next().is_some() || w == 0 || h == 0 {
+        return None;
+    }
+    Some((w, h))
+}
+
+impl BuildConfig {
+    /// Pixel box `(w, h)` to downscale art into: `max_art_size` (`"WxH"`) if set
+    /// and parseable, else the legacy `art_max` as a square bound, else
+    /// [`DEFAULT_ART_BOUND`]. Art is fit within the box (aspect kept, never upscaled).
+    pub fn art_bounds(&self) -> (u32, u32) {
+        if let Some(wh) = self.max_art_size.as_deref().and_then(parse_wh) {
+            return wh;
+        }
+        if let Some(n) = self.art_max {
+            return (n, n);
+        }
+        DEFAULT_ART_BOUND
+    }
+
+    /// Whether this build wants colour artwork — true when `art_depths` requests
+    /// any depth above 1-bit. A 1-bit-only build (`["1"]`, the Mac Plus / SE
+    /// target) is pure black & white: the colour box-art PICTs and the colour
+    /// `icl8` icon PICT are skipped, so the image (and the launcher's runtime
+    /// memory) shrink to just the 1-bit `.raw` art a compact Mac can use.
+    pub fn wants_color_art(&self) -> bool {
+        self.art_depths.iter().any(|d| d.trim() != "1")
+    }
+
+    /// The launcher memory partition `(preferred_kb, minimum_kb)` to bake in, or
+    /// `None` to leave the binary's built-in 2 MB / 1 MB. An explicit `app_mem_kb`
+    /// always wins. `minimum` is clamped to be <= `preferred` (the Process Manager
+    /// requires it). Deliberately *not* auto-derived from B&W art: a B&W-art build
+    /// can still run on a colour screen (paying for the off-screen GWorld), so the
+    /// small partition is opted into explicitly for the compact target.
+    pub fn effective_app_mem(&self) -> Option<(u32, u32)> {
+        self.app_mem_kb.map(|[p, m]| (p, m.min(p)))
+    }
 }
 
 impl Default for BuildConfig {
@@ -168,6 +245,7 @@ impl Default for BuildConfig {
             art_depth: d_artdepth(),
             art_depths: Vec::new(),
             art_max: None,
+            max_art_size: None,
             download_art: false,
             rb_cli: d_rbcli(),
             apps_root: d_apps_root(),
@@ -178,6 +256,7 @@ impl Default for BuildConfig {
             shutdown_sound: None,
             sounds_dir: d_sounds_dir(),
             finder_replace: false,
+            app_mem_kb: None,
         }
     }
 }

@@ -27,6 +27,7 @@
 #include "prefs.h"
 #include "controlpanels.h"
 #include "display.h"
+#include "mem.h"
 #include "mac_compat.h"
 
 #include <string.h>
@@ -189,13 +190,29 @@ static int load_catalog(void)
     FSSpec spec;
     char  *buf;
     long   len;
+    int    cap;
 
-    gCat.nitems = 0;
+    gCat.items   = 0;
+    gCat.cap     = 0;
+    gCat.nitems  = 0;
+    gCat.dropped = 0;
 
     if (macfs_make_spec("metadata/catalog.jsonl", &spec) != noErr) return 0;
     if (macfs_read_all(&spec, &buf, &len) != noErr) return 0;
 
-    catalog_parse(buf, len, &gCat);
+    /* Size the items array to the file's line count (capped at MAX_ITEMS) and
+     * allocate exactly that, so a small library no longer carries CatItem[256]
+     * (~390 KB) just in case. The catalog lives for the whole session, so the
+     * block is intentionally never freed. */
+    cap = catalog_count_lines(buf, len);
+    if (cap > MAX_ITEMS) cap = MAX_ITEMS;
+    if (cap > 0) {
+        gCat.items = (CatItem *)NewPtr((Size)cap * sizeof(CatItem));
+        if (gCat.items) {
+            gCat.cap    = cap;
+            gCat.nitems = catalog_parse_into(buf, len, gCat.items, cap, &gCat.dropped);
+        }
+    }
     DisposePtr(buf);
 
     return gCat.nitems > 0;
@@ -508,6 +525,7 @@ int main(void)
     if (gUi.sndStartup) sound_play_file("sounds/startup", 1);
 
     for (;;) {
+        mem_debug_tick(gWin);   /* dev-only memory overlay; no-op without MEM_DEBUG */
         if (!next_event(&evt)) {
             /* Idle: load the settled selection's detail art (deferred so a fast
              * scroll never blocks on decoding a colour PICT), then repaint. */

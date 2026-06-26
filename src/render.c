@@ -51,33 +51,40 @@ static void c2p(const char *s, Str255 out)
 void render_begin(Render *r, WindowPtr w)
 {
     if (r->useOffscreen && !r->offscreen) {
-        Rect       b = w->portRect;
-        CTabHandle ctab = 0L;
-        GDHandle   gd = GetMainDevice();
-        QDErr      err;
-        /* Give the GWorld the *screen's* colour table at indexed depths so our RGB
-         * theme colours map straight to the screen's palette indices — one
-         * translation, not the GWorld-default-then-remap two — which keeps greys
-         * clean instead of washed-out/brown. Direct depths (16/24/32) carry RGB
-         * per pixel and need no table. */
-        if (gd && (**gd).gdPMap && r->depth <= 8) ctab = (**(**gd).gdPMap).pmTable;
-        /* Cap the off-screen buffer at 8-bit: a 640x480 GWorld is ~38 KB at 1-bit
-         * and ~300 KB at 8-bit, but ~1.2 MB at 24-bit. We composite at <=8-bit and
-         * let CopyBits up-convert to a deeper screen — a small fidelity trade for a
-         * big memory win (the buffer never balloons past ~300 KB). */
-        short gwDepth = (r->depth > 8) ? 8 : (short)r->depth;
-        /* Allocate from temp (MultiFinder) memory first; fall back to the app heap,
-         * then to direct drawing. (Only reached on System 7+, see render_init.)
-         * `noNewDevice`: do NOT register a GDevice for this off-screen buffer.
-         * Without it NewGWorld adds an 8-bit GWorld device to the global device
-         * list, and a concurrently-launched game that scans the list (Prince of
-         * Persia walks GetDeviceList/GetNextDevice and prefers a second device)
-         * can pick *our* buffer instead of the real screen — wrecking its
-         * colour/depth detection. We composite via CopyBits, so we never need a
-         * device of our own. */
-        err = NewGWorld(&r->offscreen, gwDepth, &b, ctab, 0L, useTempMem | noNewDevice);
-        if (err != noErr || !r->offscreen)
-            err = NewGWorld(&r->offscreen, gwDepth, &b, ctab, 0L, noNewDevice);
+        Rect      b   = w->portRect;
+        GDHandle  gd  = GetMainDevice();
+        QDErr     err = (QDErr)-1;
+        short     ladder[2];
+        int       n = 0, i;
+
+        /* Composite at the screen's *own* depth so deep colour art (a `.24.pict`)
+         * and theme gradients render at full fidelity — no forced 8-bit quantise.
+         * If memory can't hold a deep buffer, step down to 8-bit (CopyBits then
+         * up-converts to the deeper screen) and finally to direct drawing. The
+         * buffer is taken from temp (MultiFinder) memory first, so a deep GWorld
+         * (a 24-bit 640x480 is ~1.2 MB) costs system RAM, NOT our SIZE partition;
+         * only the temp-then-heap fallback would touch it. */
+        short screen = (r->depth > 0) ? (short)r->depth : 1;
+        ladder[n++] = screen;
+        if (screen > 8) ladder[n++] = 8;          /* memory-pressure fallback depth */
+
+        for (i = 0; i < n && (err != noErr || !r->offscreen); i++) {
+            short      d    = ladder[i];
+            CTabHandle ctab = 0L;
+            /* Indexed depths (<=8) get the screen's colour table so our RGB theme
+             * maps straight to its palette indices (one translation, clean greys);
+             * direct depths (16/24/32) carry RGB per pixel and need no table. */
+            if (gd && (**gd).gdPMap && d <= 8) ctab = (**(**gd).gdPMap).pmTable;
+            /* Temp memory first, then the app heap. `noNewDevice`: do NOT register
+             * a GDevice for this buffer — without it NewGWorld adds one to the
+             * global device list, and a concurrently-launched game that scans it
+             * (Prince of Persia walks GetDeviceList/GetNextDevice and prefers a
+             * second device) can pick *our* buffer instead of the real screen. We
+             * composite via CopyBits, so we never need a device of our own. */
+            err = NewGWorld(&r->offscreen, d, &b, ctab, 0L, useTempMem | noNewDevice);
+            if (err != noErr || !r->offscreen)
+                err = NewGWorld(&r->offscreen, d, &b, ctab, 0L, noNewDevice);
+        }
         if (err != noErr || !r->offscreen) {
             r->useOffscreen = 0;          /* fall back to direct drawing */
             r->offscreen    = 0;

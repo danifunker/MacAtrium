@@ -91,7 +91,15 @@ struct App {
     detect_color: bool,
     download_art: bool,
     art_dir: String,
-    art_max: String,
+    max_art_size: String, // "WxH" (e.g. 1280x854); empty = the 720px default
+    // Mac Plus / SE target: 1-bit art only — skips every colour PICT (box art,
+    // screenshots, icl8 icon), shrinking the image and the launcher's RAM use.
+    bw_only: bool,
+    // Launcher memory partition (SIZE -1) in KB, pref/min; empty leaves the
+    // binary's built-in 2 MB / 1 MB (a B&W-only build auto-applies the compact
+    // default when these are blank). See App::app_mem_kb.
+    app_mem_pref: String,
+    app_mem_min: String,
     // art-depth variants to bake; default 1/8/24
     d1: bool,
     d4: bool,
@@ -145,7 +153,10 @@ impl Default for App {
             detect_color: false,
             download_art: false,
             art_dir: String::new(),
-            art_max: "256".into(),
+            max_art_size: String::new(), // empty => atrium's 720px default
+            bw_only: false,
+            app_mem_pref: String::new(),
+            app_mem_min: String::new(),
             d1: true,
             d4: false,
             d8: true,
@@ -398,6 +409,10 @@ impl App {
 
     /// The checked art-depth variants, ascending (e.g. ["1","8","24"]).
     fn art_depths(&self) -> Vec<String> {
+        // Mac Plus / SE: 1-bit only, regardless of the depth checkboxes.
+        if self.bw_only {
+            return vec!["1".to_string()];
+        }
         let mut v = Vec::new();
         if self.d1 { v.push("1".to_string()); }
         if self.d4 { v.push("4".to_string()); }
@@ -405,6 +420,24 @@ impl App {
         if self.d16 { v.push("16".to_string()); }
         if self.d24 { v.push("24".to_string()); }
         v
+    }
+
+    /// The launcher memory partition `[preferred_kb, minimum_kb]` to bake into the
+    /// `'SIZE'` (-1) resource, or `None` to keep the binary's built-in 2 MB / 1 MB.
+    /// An explicit pref wins (min defaults to pref); otherwise a B&W-only (Mac
+    /// Plus/SE) build gets the small compact default so 2 MB doesn't starve a 4 MB
+    /// machine.
+    fn app_mem_kb(&self) -> Option<[u32; 2]> {
+        let pref = self.app_mem_pref.trim().parse::<u32>().ok().filter(|&p| p > 0);
+        let min = self.app_mem_min.trim().parse::<u32>().ok().filter(|&m| m > 0);
+        if let Some(p) = pref {
+            return Some([p, min.unwrap_or(p)]);
+        }
+        if self.bw_only {
+            let (p, m) = atrium::config::COMPACT_APP_MEM_KB;
+            return Some([p, m]);
+        }
+        None
     }
 
     fn build_image(&mut self, ctx: &egui::Context) {
@@ -484,7 +517,11 @@ impl App {
             harvest,
             art_dir: opt(&self.art_dir),
             art_depths: depths.clone(),
-            art_max: self.art_max.trim().parse::<u32>().ok(),
+            art_max: None,
+            max_art_size: {
+                let s = self.max_art_size.trim();
+                (!s.is_empty()).then(|| s.to_string())
+            },
             download_art: self.download_art,
             rb_cli: self.rb_cli.trim().to_string(),
             apps_root: self.apps_root.trim().to_string(),
@@ -493,6 +530,7 @@ impl App {
             stage: opt(&self.stage),
             startup_sound: opt(&self.startup_sound),
             shutdown_sound: opt(&self.shutdown_sound),
+            app_mem_kb: self.app_mem_kb(),
             ..BuildConfig::default()
         };
 
@@ -714,15 +752,47 @@ impl App {
                 ui.add(egui::TextEdit::singleline(&mut self.startup_items).desired_width(220.0));
             });
             ui.horizontal(|ui| {
-                ui.label("art depths:");
-                ui.checkbox(&mut self.d1, "1");
-                ui.checkbox(&mut self.d4, "4");
-                ui.checkbox(&mut self.d8, "8");
-                ui.checkbox(&mut self.d16, "16");
-                ui.checkbox(&mut self.d24, "24");
+                ui.checkbox(&mut self.bw_only, "Mac Plus / SE (B&W only)")
+                    .on_hover_text(
+                        "1-bit artwork only — skips every colour PICT (box art, \
+                         screenshots, icl8 icons). Much smaller image; the only art \
+                         a compact Mac without Color QuickDraw can use.",
+                    );
                 ui.separator();
-                ui.label("max px:");
-                ui.add(egui::TextEdit::singleline(&mut self.art_max).desired_width(56.0));
+                ui.label("max art size:");
+                ui.add(
+                    egui::TextEdit::singleline(&mut self.max_art_size)
+                        .hint_text("720x768")
+                        .desired_width(80.0),
+                )
+                .on_hover_text("Downscale art to fit WxH px (aspect kept). Empty = 720px default.");
+            });
+            ui.horizontal(|ui| {
+                ui.label("launcher RAM KB:");
+                ui.add(egui::TextEdit::singleline(&mut self.app_mem_pref)
+                    .hint_text("pref").desired_width(56.0));
+                ui.add(egui::TextEdit::singleline(&mut self.app_mem_min)
+                    .hint_text("min").desired_width(56.0));
+                ui.label(
+                    egui::RichText::new("blank = 2MB/1MB; B&W-only auto-applies the compact default")
+                        .small().weak(),
+                )
+                .on_hover_text(
+                    "The launcher's preferred / minimum memory partition (SIZE -1). \
+                     A compact Mac Plus/SE has only 4 MB total, so 2 MB starves \
+                     System 6 + the launched game.",
+                );
+            });
+            // Per-depth variants — overridden (and greyed) when B&W-only is set.
+            ui.add_enabled_ui(!self.bw_only, |ui| {
+                ui.horizontal(|ui| {
+                    ui.label("art depths:");
+                    ui.checkbox(&mut self.d1, "1");
+                    ui.checkbox(&mut self.d4, "4");
+                    ui.checkbox(&mut self.d8, "8");
+                    ui.checkbox(&mut self.d16, "16");
+                    ui.checkbox(&mut self.d24, "24");
+                });
             });
             path_row(ui, "local art dir:", &mut self.art_dir, Pick::Folder);
             path_row(ui, "startup sound (WAV):", &mut self.startup_sound, Pick::File);

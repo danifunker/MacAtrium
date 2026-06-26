@@ -39,14 +39,22 @@ typedef struct {
 } CatItem;
 
 typedef struct {
-    CatItem items[MAX_ITEMS];
-    int     nitems;
-    int     dropped;                         /* malformed lines skipped */
+    CatItem *items;                          /* heap array, `cap` entries (NULL if cap==0) */
+    int      cap;                            /* allocated capacity (<= MAX_ITEMS) */
+    int      nitems;
+    int      dropped;                        /* malformed lines skipped */
 } Catalog;
 
-/* Parse a whole catalog buffer (newline-delimited; CR/LF/CRLF tolerant).
- * A required-field-missing or malformed line is skipped (counted in .dropped).
- * Returns the number of items loaded. */
-int catalog_parse(const char *buf, long len, Catalog *cat);
+/* Count candidate (non-blank) lines: an upper bound on the items a buffer can
+ * yield, so the caller can allocate the items array exactly once (instead of a
+ * fixed CatItem[256] ≈ 390 KB allocated even for a 3-item library). Pure C. */
+int catalog_count_lines(const char *buf, long len);
+
+/* Parse a whole catalog buffer (newline-delimited; CR/LF/CRLF tolerant) into a
+ * caller-provided items[cap]; fills up to `cap` items, sets *dropped to the count
+ * of malformed/required-field-missing lines skipped. Returns the number loaded.
+ * Pure C, allocation-free — the caller owns `items` (NewPtr on-target, malloc in
+ * the host tests). */
+int catalog_parse_into(const char *buf, long len, CatItem *items, int cap, int *dropped);
 
 #endif /* MACATRIUM_CATALOG_H */

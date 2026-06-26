@@ -65,20 +65,16 @@ static Art *load_raw(const char *relToRoot)
 static Art *load_pict(const char *relToRoot)
 {
     FSSpec spec;
-    char  *buf;
-    long   len, n;
+    long   n;
     Handle h;
     Art   *a;
 
     if (macfs_make_spec(relToRoot, &spec) != noErr) return 0;
-    if (macfs_read_all(&spec, &buf, &len) != noErr) return 0;
-    if (len <= 512) { DisposePtr(buf); return 0; }   /* header only / empty */
-
-    n = len - 512;
-    h = NewHandle(n);
-    if (!h) { DisposePtr(buf); return 0; }
-    BlockMoveData(buf + 512, *h, n);                 /* picture data after header */
-    DisposePtr(buf);
+    /* Read the picture data straight into the Handle, skipping the 512-byte PICT
+     * file header — no full-file staging buffer, so peak memory is ~1x the cover
+     * (a 318 KB PICT) instead of ~2x during the load. */
+    if (macfs_read_handle(&spec, 512, &h, &n) != noErr) return 0;
+    if (n <= 0) { DisposeHandle(h); return 0; }
 
     a = (Art *)NewPtr(sizeof(Art));
     if (!a) { DisposeHandle(h); return 0; }
