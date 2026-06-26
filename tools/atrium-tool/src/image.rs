@@ -304,8 +304,19 @@ pub fn run(cfg: &BuildConfig) -> Result<()> {
     // 1. base system -> out
     let system = cfg.system.as_ref().expect("resolve() guarantees system is set");
     eprintln!("[1/7] base system  {} -> {}", system.display(), cfg.out.display());
-    std::fs::copy(system, &cfg.out)
-        .with_context(|| format!("copying {} -> {}", system.display(), cfg.out.display()))?;
+    // Use `cp --sparse=always`, not std::fs::copy: the latter's copy_file_range
+    // path de-sparsifies on some filesystems, writing every zero byte — which blows
+    // up on large (e.g. 10 GB Mac OS 9) base images. cp keeps the holes, so the
+    // output stays as small as the data it actually holds.
+    let cp = std::process::Command::new("cp")
+        .arg("--sparse=always")
+        .arg(system)
+        .arg(&cfg.out)
+        .status()
+        .with_context(|| format!("running cp {} -> {}", system.display(), cfg.out.display()))?;
+    if !cp.success() {
+        anyhow::bail!("cp {} -> {} failed", system.display(), cfg.out.display());
+    }
 
     // 1b. preflight: project disk usage before doing the expensive work, and warn
     // if it won't fit the target (~95% estimate; not a hard gate).

@@ -77,10 +77,14 @@ impl RbCli {
     }
 
     /// Decode a .hqx and write it (both forks) into a directory inside an image.
+    /// Clears `hasBeenInited` so the Finder re-reads each injected app's `BNDL` on
+    /// the fresh disk and shows real icons (a copied-in app with `hasBeenInited`
+    /// still set is treated as already-catalogued → generic icon). Matches the
+    /// flag policy the launcher install applies to itself.
     pub fn put_binhex(&self, image: &Path, hqx: &Path, dst_dir: &str) -> Result<()> {
         let img = image.to_string_lossy();
         let h = hqx.to_string_lossy();
-        self.run(&["put-binhex", &img, &h, "--dst-dir", dst_dir, "-q"])?;
+        self.run(&["put-binhex", &img, &h, "--dst-dir", dst_dir, "--clear-inited", "-q"])?;
         Ok(())
     }
 
