@@ -67,10 +67,17 @@ void render_begin(Render *r, WindowPtr w)
          * big memory win (the buffer never balloons past ~300 KB). */
         short gwDepth = (r->depth > 8) ? 8 : (short)r->depth;
         /* Allocate from temp (MultiFinder) memory first; fall back to the app heap,
-         * then to direct drawing. (Only reached on System 7+, see render_init.) */
-        err = NewGWorld(&r->offscreen, gwDepth, &b, ctab, 0L, useTempMem);
+         * then to direct drawing. (Only reached on System 7+, see render_init.)
+         * `noNewDevice`: do NOT register a GDevice for this off-screen buffer.
+         * Without it NewGWorld adds an 8-bit GWorld device to the global device
+         * list, and a concurrently-launched game that scans the list (Prince of
+         * Persia walks GetDeviceList/GetNextDevice and prefers a second device)
+         * can pick *our* buffer instead of the real screen — wrecking its
+         * colour/depth detection. We composite via CopyBits, so we never need a
+         * device of our own. */
+        err = NewGWorld(&r->offscreen, gwDepth, &b, ctab, 0L, useTempMem | noNewDevice);
         if (err != noErr || !r->offscreen)
-            err = NewGWorld(&r->offscreen, gwDepth, &b, ctab, 0L, 0);
+            err = NewGWorld(&r->offscreen, gwDepth, &b, ctab, 0L, noNewDevice);
         if (err != noErr || !r->offscreen) {
             r->useOffscreen = 0;          /* fall back to direct drawing */
             r->offscreen    = 0;

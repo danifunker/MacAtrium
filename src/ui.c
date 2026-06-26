@@ -18,8 +18,8 @@
 #define ICON_GUT 22            /* icon column width incl. the gap before the name */
 #define CATLIST_W 140          /* width of the optional categories list panel (left) */
 
-static const char *kMenuItems[] = { "Settings", "Show Finder", "Restart", "Shut Down" };
-#define MENU_N 4
+static const char *kMenuItems[] = { "Settings", "Show Finder", "Exit to Finder", "Restart", "Shut Down" };
+#define MENU_N 5
 
 /* ---- small helpers -------------------------------------------------------- */
 
@@ -454,7 +454,12 @@ static void draw_carousel(Ui *u)
                 draw_tile(u, cat->idx[ri], &m->cat->items[cat->idx[ri]],
                           (short)(cx + off), iconCy, sideSz);
         }
-        /* centre tile + a frame to mark the selection */
+        /* centre tile: ALWAYS the app's own icon at the current screen depth — it
+         * never swaps to the box art. The hero cover lives only in the detail pane
+         * below; drawing it here too made the centre flip icon->cover when ui_idle
+         * finished loading (and, on the direct-draw 6.0.8 path, painted the cover
+         * twice per repaint — the "multiple passes"). A stable icon column avoids
+         * both. */
         draw_tile(u, cat->idx[center], cur, cx, iconCy, centSz);
         {
             Rect f;
@@ -956,8 +961,9 @@ static UiCommand menu_select(Ui *u)
     switch (u->menuSel) {
         case 0: u->mode = UI_MODE_SETTINGS; u->setSel = 0; return UI_NONE;  /* Settings */
         case 1: u->mode = UI_MODE_LIST; return UI_SHOW_FINDER;
-        case 2: u->mode = UI_MODE_LIST; return UI_RESTART;
-        case 3: u->mode = UI_MODE_LIST; return UI_SHUTDOWN;
+        case 2: u->mode = UI_MODE_LIST; return UI_QUIT;        /* Exit to Finder */
+        case 3: u->mode = UI_MODE_LIST; return UI_RESTART;
+        case 4: u->mode = UI_MODE_LIST; return UI_SHUTDOWN;
     }
     u->mode = UI_MODE_LIST;
     return UI_NONE;

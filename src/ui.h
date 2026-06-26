@@ -20,6 +20,7 @@ typedef enum {
     UI_RESTART,
     UI_SHUTDOWN,
     UI_OPEN_CDEV,    /* open the selected control panel via the Finder */
+    UI_QUIT,         /* quit the launcher entirely, back to the Finder        */
     UI_PREFS_DIRTY   /* a persisted setting (theme/volume) changed; main saves */
 } UiCommand;
 

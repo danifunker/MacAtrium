@@ -57,6 +57,10 @@ static Env       gEnv;
 static Render    gRender;
 static Ui        gUi;
 static WindowPtr gWin;
+/* When a returning (concurrent) launch caps the screen depth for a game, we defer
+ * putting our depth back until the game quits and we're reactivated (osEvt resume),
+ * so the game keeps its capped depth the whole time it runs. 0 = nothing pending. */
+static short gPendingDepthRestore = 0;
 static Prefs     gPrefs;
 
 /* WaitNextEvent is a MultiFinder/System-7 trap — absent on base System 6. We
@@ -314,6 +318,10 @@ static void do_launch(void)
             short target = display_depth_at_most((short)maxd);   /* highest ≤ cap */
             if (target > 0 && target < cur && display_set_depth(target) == noErr) {
                 savedDepth = cur;                      /* restore this on the app's quit */
+                /* Commit to slot PRAM too, even though this is a temporary per-game
+                 * cap: a bare SetDepth doesn't always stick, and the appliance reads
+                 * its boot depth from PRAM when the game quits and relaunches us. */
+                (void)display_set_default_depth(target);
                 /* Re-fit our backend to the new depth and post the notice AT that
                  * depth, so it stays on screen while the app loads (a bare draw
                  * before SetDepth would be wiped by the mode switch instantly). */
@@ -325,17 +333,31 @@ static void do_launch(void)
 
     lr = launch_app(app, returns, &lerr);
 
-    /* Reached on a returning launch (System 7) or a FAILED non-returning one.
-     * Restore the capped depth and, on the appliance, re-hide the menu bar. */
-    if (savedDepth > 0) (void)display_set_depth(savedDepth);
+    /* A returning launch uses launchContinue: LaunchApplication returns IMMEDIATELY
+     * and the game runs concurrently as the new front process. We must NOT touch the
+     * screen here — restoring the capped depth or re-fronting now would yank both out
+     * from under the just-started game (Beyond Dark Castle, capped to 1-bit, would
+     * see the depth snap back to colour and refuse to run). Defer the depth restore
+     * to when the game quits and we're reactivated (osEvt resume) and just yield:
+     * a suspend event follows and the osEvt handler hides our window behind the game. */
+    if (returns && lr == LAUNCH_OK) {
+        gPendingDepthRestore = savedDepth;   /* 0 if we didn't cap the depth */
+        ui_set_status(&gUi, "");
+        return;
+    }
+
+    /* Otherwise we're staying resident: a returning launch that FAILED, or a
+     * non-returning (System 6) launch that only returns on failure. Put the capped
+     * depth back, re-hide the menu bar on the appliance, re-front and report. */
+    if (savedDepth > 0) {
+        (void)display_set_depth(savedDepth);
+        (void)display_set_default_depth(savedDepth);   /* keep PRAM in step (docs/15) */
+        render_reset_for_depth(&gRender, &gEnv, savedDepth);
+    }
     if (!returns) {
         hide_menu_bar();
         CalcVis((WindowPeek)gWin);
     }
-
-    /* We are back: the child quit (launchContinue honoured). Pull ourselves
-     * forward and redraw with selection intact. The child drew its own menu bar,
-     * so re-hide ours; our full-screen redraw below paints over the old bar. */
     bring_self_front();
     hide_menu_bar();                  /* child restored the bar; re-hide + reclaim */
     CalcVis((WindowPeek)gWin);
@@ -405,6 +427,7 @@ static void handle_ui_command(UiCommand cmd)
             }
             break;
         }
+        case UI_QUIT:     save_prefs(); quit_to_finder();  break;  /* does not return */
         case UI_RESTART:  save_prefs(); sysctl_restart();  break;
         case UI_SHUTDOWN:
             save_prefs();
@@ -547,6 +570,14 @@ int main(void)
                             hide_menu_bar();
                             CalcVis((WindowPeek)gWin);
                             SetPort(gWin);
+                            /* A depth-capped game just quit: put our depth back now
+                             * that we're front again (ui_draw re-fits the backend to
+                             * the new depth). */
+                            if (gPendingDepthRestore > 0) {
+                                (void)display_set_depth(gPendingDepthRestore);
+                                (void)display_set_default_depth(gPendingDepthRestore);
+                                gPendingDepthRestore = 0;
+                            }
                             ui_draw(&gUi);
                         } else {
                             restore_menu_bar();

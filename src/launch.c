@@ -50,10 +50,12 @@ LaunchResult launch_app(const char *appRel, int canReturn, OSErr *outErr)
 
     if (canReturn) {
         /* A Process Manager is present (System 7, or System 6 + MultiFinder), so
-         * _Launch understands the extended parameter block. launchContinue makes
-         * it return control to us when the child quits — selection intact, no
-         * relaunch. The proven 7.x path (docs/11-derisk-log.md §A). Zero the whole
-         * block: the size/reserved fields must not be stack garbage. */
+         * _Launch understands the extended parameter block. launchContinue keeps US
+         * running after the launch: LaunchApplication returns IMMEDIATELY and the
+         * child runs concurrently as the front process (we then suspend behind it and
+         * resume when it quits — caller handles that). The proven 7.x path
+         * (docs/11-derisk-log.md §A). Zero the whole block: the size/reserved fields
+         * must not be stack garbage. */
         memset(&pb, 0, sizeof pb);
         pb.launchBlockID       = extendedBlock;
         pb.launchEPBLength     = extendedBlockLen;
@@ -62,7 +64,7 @@ LaunchResult launch_app(const char *appRel, int canReturn, OSErr *outErr)
         pb.launchAppSpec       = &spec;
         pb.launchAppParameters = NULL;
 
-        err = LaunchApplication(&pb);     /* returns here on the child's quit */
+        err = LaunchApplication(&pb);     /* returns immediately; child runs concurrently */
         *outErr = err;
         return (err == noErr) ? LAUNCH_OK : LAUNCH_FAILED;
     }
