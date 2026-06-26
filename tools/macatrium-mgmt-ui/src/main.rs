@@ -1454,7 +1454,7 @@ impl eframe::App for App {
             ui.selectable_value(&mut self.tab, Tab::Settings, "⚙ Settings");
         });
 
-        egui::TopBottomPanel::bottom("status").show_inside(ui, |ui| {
+        egui::Panel::bottom("status").show(ui, |ui| {
             ui.separator();
             if busy {
                 ui.horizontal(|ui| {
@@ -1465,7 +1465,7 @@ impl eframe::App for App {
                 ui.label(&self.status);
             }
         });
-        egui::CentralPanel::default().show_inside(ui, |ui| {
+        egui::CentralPanel::default().show(ui, |ui| {
             ui.separator();
             egui::ScrollArea::vertical()
                 .auto_shrink([false, false])
