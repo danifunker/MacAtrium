@@ -307,6 +307,23 @@ enum Cmd {
         #[command(subcommand)]
         action: LibraryCmd,
     },
+
+    /// View or update the user settings (~/.macatrium.json): machine-local source
+    /// locations + tool paths. With no flags, prints the current settings.
+    Config {
+        /// Folder holding the MacPack donor disks (boot.vhd, Supplement.vhd, …).
+        #[arg(long)]
+        macpack_dir: Option<PathBuf>,
+        /// Macintosh Garden archive (MG-Archive) root.
+        #[arg(long)]
+        mg_archive: Option<PathBuf>,
+        /// rb-cli binary path.
+        #[arg(long)]
+        rb_cli: Option<String>,
+        /// Download/work cache dir.
+        #[arg(long)]
+        cache_dir: Option<PathBuf>,
+    },
 }
 
 #[derive(Subcommand)]
@@ -556,6 +573,28 @@ fn main() -> Result<()> {
                 );
             }
         },
+        Cmd::Config { macpack_dir, mg_archive, rb_cli, cache_dir } => {
+            use atrium::settings::{default_path, Settings};
+            let path = default_path();
+            let mut s = Settings::load(&path);
+            let mut changed = false;
+            if macpack_dir.is_some() { s.macpack_dir = macpack_dir; changed = true; }
+            if mg_archive.is_some() { s.mg_archive = mg_archive; changed = true; }
+            if rb_cli.is_some() { s.rb_cli = rb_cli; changed = true; }
+            if cache_dir.is_some() { s.cache_dir = cache_dir; changed = true; }
+            if changed {
+                s.save(&path)?;
+                eprintln!("updated {}", path.display());
+            }
+            let show = |label: &str, v: Option<String>| {
+                eprintln!("  {label:<12} {}", v.unwrap_or_else(|| "(unset)".into()));
+            };
+            eprintln!("settings ({}):", path.display());
+            show("macpack_dir", s.macpack_dir.map(|p| p.display().to_string()));
+            show("mg_archive", s.mg_archive.map(|p| p.display().to_string()));
+            show("rb_cli", s.rb_cli);
+            show("cache_dir", s.cache_dir.map(|p| p.display().to_string()));
+        }
     }
     Ok(())
 }

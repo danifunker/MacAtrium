@@ -495,7 +495,7 @@ impl App {
             selection,
             out: PathBuf::from(self.out_image.trim()),
             launcher: opt(&self.launcher), // blank -> embedded launcher
-            dataset: PathBuf::from(self.dataset.trim()),
+            dataset: opt(&self.dataset), // blank -> the library bundled in the tool
             startup_items: self.startup_items.trim().to_string(),
             overrides: opt(&self.overrides),
             metadata: opt(&self.metadata),
@@ -532,7 +532,7 @@ impl App {
         self.base_os = c.base_os.clone().unwrap_or_default();
         self.out_image = c.out.display().to_string();
         self.launcher = s(&c.launcher);
-        self.dataset = c.dataset.display().to_string();
+        self.dataset = s(&c.dataset);
         self.disk_size_mb = c.disk_size_mb.map(|n| n.to_string()).unwrap_or_default();
         self.overrides = s(&c.overrides);
         self.metadata = s(&c.metadata);

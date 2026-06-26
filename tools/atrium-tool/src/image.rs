@@ -313,12 +313,31 @@ pub fn run(cfg: &BuildConfig) -> Result<()> {
     let resolved = crate::templates::resolve(cfg)?;
     let cfg = &resolved;
 
+    // Machine-local settings (~/.macatrium.json): the MacPack folder lets the
+    // donor resolver find disks referenced by filename (e.g. boot.vhd) that aren't
+    // donors.json aliases.
+    let settings = crate::settings::Settings::load_default();
+
     let rb = RbCli::new(&cfg.rb_cli);
     let stage = cfg
         .stage
         .clone()
         .unwrap_or_else(|| std::env::temp_dir().join("atrium-image-stage"));
     std::fs::create_dir_all(&stage)?;
+
+    // Materialize the library to a working copy up front (so the build never
+    // mutates the source) — and so a build with no `dataset` path uses the library
+    // bundled into this tool. The whole pipeline reads/writes `work` from here on.
+    let work = stage.join("dataset.jsonl");
+    std::fs::write(&work, cfg.dataset_bytes()?)
+        .with_context(|| format!("writing working dataset {}", work.display()))?;
+    eprintln!(
+        "[lib] {}",
+        match &cfg.dataset {
+            Some(p) => format!("library {}", p.display()),
+            None => "library (bundled)".to_string(),
+        }
+    );
 
     // 1. base system -> out
     let system = cfg.system.as_ref().expect("resolve() guarantees system is set");
@@ -341,7 +360,7 @@ pub fn run(cfg: &BuildConfig) -> Result<()> {
     // if it won't fit the target (~95% estimate; not a hard gate).
     {
         let n_items: u64 = match &cfg.selection {
-            Some(sel) => crate::selection::resolve(&cfg.dataset, sel, cfg.base_os.as_deref())
+            Some(sel) => crate::selection::resolve(&work, sel, cfg.base_os.as_deref())
                 .map(|(ids, _)| ids.len() as u64)
                 .unwrap_or(0),
             None => cfg.harvest.iter().map(|h| h.apps.len() as u64).sum(),
@@ -369,18 +388,18 @@ pub fn run(cfg: &BuildConfig) -> Result<()> {
     // 1c. grow the image to the requested size (disk-size controller).
     crate::preflight::apply_disk_size(&rb, cfg)?;
 
-    // 2. working copy of the dataset (the build never mutates the source)
-    let work = stage.join("dataset.jsonl");
-    std::fs::copy(&cfg.dataset, &work)
-        .with_context(|| format!("copying dataset {}", cfg.dataset.display()))?;
-
     // 3. harvest apps from donor images into the output + append stubs. Two paths,
     // both may run: a high-level `selection` (dataset ids/categories → donor
     // registry) and the low-level explicit `harvest` list (manual override).
     if let Some(sel) = &cfg.selection {
         let donors = crate::donors::Registry::load_default();
-        let (plan, unresolved) =
-            crate::selection::harvest_plan(&work, sel, cfg.base_os.as_deref(), &donors)?;
+        let (plan, unresolved) = crate::selection::harvest_plan(
+            &work,
+            sel,
+            cfg.base_os.as_deref(),
+            &donors,
+            settings.macpack_dir.as_deref(),
+        )?;
         if !unresolved.is_empty() {
             eprintln!(
                 "[2/7] selection    {} selected app(s) skipped (no source/donor): {}",
@@ -441,10 +460,20 @@ pub fn run(cfg: &BuildConfig) -> Result<()> {
         )?;
     }
 
-    // 5. manual overrides (win)
-    if let Some(ov) = &cfg.overrides {
-        eprintln!("[4/7] merge        overrides {}", ov.display());
-        merge::run(&work, ov, &work, false)?;
+    // 5. compatibility/facets overlay (file-or-bundled) — always applied; the
+    // overlay wins (color/mouse/maxDepth/minOS/maxOS + corrections).
+    {
+        let compat = stage.join("compatibility.jsonl");
+        std::fs::write(&compat, cfg.compatibility_bytes()?)
+            .with_context(|| format!("writing {}", compat.display()))?;
+        eprintln!(
+            "[4/7] merge        compatibility {}",
+            match &cfg.overrides {
+                Some(p) => p.display().to_string(),
+                None => "(bundled)".to_string(),
+            }
+        );
+        merge::run(&work, &compat, &work, false)?;
     }
 
     // 6. art: gather sources (local art_dir wins; else download Box-Front from
