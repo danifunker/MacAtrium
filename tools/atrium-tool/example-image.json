@@ -3,7 +3,7 @@
   "out": "/tmp/macatrium.hda",
   "_comment_launcher": "omit `launcher` to use the prebuilt one bundled in atrium; set a path only to override with your own build/MacAtrium.bin",
   "dataset": "data/library.jsonl",
-  "overrides": "data/overrides.jsonl",
+  "compatibility": "data/compatibility.jsonl",
   "metadata": "~/launchbox/Metadata.xml",
   "platform": "Apple Mac OS",
   "harvest": [

@@ -214,7 +214,7 @@ data: the **colour/mouse** facets LaunchBox lacks, corrections to anything
 `enrich` got wrong, and whole records for titles it couldn't match.
 
 ```sh
-atrium merge --base data/library.jsonl --overlay data/overrides.jsonl --out data/library.jsonl
+atrium merge --base data/library.jsonl --overlay data/compatibility.jsonl --out data/library.jsonl
 ```
 
 `overrides.jsonl` holds **partial records keyed by `id`** — only the fields you
@@ -236,7 +236,7 @@ atrium set --id glider --vendor "Casady & Greene" --genre "Arcade"
 
 `--color`/`--bw` set the colour facet, `--mouse`/`--no-mouse` the mouse facet;
 `--year`/`--vendor`/`--genre`/`--desc`/`--image`/`--name`/`--app` set the rest.
-Writes to `--overlay` (default `data/overrides.jsonl`), which `merge` applies.
+Writes to `--overlay` (default `data/compatibility.jsonl`), which `merge` applies.
 
 ### `atrium image`
 

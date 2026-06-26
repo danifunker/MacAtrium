@@ -3,7 +3,7 @@
   "out": "/home/dani/MacAtrium-608-working.hda",
   "launcher": "/home/dani/repos/MacAtrium/build/MacAtrium.bin",
   "dataset": "/home/dani/repos/MacAtrium/data/library.jsonl",
-  "overrides": "/home/dani/repos/MacAtrium/data/overrides.jsonl",
+  "compatibility": "/home/dani/repos/MacAtrium/data/compatibility.jsonl",
   "selection": {
     "mode": "categories",
     "categories": [

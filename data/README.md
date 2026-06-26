@@ -1,51 +1,68 @@
 # data/ — the curated source dataset
 
-Two files live here:
+Three JSONL files feed the build (`# …` / `// …` and blank lines are comments):
 
-- **`library.jsonl`** — the **curated source dataset** (the thing humans edit /
-  PR). UTF-8 JSONL keyed by `id`, carrying *facet* fields. `# …` / `// …` lines
-  and blank lines are comments. This is the input to the host tool.
-- **`catalog.jsonl`** — a tiny hand-authored *output-format* sample kept from the
-  MVP era (schema v2). The real on-Mac catalog is now **generated**, not authored.
+- **`library.jsonl`** — the **generated** catalog of titles: identity + descriptive
+  metadata only (id, name, kind, year, vendor, genre[], desc, art, `app`,
+  `harvest_src`). **Don't hand-edit it** — it's regenerated from the MacPack (see
+  below). Put hand changes in `curated.jsonl` instead.
+- **`curated.jsonl`** — the hand-maintained **overlay**: add-on / non-MacPack titles
+  (full records) + corrections. Merged over the scrape, **curation wins**.
+- **`compatibility.jsonl`** — per-title **requirements/facets**, keyed by `id`,
+  merged over the library at build time (overlay wins). Hand-verified entries win
+  over the auto-seeded ones. Fields: `color` (Color/B&W), `mouse` (Mouse Required),
+  `maxDepth` (deepest screen bpp a title tolerates; launcher caps to it),
+  `minOS`/`maxOS` (dotted range — out-of-range titles are dropped per target),
+  `minMem` (KB), `minCPU`, `arch` (68K/PPC/BOTH).
+- **`catalog.jsonl`** — a tiny hand-authored *output-format* sample from the MVP era.
+  The real on-Mac catalog is **generated**, not authored.
+
+## Regenerating the library (Library Builder)
+
+```sh
+# 1. scan the MacPack donor disks -> one record per title
+atrium library scan --macpack ~/macpack-work --release 20240825-RC1 --out /tmp/scrape.jsonl
+# 2. merge the hand-curated overlay (curation wins, non-MacPack add-ons kept)
+atrium merge --base /tmp/scrape.jsonl --overlay data/curated.jsonl --out data/library.jsonl
+# 3. enrich vendor/genre/desc/colour from the Macintosh Garden archive (gaps-only)
+atrium mg --src data/library.jsonl --mg-archive ~/macgarden-archive --out data/library.jsonl
+# 4. move the requirement/facet fields into compatibility.jsonl (hand entries win)
+atrium library split --library data/library.jsonl --compat data/compatibility.jsonl
+```
+
+`atrium library scan` derives `kind` (game/app/utility) from the MacPack tree — the
+single exclusive bucket — and `year` from `/Games/<year>`; `genre` is a multi-valued
+(non-exclusive) tag list seeded from the Applications/Utilities category folder.
+`harvest_src` records the donor by its **original filename** (`boot.vhd`,
+`Supplement.vhd`) + path, so a build resolves it against the configured MacPack folder.
 
 ## Source → on-Mac catalog
 
-The host tool [`atrium`](../tools/atrium-tool/) compiles `library.jsonl` into the
-light index the launcher reads at boot, **deriving** the many-to-many
-`categories` from the facet fields — the "facets + decade buckets" model:
+`atrium catalog` compiles `library.jsonl` (+ the merged `compatibility.jsonl`) into the
+light index the launcher reads at boot, **deriving** the many-to-many `categories`
+from the facet fields:
 
-```sh
-atrium catalog --src data/library.jsonl --out /tmp/catalog.jsonl
-rb-cli put disk.hda /tmp/catalog.jsonl /MacAtrium/metadata/catalog.jsonl --type TEXT --creator ttxt
-```
-
-| Source field | Req | → derived category / use |
+| Field | From | → derived category / use |
 |--------------|-----|--------------------------|
-| `id` | ✅ | stable slug |
-| `name` | ✅ | display name |
-| `app` | ✅ | launch path, relative to `/MacAtrium` |
-| `kind` | ○ | `game` (default) / `app` / `utility` → `Games` / `Applications` / `Utilities` |
-| `genre` | ○ | array → genre categories (`Action`, `Puzzle`, …) |
-| `color` | ○ | bool → `Color` / `B&W` |
-| `year` | ○ | int → decade bucket (`1980s` / `1990s`); raw year kept for sort/display |
-| `vendor` | ○ | publisher → its own category (`Broderbund`, …) |
-| `mouse` | ○ | bool → `Mouse Required` / `No Mouse` |
-| `categories` | ○ | manual extras (e.g. `Recommended`), preserved in dataset order |
-| `desc` / `image` / `type` / `creator` | ○ | passed through to the catalog |
+| `id` / `name` / `app` | library | slug / display / launch path |
+| `kind` | library | `Games` / `Applications` / `Utilities` |
+| `genre[]` | library | genre categories (`Action`, `Puzzle`, …) — multi-valued |
+| `year` | library | decade bucket (`1980s`/`1990s`); raw year kept |
+| `vendor` | library | publisher category |
+| `color` | compatibility | `Color` / `B&W` |
+| `mouse` | compatibility | `Mouse Required` / `No Mouse` |
+| `maxDepth` | compatibility | launch-time screen-depth cap |
+| `minOS`/`maxOS`/`minMem`/`arch` | compatibility | preflight compatibility vs the target |
 
-The tool transcodes to **MacRoman**, emits **CR** line endings, and validates
-against the on-device parser limits (`src/catalog.h`). See the
+The tool transcodes to **MacRoman**, emits **CR** line endings, and validates against
+the on-device parser limits (`src/catalog.h`). See the
 [tool README](../tools/atrium-tool/README.md).
 
 ## Provenance
 
-The starter titles in `library.jsonl` are real Macintosh classics from the
-**MacPack** collection (the MiSTer MacPlus pack — a curated set of HFS disk
-images, organised by year/genre, that `rb-cli` reads directly). The metadata is
-a curated starter; refine `vendor`/`year`/etc. via PR. Harvesting the actual app
-forks out of the pack into `/MacAtrium/Apps` is the `atrium harvest` step (docs/13).
-
-`year`/`vendor`/`genre` can be filled automatically with **`atrium enrich`** from
-the **LaunchBox Games Database** (it only fills missing fields, so curation wins).
-`color` (Color/B&W) and `mouse` (Mouse Required/No Mouse) aren't in LaunchBox —
-set those by hand.
+Titles come from the **MacPack** collection (`MacPack-20240825-RC1`, the MiSTer
+MacPlus pack on Archive.org — HFS disk images organised by year/genre that `rb-cli`
+reads directly). Metadata is enriched from the local **Macintosh Garden** archive
+(68K-only) and/or the **LaunchBox Games Database**; both only fill gaps, so curation
+wins. `color`/`mouse`/`maxDepth` and the other requirements are curated/verified in
+`compatibility.jsonl` (no public metadata source carries them).
