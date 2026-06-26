@@ -339,15 +339,18 @@ fn parse_images(path: &Path, wanted: &HashSet<String>) -> Result<HashMap<String,
     Ok(out)
 }
 
-/// Download a URL to `out` via curl (no Rust HTTP dependency). Returns Ok only if
-/// the file ends up non-empty.
-pub fn download(url: &str, out: &Path, curl: &str) -> Result<()> {
-    let dst = out.to_string_lossy();
-    let status = std::process::Command::new(curl)
-        .args(["-sL", "--max-time", "30", "-o", &dst, url])
-        .status()
-        .with_context(|| format!("running {curl}"))?;
-    anyhow::ensure!(status.success(), "curl failed for {url}");
+/// Download a URL to `out` over HTTP (native Rust `ureq`/rustls — no external curl
+/// dependency, so it works the same on Windows/macOS/Linux). Streams the body to
+/// disk and returns Ok only if the file ends up non-empty.
+pub fn download(url: &str, out: &Path) -> Result<()> {
+    let response = ureq::get(url)
+        .call()
+        .map_err(|e| anyhow::anyhow!("GET {url}: {e}"))?;
+    let mut reader = response.into_body().into_reader();
+    let mut file =
+        std::fs::File::create(out).with_context(|| format!("creating {}", out.display()))?;
+    std::io::copy(&mut reader, &mut file).with_context(|| format!("downloading {url}"))?;
+    drop(file);
     let len = std::fs::metadata(out).map(|m| m.len()).unwrap_or(0);
     anyhow::ensure!(len > 0, "empty download for {url}");
     Ok(())
@@ -409,7 +412,7 @@ pub fn run(
     overwrite: bool,
     art_manifest: Option<&Path>,
     detect_color: bool,
-    curl_bin: &str,
+    _curl_bin: &str, // vestigial: downloads now use ureq (removed in the UI pass)
 ) -> Result<()> {
     let games = parse_games(metadata, platform)?;
     eprintln!("LaunchBox: {} games on platform \"{platform}\"", games.len());
@@ -511,7 +514,7 @@ pub fn run(
                 continue;
             };
             let dst = tmp.join(dbid);
-            if download(&format!("{IMAGE_URL}{shot}"), &dst, curl_bin).is_ok() {
+            if download(&format!("{IMAGE_URL}{shot}"), &dst).is_ok() {
                 if let Ok(is_col) = is_color_image(&dst) {
                     if let Item::Rec(o) = &mut items[*item_idx] {
                         o.insert("color".into(), Value::Bool(is_col));

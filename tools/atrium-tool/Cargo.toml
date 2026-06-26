@@ -18,6 +18,9 @@ anyhow = "1"
 image = { version = "0.25", default-features = false, features = ["png", "jpeg"] }
 # Streaming XML for the (~500 MB) LaunchBox Metadata.xml — SAX-style, low memory.
 quick-xml = "0.38"
+# Native-Rust HTTP (rustls) for downloads — replaces shelling out to `curl`, so
+# the tool has no external download dependency on Windows/macOS/Linux.
+ureq = "3"
 
 [profile.release]
 opt-level = 2
