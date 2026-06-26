@@ -592,10 +592,15 @@ pub fn run(cfg: &BuildConfig) -> Result<()> {
     let present = stage.join("dataset.present.jsonl");
     let dropped = filter_present_apps(&rb, &cfg.out, &work, &present)?;
     if !dropped.is_empty() {
+        // The library is now comprehensive (~1500 titles), so a small build drops
+        // almost all of them — list only a sample instead of flooding the log.
+        const SHOW: usize = 8;
+        let more = dropped.len().saturating_sub(SHOW);
         eprintln!(
-            "[6/7] catalog      dropped {} not-installed title(s): {}",
+            "[6/7] catalog      dropped {} not-installed title(s): {}{}",
             dropped.len(),
-            dropped.join(", ")
+            dropped.iter().take(SHOW).cloned().collect::<Vec<_>>().join(", "),
+            if more > 0 { format!(", … (+{more} more)") } else { String::new() }
         );
     }
     eprintln!("[6/7] catalog      generate + inject");
