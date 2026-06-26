@@ -144,7 +144,7 @@ impl Default for App {
             disk_size_mb: String::new(),
             sel_mode: 0,
             sel_text: String::new(),
-            launcher: "build/MacAtrium.bin".into(),
+            launcher: String::new(), // blank = the launcher bundled into the tool
             out_image: "/tmp/macatrium.hda".into(),
             startup_items: "/System Folder/Startup Items".into(),
             startup_sound: String::new(),
@@ -494,7 +494,7 @@ impl App {
             disk_size_mb: self.disk_size_mb.trim().parse::<u64>().ok(),
             selection,
             out: PathBuf::from(self.out_image.trim()),
-            launcher: PathBuf::from(self.launcher.trim()),
+            launcher: opt(&self.launcher), // blank -> embedded launcher
             dataset: PathBuf::from(self.dataset.trim()),
             startup_items: self.startup_items.trim().to_string(),
             overrides: opt(&self.overrides),
@@ -531,7 +531,7 @@ impl App {
         self.base_system = c.system.as_ref().map(|p| p.display().to_string()).unwrap_or_default();
         self.base_os = c.base_os.clone().unwrap_or_default();
         self.out_image = c.out.display().to_string();
-        self.launcher = c.launcher.display().to_string();
+        self.launcher = s(&c.launcher);
         self.dataset = c.dataset.display().to_string();
         self.disk_size_mb = c.disk_size_mb.map(|n| n.to_string()).unwrap_or_default();
         self.overrides = s(&c.overrides);
@@ -782,6 +782,10 @@ impl App {
             path_row(ui, "base system .hda:", &mut self.base_system, Pick::File);
         }
         path_row(ui, "launcher (.bin):", &mut self.launcher, Pick::File);
+        ui.label(
+            egui::RichText::new("    blank = the launcher bundled in this app (no Retro68 needed); set a path only to override")
+                .small().weak(),
+        );
         path_row(ui, "output .hda:", &mut self.out_image, Pick::Save);
 
         ui.add_space(4.0);

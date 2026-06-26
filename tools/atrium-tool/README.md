@@ -253,9 +253,17 @@ never mutates `data/library.jsonl`); (3) `enrich`es from `metadata` (LaunchBox);
 wins; otherwise, with `download_art: true`, **downloads each title's Box-Front
 art from LaunchBox**), converts it → PICT at `art_depth` (`art_max` to downscale),
 and wires the catalog `image` field; (6) generates + injects the `catalog`
-(backing up any existing one); (7) installs the `launcher` into `startup_items`.
+(backing up any existing one); (7) installs the launcher into `startup_items`.
 See [`example-image.json`](example-image.json) for the schema; all fields except
-`system`/`out`/`launcher`/`dataset` are optional.
+`system`/`out`/`dataset` are optional.
+
+**Bundled launcher (no Retro68 needed).** A prebuilt `MacAtrium.bin` is embedded in
+this tool (`assets/MacAtrium.bin`, via `include_bytes!`), so you can build an image
+without compiling the 68k launcher yourself — omit `launcher` and the embedded copy
+is used (and still patched per `app_mem_kb`). Set `launcher` to a path only to
+override, e.g. with a freshly built `build/MacAtrium.bin` during launcher dev. The
+CMake launcher build keeps `assets/MacAtrium.bin` in sync (`copy_if_different`);
+commit it when it changes so a rebuild of this crate re-embeds the current launcher.
 
 **Verified in Snow:** a full `atrium image` run (~2 s) produced a bootable image
 that boots into the faceted catalog, renders the built-in art, and launches a
