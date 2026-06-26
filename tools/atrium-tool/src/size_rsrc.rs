@@ -113,6 +113,16 @@ fn find_size_minus1_body(rf: &[u8]) -> Result<(usize, usize)> {
     bail!("no SIZE resource type in the launcher");
 }
 
+/// Read the current preferred/minimum partition sizes (in **bytes**) from the
+/// `'SIZE'` (-1) resource of a launcher MacBinary, without modifying it.
+pub fn read_app_mem(bytes: &[u8]) -> Result<(u32, u32)> {
+    let (fork_start, fork_len) =
+        macbinary_rsrc_fork(bytes).context("finding resource fork in launcher")?;
+    let rf = &bytes[fork_start..fork_start + fork_len];
+    let (body_lo, _) = find_size_minus1_body(rf).context("finding SIZE (-1) resource")?;
+    Ok((be_u32(rf, body_lo + 2), be_u32(rf, body_lo + 6)))
+}
+
 /// Overwrite the preferred/minimum partition sizes (in **bytes**) of the
 /// `'SIZE'` (-1) resource in a launcher MacBinary, in place. Returns the previous
 /// `(preferred, minimum)` so the build can log the change. The flags word is left
@@ -197,9 +207,11 @@ mod tests {
     #[test]
     fn patches_pref_and_min_keeping_flags() {
         let mut mb = synthetic_macbinary(2048 * 1024, 1024 * 1024);
+        assert_eq!(read_app_mem(&mb).unwrap(), (2048 * 1024, 1024 * 1024));
         let (old_p, old_m) = patch_app_mem(&mut mb, 512 * 1024, 384 * 1024).unwrap();
         assert_eq!(old_p, 2048 * 1024);
         assert_eq!(old_m, 1024 * 1024);
+        assert_eq!(read_app_mem(&mb).unwrap(), (512 * 1024, 384 * 1024));
         // re-read: the new values stuck and the flags word survived
         let (start, len) = macbinary_rsrc_fork(&mb).unwrap();
         let (lo, _) = find_size_minus1_body(&mb[start..start + len]).unwrap();

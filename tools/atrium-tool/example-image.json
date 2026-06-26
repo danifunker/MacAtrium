@@ -20,6 +20,7 @@
   "art_depths": ["1", "8", "24"],
   "art_max": 256,
   "download_art": true,
+  "app_mem_kb": [1024, 768],
   "rb_cli": "rb-cli",
   "startup_items": "/System Folder/Startup Items"
 }

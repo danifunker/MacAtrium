@@ -440,21 +440,10 @@ impl App {
         None
     }
 
-    fn build_image(&mut self, ctx: &egui::Context) {
-        if self.out_image.trim().is_empty()
-            || (self.base_os.trim().is_empty() && self.base_system.trim().is_empty())
-        {
-            self.status = "Set an output path + a base OS (template or custom .hda).".into();
-            return;
-        }
-        let depths = self.art_depths();
-        if depths.is_empty() {
-            self.status = "Select at least one art depth (1/4/8/16/24) under Advanced.".into();
-            return;
-        }
-
-        // Build the shared model directly — no JSON re-encoding. The schema lives
-        // once in atrium::config::BuildConfig, so the GUI and CLI can't drift.
+    /// Assemble the shared [`BuildConfig`] from the GUI fields — the single mapping
+    /// used by Build *and* Save, so the GUI and the `builds/*.json` the CLI reads
+    /// stay byte-compatible. (The schema lives once in `atrium::config`.)
+    fn to_config(&self) -> BuildConfig {
         let opt = |s: &str| -> Option<PathBuf> {
             let t = s.trim();
             if t.is_empty() { None } else { Some(PathBuf::from(t)) }
@@ -499,7 +488,7 @@ impl App {
             _ => None,
         };
 
-        let cfg = BuildConfig {
+        BuildConfig {
             system,
             base_os,
             disk_size_mb: self.disk_size_mb.trim().parse::<u64>().ok(),
@@ -516,7 +505,7 @@ impl App {
             curl: self.curl.trim().to_string(),
             harvest,
             art_dir: opt(&self.art_dir),
-            art_depths: depths.clone(),
+            art_depths: self.art_depths(),
             art_max: None,
             max_art_size: {
                 let s = self.max_art_size.trim();
@@ -532,8 +521,104 @@ impl App {
             shutdown_sound: opt(&self.shutdown_sound),
             app_mem_kb: self.app_mem_kb(),
             ..BuildConfig::default()
-        };
+        }
+    }
 
+    /// Populate the GUI fields from a loaded [`BuildConfig`] — the inverse of
+    /// [`Self::to_config`], so a `builds/*.json` opens straight into the form.
+    fn apply_config(&mut self, c: BuildConfig) {
+        let s = |o: &Option<PathBuf>| o.as_ref().map(|p| p.display().to_string()).unwrap_or_default();
+        self.base_system = c.system.as_ref().map(|p| p.display().to_string()).unwrap_or_default();
+        self.base_os = c.base_os.clone().unwrap_or_default();
+        self.out_image = c.out.display().to_string();
+        self.launcher = c.launcher.display().to_string();
+        self.dataset = c.dataset.display().to_string();
+        self.disk_size_mb = c.disk_size_mb.map(|n| n.to_string()).unwrap_or_default();
+        self.overrides = s(&c.overrides);
+        self.metadata = s(&c.metadata);
+        self.mg_archive = s(&c.mg_archive);
+        self.platform = c.platform.clone();
+        self.detect_color = c.detect_color;
+        self.download_art = c.download_art;
+        self.art_dir = s(&c.art_dir);
+        self.startup_items = c.startup_items.clone();
+        self.startup_sound = s(&c.startup_sound);
+        self.shutdown_sound = s(&c.shutdown_sound);
+        self.rb_cli = c.rb_cli.clone();
+        self.curl = c.curl.clone();
+        self.apps_root = c.apps_root.clone();
+        self.metadata_dir = c.metadata_dir.clone();
+        self.images_dir = c.images_dir.clone();
+        self.stage = s(&c.stage);
+        // selection mode/text
+        match &c.selection {
+            Some(Selection::All) => { self.sel_mode = 1; self.sel_text.clear(); }
+            Some(Selection::List { ids }) => { self.sel_mode = 2; self.sel_text = ids.join(", "); }
+            Some(Selection::Categories { categories }) => { self.sel_mode = 3; self.sel_text = categories.join(", "); }
+            None => { self.sel_mode = 0; self.sel_text.clear(); }
+        }
+        // art depths -> checkboxes / B&W-only (["1"] alone is the Mac Plus/SE mode)
+        self.bw_only = c.art_depths == ["1"];
+        let has = |d: &str| c.art_depths.iter().any(|x| x == d);
+        self.d1 = has("1"); self.d4 = has("4"); self.d8 = has("8");
+        self.d16 = has("16"); self.d24 = has("24");
+        self.max_art_size = c.max_art_size.clone().unwrap_or_default();
+        // launcher RAM (SIZE) pref/min
+        match c.app_mem_kb {
+            Some([p, m]) => { self.app_mem_pref = p.to_string(); self.app_mem_min = m.to_string(); }
+            None => { self.app_mem_pref.clear(); self.app_mem_min.clear(); }
+        }
+        self.harvest = c.harvest.iter().map(|h| HarvestUi {
+            image: h.image.display().to_string(),
+            apps: h.apps.join("\n"),
+            scan: h.scan.clone().unwrap_or_default(),
+        }).collect();
+    }
+
+    /// Serialize the current form to a `builds/*.json` via a save dialog.
+    fn save_config(&mut self) {
+        let Some(path) = rfd::FileDialog::new()
+            .add_filter("build config", &["json"])
+            .set_file_name("build.json")
+            .save_file()
+        else { return };
+        match serde_json::to_string_pretty(&self.to_config()) {
+            Ok(json) => match std::fs::write(&path, json) {
+                Ok(()) => self.status = format!("Saved build config -> {}", path.display()),
+                Err(e) => self.status = format!("Save failed: {e}"),
+            },
+            Err(e) => self.status = format!("Encode failed: {e}"),
+        }
+    }
+
+    /// Load a `builds/*.json` into the form via a file dialog.
+    fn load_config(&mut self) {
+        let Some(path) = rfd::FileDialog::new()
+            .add_filter("build config", &["json"])
+            .pick_file()
+        else { return };
+        match std::fs::read_to_string(&path).map_err(|e| e.to_string())
+            .and_then(|t| serde_json::from_str::<BuildConfig>(&t).map_err(|e| e.to_string()))
+        {
+            Ok(cfg) => { self.apply_config(cfg); self.status = format!("Loaded build config {}", path.display()); }
+            Err(e) => self.status = format!("Load failed: {e}"),
+        }
+    }
+
+    fn build_image(&mut self, ctx: &egui::Context) {
+        if self.out_image.trim().is_empty()
+            || (self.base_os.trim().is_empty() && self.base_system.trim().is_empty())
+        {
+            self.status = "Set an output path + a base OS (template or custom .hda).".into();
+            return;
+        }
+        let depths = self.art_depths();
+        if depths.is_empty() {
+            self.status = "Select at least one art depth (1/4/8/16/24) under Advanced.".into();
+            return;
+        }
+
+        let cfg = self.to_config();
         let out = self.out_image.clone();
         let label = format!("Building image ({})", depths.join("/"));
         self.spawn_job(ctx, &label, move || match image::run(&cfg) {
@@ -737,9 +822,22 @@ impl App {
         });
 
         ui.add_space(6.0);
-        if ui.add_enabled(!busy, egui::Button::new(egui::RichText::new("Build image").strong())).clicked() {
-            self.build_image(ctx);
-        }
+        ui.horizontal(|ui| {
+            if ui.add_enabled(!busy, egui::Button::new(egui::RichText::new("Build image").strong())).clicked() {
+                self.build_image(ctx);
+            }
+            ui.separator();
+            if ui.button("Save config…").on_hover_text(
+                "Write these settings to a builds/*.json the `atrium image --config` CLI can run."
+            ).clicked() {
+                self.save_config();
+            }
+            if ui.button("Load config…").on_hover_text(
+                "Open a builds/*.json into the form to review or tweak, then Build."
+            ).clicked() {
+                self.load_config();
+            }
+        });
 
         ui.add_space(6.0);
         ui.collapsing("Advanced", |ui| {
@@ -773,16 +871,29 @@ impl App {
                     .hint_text("pref").desired_width(56.0));
                 ui.add(egui::TextEdit::singleline(&mut self.app_mem_min)
                     .hint_text("min").desired_width(56.0));
-                ui.label(
-                    egui::RichText::new("blank = 2MB/1MB; B&W-only auto-applies the compact default")
-                        .small().weak(),
-                )
-                .on_hover_text(
-                    "The launcher's preferred / minimum memory partition (SIZE -1). \
-                     A compact Mac Plus/SE has only 4 MB total, so 2 MB starves \
-                     System 6 + the launched game.",
-                );
+                // Presets fill pref/min from the measured per-target values.
+                let (cp, cm) = atrium::config::COLOR_APP_MEM_KB;
+                let (bp, bm) = atrium::config::COMPACT_APP_MEM_KB;
+                if ui.small_button("Colour").on_hover_text(
+                    format!("{cp}/{cm} KB — measured 7.x colour peak ~472 KB (GWorld in temp mem)")
+                ).clicked() {
+                    self.app_mem_pref = cp.to_string(); self.app_mem_min = cm.to_string();
+                }
+                if ui.small_button("Compact B&W").on_hover_text(
+                    format!("{bp}/{bm} KB — Mac Plus/SE 6.0.8 1-bit (no GWorld)")
+                ).clicked() {
+                    self.app_mem_pref = bp.to_string(); self.app_mem_min = bm.to_string();
+                }
+                if ui.small_button("Default").on_hover_text(
+                    "Clear — keep the launcher binary's built-in 2 MB / 1 MB"
+                ).clicked() {
+                    self.app_mem_pref.clear(); self.app_mem_min.clear();
+                }
             });
+            ui.label(
+                egui::RichText::new("launcher RAM = the SIZE (-1) partition; blank = 2MB/1MB, or B&W-only auto-applies Compact")
+                    .small().weak(),
+            );
             // Per-depth variants — overridden (and greyed) when B&W-only is set.
             ui.add_enabled_ui(!self.bw_only, |ui| {
                 ui.horizontal(|ui| {
@@ -867,5 +978,55 @@ impl eframe::App for App {
         } else {
             ui.label(&self.status);
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    // The full GUI Save -> JSON -> Load path: fields a user sets must survive the
+    // round-trip through BuildConfig (and stay byte-compatible with the CLI).
+    #[test]
+    fn config_round_trips_through_gui() {
+        let mut a = App::default();
+        a.base_os = "6.0.8".into();
+        a.out_image = "/tmp/out.hda".into();
+        a.launcher = "build/MacAtrium.bin".into();
+        a.dataset = "data/library.jsonl".into();
+        a.disk_size_mb = "120".into();
+        a.sel_mode = 3;
+        a.sel_text = "Action, Puzzle".into();
+        a.bw_only = true; // -> art_depths ["1"]
+        a.app_mem_pref = "512".into();
+        a.app_mem_min = "384".into();
+        a.harvest = vec![HarvestUi {
+            image: "/d.vhd".into(),
+            apps: "/A\n/B".into(),
+            scan: String::new(),
+        }];
+
+        let json = serde_json::to_string(&a.to_config()).unwrap();
+        let cfg: BuildConfig = serde_json::from_str(&json).unwrap();
+        let mut b = App::default();
+        b.apply_config(cfg);
+
+        assert_eq!(b.base_os, "6.0.8");
+        assert_eq!(b.out_image, "/tmp/out.hda");
+        assert_eq!(b.disk_size_mb, "120");
+        assert_eq!(b.sel_mode, 3);
+        assert_eq!(b.sel_text, "Action, Puzzle");
+        assert!(b.bw_only);
+        assert_eq!(b.app_mem_pref, "512");
+        assert_eq!(b.app_mem_min, "384");
+        assert_eq!(b.harvest.len(), 1);
+        assert_eq!(b.harvest[0].apps, "/A\n/B");
+    }
+
+    // No launcher-RAM override -> app_mem_kb is None (keep the binary default).
+    #[test]
+    fn blank_launcher_ram_is_none() {
+        let a = App::default();
+        assert_eq!(a.app_mem_kb(), None);
     }
 }

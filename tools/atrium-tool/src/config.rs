@@ -170,6 +170,12 @@ pub struct BuildConfig {
     pub app_mem_kb: Option<[u32; 2]>,
 }
 
+/// Recommended colour-build (System 7.x) partition in KB: `(preferred, minimum)`.
+/// A 7.x colour build's measured partition peak is ~472 KB — the off-screen GWorld
+/// is allocated from temp memory (`useTempMem`), so it doesn't land here; 1024/768
+/// leaves headroom for a larger library and the GWorld-falls-to-heap fallback.
+pub const COLOR_APP_MEM_KB: (u32, u32) = (1024, 768);
+
 /// The compact B&W (Mac Plus/SE) partition default in KB: `(preferred, minimum)`.
 /// These machines cap at 4 MB total, draw 1-bit direct (no off-screen GWorld) and
 /// load only small 1-bit `.raw` art, so the shell's real peak is a few hundred KB.
@@ -220,6 +226,36 @@ impl BuildConfig {
     /// small partition is opted into explicitly for the compact target.
     pub fn effective_app_mem(&self) -> Option<(u32, u32)> {
         self.app_mem_kb.map(|[p, m]| (p, m.min(p)))
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn app_mem_kb_round_trips_and_clamps() {
+        // The field both the GUI Save/Load and the `atrium image` CLI rely on.
+        let mut c = BuildConfig::default();
+        assert_eq!(c.effective_app_mem(), None); // absent -> launcher default
+
+        c.app_mem_kb = Some([COLOR_APP_MEM_KB.0, COLOR_APP_MEM_KB.1]);
+        let json = serde_json::to_string(&c).unwrap();
+        let back: BuildConfig = serde_json::from_str(&json).unwrap();
+        assert_eq!(back.app_mem_kb, Some([1024, 768]));
+        assert_eq!(back.effective_app_mem(), Some((1024, 768)));
+
+        // minimum is clamped to <= preferred.
+        c.app_mem_kb = Some([512, 999]);
+        assert_eq!(c.effective_app_mem(), Some((512, 512)));
+    }
+
+    #[test]
+    fn omitted_app_mem_kb_deserializes_to_none() {
+        // A legacy config without the field must still load (serde default).
+        let c: BuildConfig =
+            serde_json::from_str(r#"{"out":"o","launcher":"l","dataset":"d"}"#).unwrap();
+        assert_eq!(c.app_mem_kb, None);
     }
 }
 

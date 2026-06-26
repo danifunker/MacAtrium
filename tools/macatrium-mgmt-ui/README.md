@@ -32,10 +32,24 @@ every step. Each action calls the same `atrium` function the CLI does.
 3. **Build** — three essentials up front (base system / launcher / output), an
    optional **content sources** group (MG archive + LaunchBox), and **Build image**
    (`atrium::image`). Everything else — dataset/overrides paths, platform, startup
-   items, **art-depth variants**, art max-px, local art dir, sounds, harvest
-   sources, and the dirs/tools (rb-cli, curl, apps/metadata/images dirs, stage) —
-   lives under **Advanced**. Optional fields are omitted when blank so the CLI
-   defaults apply.
+   items, **art-depth variants**, art max-px, **launcher RAM**, local art dir,
+   sounds, harvest sources, and the dirs/tools (rb-cli, curl, apps/metadata/images
+   dirs, stage) — lives under **Advanced**. Optional fields are omitted when blank
+   so the CLI defaults apply.
+
+   **Save config… / Load config…** (next to Build) round-trip the whole form to a
+   `builds/*.json` — the exact schema `atrium image --config` consumes — so you can
+   build in the GUI then run/version it from the CLI, or open an existing build to
+   tweak.
+
+### Launcher RAM (the `SIZE` partition)
+
+Under Advanced, **launcher RAM KB** sets the preferred / minimum memory partition
+baked into the launcher (`app_mem_kb`). Blank keeps the binary's 2 MB / 1 MB; the
+**Colour** (1024/768) and **Compact B&W** (512/384) presets fill the measured
+per-target values, and the **Mac Plus / SE (B&W only)** toggle auto-applies Compact
+when the fields are blank. Compact machines (4 MB total) are starved by 2 MB, so
+shrinking this is what lets a Mac Plus/SE build leave room for System 6 + the game.
 
 ### Art depths
 

@@ -9,7 +9,7 @@
 //! Today `catalog` is implemented; `pict`, `harvest`, and `image` are scaffolded
 //! stubs that describe their planned behaviour.
 
-use anyhow::Result;
+use anyhow::{Context, Result};
 use atrium::{catalog, enrich, fetch, harvest, icons, image, merge, mg, pict, snd};
 use clap::{Parser, Subcommand};
 use std::path::PathBuf;
@@ -281,6 +281,26 @@ enum Cmd {
         #[arg(long)]
         config: PathBuf,
     },
+
+    /// Inspect or patch the launcher's `'SIZE'` (-1) memory partition — the
+    /// per-config `app_mem_kb` that `atrium image` bakes in. With no `--pref`,
+    /// prints the current preferred/minimum; with `--pref` (and optional `--min`),
+    /// writes a patched launcher (in place, or to `--out`). Handy for measuring a
+    /// build's real peak by trying partition sizes without a full image rebuild.
+    Size {
+        /// Launcher MacBinary to read/patch (e.g. build/MacAtrium.bin).
+        #[arg(long)]
+        launcher: PathBuf,
+        /// Preferred partition size in KB. Omit to just report the current values.
+        #[arg(long)]
+        pref: Option<u32>,
+        /// Minimum partition size in KB (defaults to `--pref`; clamped <= pref).
+        #[arg(long)]
+        min: Option<u32>,
+        /// Write the patched launcher here (default: patch `--launcher` in place).
+        #[arg(long)]
+        out: Option<PathBuf>,
+    },
 }
 
 fn main() -> Result<()> {
@@ -422,6 +442,25 @@ fn main() -> Result<()> {
         }
         Cmd::Image { config } => {
             image::run_from_path(&config)?;
+        }
+        Cmd::Size { launcher, pref, min, out } => {
+            let mut bytes = std::fs::read(&launcher)
+                .with_context(|| format!("reading launcher {}", launcher.display()))?;
+            let (cur_p, cur_m) = atrium::size_rsrc::read_app_mem(&bytes)?;
+            eprintln!(
+                "{}: SIZE (-1) = {} KB preferred / {} KB minimum",
+                launcher.display(),
+                cur_p / 1024,
+                cur_m / 1024
+            );
+            if let Some(p) = pref {
+                let m = min.unwrap_or(p).min(p);
+                atrium::size_rsrc::patch_app_mem(&mut bytes, p * 1024, m * 1024)?;
+                let dst = out.unwrap_or_else(|| launcher.clone());
+                std::fs::write(&dst, &bytes)
+                    .with_context(|| format!("writing {}", dst.display()))?;
+                eprintln!("patched -> {} KB / {} KB  ({})", p, m, dst.display());
+            }
         }
     }
     Ok(())

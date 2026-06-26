@@ -31,6 +31,7 @@ Every push builds + tests; releases publish on `main` / tag pushes.
 | `set` | **done** | CLI upsert of one override record (the colour/mouse "checkbox" + corrections) |
 | `pict` | **done** | PNG/JPEG → PICT at 1/4/8/16-bit (docs/06 Images) |
 | `image` | **done** | Orchestrate a full bootable build end-to-end (retires the bash `assemble.sh`) |
+| `size` | **done** | Inspect or patch the launcher's `'SIZE'` (-1) memory partition (the per-config `app_mem_kb`) |
 
 The pipeline: **`harvest`** (bare stubs from a donor disk) → **`enrich`** (fill
 metadata from LaunchBox) → **`merge`** (manual `overrides.jsonl`: colour/mouse +
@@ -276,3 +277,28 @@ itself is structurally valid (round-trip-decodes, identical layout to the workin
 conversion bug, not an encoder defect; 4-bit's real check awaits a colour-depth
 screen. In production the launcher should load the art variant matching the
 screen depth (docs/06), so a 1-bit screen gets the 1-bit variant.
+
+**Launcher memory partition (`app_mem_kb`).** The launcher ships one binary whose
+`'SIZE'` (-1) resource requests a fixed 2 MB / 1 MB partition — fine on a colour
+Mac II, but it starves a 4 MB Mac Plus/SE. Set `app_mem_kb: [preferred, minimum]`
+(KB) in the build config to bake a smaller partition into the injected launcher at
+build time (the flags — suspend/resume, 32-bit, high-level-event — are preserved).
+Measured/recommended: **`[512, 384]`** for a compact B&W 6.0.8 build (no off-screen
+GWorld on System 6) and **`[1024, 768]`** for a 7.x colour build (its ~472 KB peak
+keeps the GWorld in temp memory). Omit the field to keep the binary's 2 MB / 1 MB.
+
+### `atrium size`
+
+Inspect or patch that `'SIZE'` (-1) partition on a launcher `.bin` directly — handy
+for measuring a build's real peak by trying partition sizes without a full image
+rebuild:
+
+```sh
+atrium size --launcher build/MacAtrium.bin                       # report pref/min
+atrium size --launcher build/MacAtrium.bin --pref 512 --min 384  # patch in place
+atrium size --launcher build/MacAtrium.bin --pref 1024 --out /tmp/colour.bin
+```
+
+`--min` defaults to `--pref` and is clamped `<= pref`. Build the launcher with
+`cmake -DMEM_DEBUG=ON` to get an on-screen partition-usage overlay (used / free /
+temp-free low-water) you can read off a Snow frame while tuning these numbers.
