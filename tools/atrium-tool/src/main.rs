@@ -145,8 +145,8 @@ enum Cmd {
     /// Capture manual data into the overrides overlay (the CLI "checkbox" for the
     /// color/mouse facets LaunchBox lacks, plus corrections). Upserts by id.
     Set {
-        /// Overrides overlay to write (e.g. data/overrides.jsonl).
-        #[arg(long, default_value = "data/overrides.jsonl")]
+        /// Overrides overlay to write (e.g. data/compatibility.jsonl).
+        #[arg(long, default_value = "data/compatibility.jsonl")]
         overlay: PathBuf,
         /// The item id to set.
         #[arg(long)]
@@ -185,7 +185,7 @@ enum Cmd {
         /// Base dataset (e.g. data/library.jsonl).
         #[arg(long)]
         base: PathBuf,
-        /// Overrides overlay (partial records by id, e.g. data/overrides.jsonl).
+        /// Overrides overlay (partial records by id, e.g. data/compatibility.jsonl).
         #[arg(long)]
         overlay: PathBuf,
         /// Output dataset (may equal --base to merge in place).
@@ -329,6 +329,18 @@ enum LibraryCmd {
         release: Option<String>,
         #[arg(long, default_value = "rb-cli")]
         rb_cli: String,
+    },
+
+    /// Move requirement/facet fields (color/mouse/maxDepth/minOS/maxOS/minMem/
+    /// minCPU/arch) out of the library into the compatibility companion; existing
+    /// (hand-verified) compatibility entries win. Run after `mg`/`enrich`.
+    Split {
+        /// The library.jsonl to strip the fields from (rewritten in place).
+        #[arg(long)]
+        library: PathBuf,
+        /// The compatibility.jsonl to merge them into (created if absent).
+        #[arg(long)]
+        compat: PathBuf,
     },
 }
 
@@ -532,6 +544,15 @@ fn main() -> Result<()> {
                         String::new()
                     },
                     out.display()
+                );
+            }
+            LibraryCmd::Split { library, compat } => {
+                let r = atrium::library::split(&library, &compat)?;
+                eprintln!(
+                    "library split: moved facets for {} title(s); compatibility now {} entries -> {}",
+                    r.moved,
+                    r.compat_entries,
+                    compat.display()
                 );
             }
         },

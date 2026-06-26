@@ -20,7 +20,7 @@ every step. Each action calls the same `atrium` function the CLI does.
    `/MacAtrium/metadata/catalog.jsonl`), or **Open** a `data/library.jsonl`. The
    table lists each title; toggle the **Color / B&W** and **Mouse** facets (the two
    LaunchBox can't provide) plus an optional launch **hotkey**, then **Save
-   overrides** (`atrium::merge::set` → `data/overrides.jsonl`).
+   overrides** (`atrium::merge::set` → `data/compatibility.jsonl`).
 2. **Enrich** — fill metadata (gaps-only) from public sources:
    - **LaunchBox** — `Metadata.xml` → year/vendor/genre (`atrium::enrich`), with an
      optional Color/B&W auto-detect.

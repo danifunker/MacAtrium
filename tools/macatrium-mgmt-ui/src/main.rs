@@ -135,7 +135,7 @@ impl Default for App {
             mg_archive: mg::default_archive().display().to_string(),
             image_path: String::new(),
             dataset: "data/library.jsonl".into(),
-            overrides: "data/overrides.jsonl".into(),
+            overrides: "data/compatibility.jsonl".into(),
             rows: Vec::new(),
             status: "Step 1: open a dataset, or pick an .hda and extract its catalog.".into(),
             base_system: String::new(),
@@ -699,9 +699,9 @@ impl App {
             });
         ui.separator();
         ui.horizontal(|ui| {
-            ui.label("overrides:");
+            ui.label("compatibility:");
             ui.add(egui::TextEdit::singleline(&mut self.overrides).desired_width(300.0));
-            if ui.add_enabled(!busy, egui::Button::new("Save overrides")).clicked() {
+            if ui.add_enabled(!busy, egui::Button::new("Save compatibility")).clicked() {
                 self.save_overrides();
             }
         });
@@ -846,7 +846,7 @@ impl App {
         ui.add_space(6.0);
         ui.collapsing("Advanced", |ui| {
             path_row(ui, "dataset:", &mut self.dataset, Pick::File);
-            path_row(ui, "overrides:", &mut self.overrides, Pick::File);
+            path_row(ui, "compatibility:", &mut self.overrides, Pick::File);
             ui.horizontal(|ui| {
                 ui.label("platform:");
                 ui.add(egui::TextEdit::singleline(&mut self.platform).desired_width(160.0));
@@ -964,24 +964,31 @@ impl eframe::App for App {
             ui.selectable_value(&mut self.tab, Tab::Enrich, "2 · Enrich");
             ui.selectable_value(&mut self.tab, Tab::Build, "3 · Build");
         });
-        ui.separator();
 
-        match self.tab {
-            Tab::Library => self.tab_library(ui, &ctx, busy),
-            Tab::Enrich => self.tab_enrich(ui, &ctx, busy),
-            Tab::Build => self.tab_build(ui, &ctx, busy),
-        }
-
-        // Persistent status / progress line at the bottom of every step.
-        ui.separator();
-        if busy {
-            ui.horizontal(|ui| {
-                ui.spinner();
+        // Pin the status/progress line to the bottom, then let the active step's
+        // content fill the rest in a ScrollArea — so long forms (e.g. several
+        // harvest sources) scroll instead of overflowing off-screen.
+        egui::TopBottomPanel::bottom("status").show_inside(ui, |ui| {
+            ui.separator();
+            if busy {
+                ui.horizontal(|ui| {
+                    ui.spinner();
+                    ui.label(&self.status);
+                });
+            } else {
                 ui.label(&self.status);
-            });
-        } else {
-            ui.label(&self.status);
-        }
+            }
+        });
+        egui::CentralPanel::default().show_inside(ui, |ui| {
+            ui.separator();
+            egui::ScrollArea::vertical()
+                .auto_shrink([false, false])
+                .show(ui, |ui| match self.tab {
+                    Tab::Library => self.tab_library(ui, &ctx, busy),
+                    Tab::Enrich => self.tab_enrich(ui, &ctx, busy),
+                    Tab::Build => self.tab_build(ui, &ctx, busy),
+                });
+        });
     }
 }
 

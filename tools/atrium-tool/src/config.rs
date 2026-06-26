@@ -108,8 +108,12 @@ pub struct BuildConfig {
     pub selection: Option<Selection>,
     #[serde(default = "d_startup")]
     pub startup_items: String,
-    /// Manual overrides overlay (applied after enrich).
-    #[serde(default)]
+    /// Compatibility/facets overlay (`data/compatibility.jsonl`) merged over the
+    /// library at build time (overlay wins): color/mouse/maxDepth/minOS/maxOS/
+    /// minMem/minCPU/arch + manual corrections. (The field is still named
+    /// `overrides` internally — the generic overlay mechanism; `compatibility` is
+    /// accepted as the config key.)
+    #[serde(default, alias = "compatibility")]
     pub overrides: Option<PathBuf>,
     /// LaunchBox Metadata.xml — if set, enrich the dataset.
     #[serde(default)]

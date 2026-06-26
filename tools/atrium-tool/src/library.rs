@@ -196,6 +196,104 @@ pub fn scan(rb: &RbCli, disks: &[(String, std::path::PathBuf)], out: &Path, rele
     Ok(report)
 }
 
+/// Per-title requirement/facet fields — these live in `compatibility.jsonl`, not
+/// `library.jsonl` (the latter is identity + descriptive metadata only).
+const REQ_FIELDS: &[&str] = &[
+    "color", "mouse", "maxDepth", "minOS", "maxOS", "minMem", "minCPU", "arch",
+];
+
+const COMPAT_HEADER: &str = "\
+# data/compatibility.jsonl — per-title requirements/facets, keyed by id, applied
+# over the library by `atrium merge` (this overlay wins). Pre-seeded by
+# `atrium library split` (moves these fields out of the enriched library) and
+# hand-editable; hand-verified entries WIN over the seeded ones.
+#   color   true=Color / false=B&W (a facet + colour-detect result)
+#   mouse   true=Mouse Required
+#   maxDepth deepest screen bpp a title tolerates (1/4/8/16/32); launcher caps to it
+#   minOS / maxOS   dotted OS range, e.g. \"6.0.8\"/\"7.5\" (build drops out-of-range)
+#   minMem  minimum RAM in KB (optional; for hardware targeting / preflight)
+#   minCPU  minimum CPU, e.g. \"68000\"/\"68020\"/\"68030\" (optional)
+#   arch    \"68K\" / \"PPC\" / \"BOTH\"
+";
+
+#[derive(Default)]
+pub struct SplitReport {
+    pub moved: usize,
+    pub compat_entries: usize,
+}
+
+/// Parse a JSONL overlay file into id -> object (comments/blank lines skipped).
+fn parse_jsonl_by_id(path: &Path) -> BTreeMap<String, Map<String, Value>> {
+    let mut map = BTreeMap::new();
+    let text = std::fs::read_to_string(path).unwrap_or_default();
+    for line in text.lines() {
+        let t = line.trim();
+        if t.is_empty() || t.starts_with('#') || t.starts_with("//") {
+            continue;
+        }
+        if let Ok(Value::Object(o)) = serde_json::from_str::<Value>(t) {
+            if let Some(id) = o.get("id").and_then(|v| v.as_str()) {
+                map.insert(id.to_string(), o);
+            }
+        }
+    }
+    map
+}
+
+/// Move the [`REQ_FIELDS`] out of `library` into `compat` (merging with existing
+/// compat entries, which WIN — hand-verified data is authoritative), stripping
+/// them from the library. Rewrites both files. Repeatable: after `mg` enrich
+/// re-adds color/mouse to the library, re-running re-extracts them.
+pub fn split(library: &Path, compat: &Path) -> Result<SplitReport> {
+    let mut compat_map = parse_jsonl_by_id(compat);
+    let lib_text =
+        std::fs::read_to_string(library).with_context(|| format!("reading {}", library.display()))?;
+    let mut out = String::new();
+    let mut moved = 0;
+    for line in lib_text.lines() {
+        let t = line.trim();
+        if t.is_empty() || t.starts_with('#') || t.starts_with("//") {
+            out.push_str(line);
+            out.push('\n');
+            continue;
+        }
+        let mut rec: Map<String, Value> = match serde_json::from_str(t) {
+            Ok(Value::Object(o)) => o,
+            _ => {
+                out.push_str(line);
+                out.push('\n');
+                continue;
+            }
+        };
+        let id = rec.get("id").and_then(|v| v.as_str()).unwrap_or_default().to_string();
+        let extracted: Vec<(String, Value)> = REQ_FIELDS
+            .iter()
+            .filter_map(|f| rec.remove(*f).map(|v| ((*f).to_string(), v)))
+            .collect();
+        if !id.is_empty() && !extracted.is_empty() {
+            let entry = compat_map.entry(id.clone()).or_default();
+            if !entry.contains_key("id") {
+                entry.insert("id".into(), Value::from(id));
+            }
+            for (k, v) in extracted {
+                entry.entry(k).or_insert(v); // existing (hand-verified) wins
+            }
+            moved += 1;
+        }
+        out.push_str(&Value::Object(rec).to_string());
+        out.push('\n');
+    }
+    std::fs::write(library, out).with_context(|| format!("writing {}", library.display()))?;
+
+    let mut cbody = String::from(COMPAT_HEADER);
+    for m in compat_map.values() {
+        cbody.push_str(&Value::Object(m.clone()).to_string());
+        cbody.push('\n');
+    }
+    std::fs::write(compat, cbody).with_context(|| format!("writing {}", compat.display()))?;
+    Ok(SplitReport { moved, compat_entries: compat_map.len() })
+}
+
 /// Serialize one title as a `library.jsonl` line (stable key order via the model).
 fn record_line(t: &Title) -> String {
     let mut m = Map::new();
@@ -239,6 +337,37 @@ mod tests {
             pick_launch(&appls, "/Games/1990/Lemmings", "Lemmings"),
             "/Games/1990/Lemmings/Lemmings"
         );
+    }
+
+    #[test]
+    fn split_moves_facets_and_existing_wins() {
+        let dir = std::env::temp_dir();
+        let lib = dir.join("atrium_split_lib.jsonl");
+        let compat = dir.join("atrium_split_compat.jsonl");
+        std::fs::write(
+            &lib,
+            "{\"id\":\"a\",\"name\":\"A\",\"color\":true,\"mouse\":false,\"vendor\":\"X\"}\n\
+             {\"id\":\"b\",\"name\":\"B\"}\n",
+        )
+        .unwrap();
+        // hand-verified: maxDepth 8 + color FALSE must win over the extracted color:true
+        std::fs::write(&compat, "{\"id\":\"a\",\"maxDepth\":8,\"color\":false}\n").unwrap();
+
+        let r = split(&lib, &compat).unwrap();
+        assert_eq!(r.moved, 1); // only "a" had facets
+
+        let lib_out = std::fs::read_to_string(&lib).unwrap();
+        assert!(!lib_out.contains("\"color\""), "color stripped from library");
+        assert!(!lib_out.contains("\"mouse\""), "mouse stripped from library");
+        assert!(lib_out.contains("\"vendor\":\"X\""), "descriptive fields kept");
+
+        let cmap = parse_jsonl_by_id(&compat);
+        let a = &cmap["a"];
+        assert_eq!(a["maxDepth"], 8);
+        assert_eq!(a["color"], false, "hand-verified value wins over extracted");
+        assert_eq!(a["mouse"], false, "new facet added");
+        let _ = std::fs::remove_file(&lib);
+        let _ = std::fs::remove_file(&compat);
     }
 
     #[test]

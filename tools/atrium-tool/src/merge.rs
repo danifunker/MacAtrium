@@ -1,6 +1,6 @@
 //! `atrium merge` — apply a manual overrides overlay onto the dataset.
 //!
-//! The overlay (`data/overrides.jsonl`) holds **manually-captured** data keyed by
+//! The overlay (`data/compatibility.jsonl`) holds **manually-captured** data keyed by
 //! `id`: corrections, the `color`/`mouse` facets LaunchBox doesn't carry, and
 //! whole records for titles `enrich` couldn't match. Overlay fields **win** over
 //! the base (the point of a manual override); `--fill-missing` flips that to
