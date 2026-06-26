@@ -7,8 +7,17 @@
 //! what keeps the CLI and GUI in lock-step (no more re-encoding it as JSON in the
 //! GUI). Serialize is derived too, so either view can write a build back to disk.
 
+use anyhow::{Context, Result};
 use serde::{Deserialize, Serialize};
 use std::path::PathBuf;
+
+/// The prebuilt 68k launcher (`build/MacAtrium.bin`), embedded into this tool at
+/// compile time so an image can be built without compiling it with Retro68. The
+/// CMake launcher build refreshes `assets/MacAtrium.bin` (copy_if_different), so a
+/// rebuild of this crate re-embeds the current launcher. A build can override it
+/// per [`BuildConfig::launcher`].
+pub const EMBEDDED_LAUNCHER: &[u8] =
+    include_bytes!(concat!(env!("CARGO_MANIFEST_DIR"), "/assets/MacAtrium.bin"));
 
 pub fn d_startup() -> String { "/System Folder/Startup Items".into() }
 pub fn d_platform() -> String { "Apple Mac OS".into() }
@@ -82,8 +91,12 @@ pub struct BuildConfig {
     pub base_os: Option<String>,
     /// Output image to produce (overwritten).
     pub out: PathBuf,
-    /// The launcher MacBinary (build/MacAtrium.bin) to install.
-    pub launcher: PathBuf,
+    /// The launcher MacBinary to install. `None` (the default) uses the prebuilt
+    /// launcher embedded in this tool ([`EMBEDDED_LAUNCHER`]), so a user can build
+    /// an image without compiling the 68k launcher with Retro68. Set it to point at
+    /// a freshly-built `build/MacAtrium.bin` to override (e.g. during launcher dev).
+    #[serde(default)]
+    pub launcher: Option<PathBuf>,
     /// Curated dataset (copied; never mutated by the build).
     pub dataset: PathBuf,
     /// Final image size in MB; the image is grown/kept to fit. Capped at
@@ -227,6 +240,17 @@ impl BuildConfig {
     pub fn effective_app_mem(&self) -> Option<(u32, u32)> {
         self.app_mem_kb.map(|[p, m]| (p, m.min(p)))
     }
+
+    /// The launcher MacBinary bytes to install: the file at [`Self::launcher`] if
+    /// set, otherwise the [`EMBEDDED_LAUNCHER`] baked into this tool — so a build
+    /// needs no Retro68. (The bytes are patched — name, bundle bit, `SIZE` — before
+    /// injection, so the embedded copy is never mutated.)
+    pub fn launcher_bytes(&self) -> Result<Vec<u8>> {
+        match &self.launcher {
+            Some(p) => std::fs::read(p).with_context(|| format!("reading launcher {}", p.display())),
+            None => Ok(EMBEDDED_LAUNCHER.to_vec()),
+        }
+    }
 }
 
 #[cfg(test)]
@@ -254,8 +278,24 @@ mod tests {
     fn omitted_app_mem_kb_deserializes_to_none() {
         // A legacy config without the field must still load (serde default).
         let c: BuildConfig =
-            serde_json::from_str(r#"{"out":"o","launcher":"l","dataset":"d"}"#).unwrap();
+            serde_json::from_str(r#"{"out":"o","dataset":"d"}"#).unwrap();
         assert_eq!(c.app_mem_kb, None);
+        assert_eq!(c.launcher, None); // launcher is optional too -> embedded
+    }
+
+    #[test]
+    fn embedded_launcher_is_a_valid_macbinary() {
+        // The prebuilt launcher baked in via include_bytes! must be a real
+        // MacBinary the injector can read + patch (else users get a broken image).
+        assert!(EMBEDDED_LAUNCHER.len() > 128, "embedded launcher too small");
+        let (pref, min) = crate::size_rsrc::read_app_mem(EMBEDDED_LAUNCHER).unwrap();
+        assert!(pref >= min && pref > 0, "embedded SIZE looks wrong: {pref}/{min}");
+    }
+
+    #[test]
+    fn launcher_bytes_defaults_to_embedded() {
+        let c = BuildConfig::default(); // launcher: None
+        assert_eq!(c.launcher_bytes().unwrap(), EMBEDDED_LAUNCHER);
     }
 }
 
@@ -265,7 +305,7 @@ impl Default for BuildConfig {
             system: None,
             base_os: None,
             out: PathBuf::new(),
-            launcher: PathBuf::new(),
+            launcher: None,
             dataset: PathBuf::new(),
             disk_size_mb: None,
             selection: None,

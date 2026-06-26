@@ -48,8 +48,7 @@ fn apply_app_mem(cfg: &BuildConfig, bytes: &mut [u8]) {
 /// System-6 boot launches it as the shell. Patches the MacBinary internal name to
 /// "Finder", injects it (overwriting the real Finder), and retypes it.
 fn install_as_finder(rb: &RbCli, cfg: &BuildConfig, stage: &Path) -> Result<()> {
-    let mut bytes = std::fs::read(&cfg.launcher)
-        .with_context(|| format!("reading launcher {}", cfg.launcher.display()))?;
+    let mut bytes = cfg.launcher_bytes()?;
     anyhow::ensure!(bytes.len() > 128, "launcher .bin too small to be MacBinary");
     let name = b"Finder";
     bytes[1] = name.len() as u8;            // MacBinary filename length
@@ -582,8 +581,7 @@ pub fn run(cfg: &BuildConfig) -> Result<()> {
         rb.mkdir_p(&cfg.out, &cfg.startup_items)?;
         // Set the bundle bit so the Finder shows the app's real icon (it's a
         // browsable app here, unlike the finder_replace appliance).
-        let mut bytes = std::fs::read(&cfg.launcher)
-            .with_context(|| format!("reading launcher {}", cfg.launcher.display()))?;
+        let mut bytes = cfg.launcher_bytes()?;
         anyhow::ensure!(bytes.len() > 128, "launcher .bin too small to be MacBinary");
         set_bundle_bit(&mut bytes);
         apply_app_mem(&cfg, &mut bytes);
