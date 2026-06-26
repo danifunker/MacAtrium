@@ -32,6 +32,8 @@ Every push builds + tests; releases publish on `main` / tag pushes.
 | `pict` | **done** | PNG/JPEG → PICT at 1/4/8/16-bit (docs/06 Images) |
 | `image` | **done** | Orchestrate a full bootable build end-to-end (retires the bash `assemble.sh`) |
 | `size` | **done** | Inspect or patch the launcher's `'SIZE'` (-1) memory partition (the per-config `app_mem_kb`) |
+| `library` | **done** | Library Builder: `scan` the MacPack → `library.jsonl`; `split` requirement/facet fields into `compatibility.jsonl` |
+| `config` | **done** | View/set machine-local settings (`~/.macatrium.json`): `macpack_dir`, `mg_archive`, `rb_cli`, `cache_dir` |
 
 The pipeline: **`harvest`** (bare stubs from a donor disk) → **`enrich`** (fill
 metadata from LaunchBox) → **`merge`** (manual `overrides.jsonl`: colour/mouse +

@@ -315,10 +315,11 @@ pub fn run(cfg: &BuildConfig) -> Result<()> {
 
     // Machine-local settings (~/.macatrium.json): the MacPack folder lets the
     // donor resolver find disks referenced by filename (e.g. boot.vhd) that aren't
-    // donors.json aliases.
+    // donors.json aliases; `rb_cli` lets the tool path be configured once here
+    // rather than baked into every (portable) build config.
     let settings = crate::settings::Settings::load_default();
 
-    let rb = RbCli::new(&cfg.rb_cli);
+    let rb = RbCli::new(settings.rb_cli.as_deref().unwrap_or(&cfg.rb_cli));
     let stage = cfg
         .stage
         .clone()
