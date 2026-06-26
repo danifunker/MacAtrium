@@ -151,10 +151,14 @@ pub fn scan(rb: &RbCli, disks: &[(String, std::path::PathBuf)], out: &Path, rele
                     report.dupes += 1;
                     continue;
                 }
-                let (year, genre) = if root.year_dirs {
-                    (parse_year(&a), Vec::new())
-                } else {
-                    (None, vec![a]) // category folder => one (non-exclusive) genre tag
+                // kind is the single exclusive bucket; the first path segment is a
+                // multi-valued (non-exclusive) tag UNLESS it's a Games <year>, which
+                // becomes the `year`. Non-year Games groups ("01 Sys 6", "WIP" on the
+                // Supplement disk — an OS/era grouping) are kept as metadata tags
+                // rather than dropped.
+                let (year, genre) = match (root.year_dirs, parse_year(&a)) {
+                    (true, Some(y)) => (Some(y), Vec::new()),
+                    _ => (None, vec![a]),
                 };
                 let appl = pick_launch(&appls, &title_path, &name);
                 let appl_rel = appl
