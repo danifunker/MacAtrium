@@ -1,4 +1,23 @@
-# Resume — rebuild the MacAtrium Management UI around *jobs*, not pipeline stages
+# Resume — MacAtrium Management UI, job-based rebuild
+
+## STATUS 2026-06-26 — the rebuild is BUILT (shell + most jobs). What's left:
+
+- **Add-to-disk inject backend** — the screen (disk picker + title picker) is
+  scaffolded but the "Add to disk" button is disabled. Implement the inject:
+  `selection::harvest_plan` → `harvest::run(.., into: Some(disk), append_to: stub)`
+  for the MacPack donors → regenerate the on-disk catalog (`catalog::run` +
+  `catalog::inject`). Best done as a new `atrium image`-side controller fn
+  (e.g. `image::add_to_disk(&AddConfig)`) so the CLI gets it too (MVC/DRY).
+- **Genre/tag filters + box-art thumbnails** in the title picker (`egui_extras`
+  image loaders); `LibRow` dropped `genre`/`vendor` — re-add when the filter lands.
+- **OS-migration mode** — load a built disk, retarget to a newer OS, scrub
+  incompatible titles via `maxOS`.
+- **Verify the GUI visually** (Snow / on a display) — the headless box can't.
+
+Everything below is the original plan; steps 0–4 are DONE, 5–6 partial. Commits:
+`tooling: build Targets…`, `mgmt-ui: rebuild around jobs…`, `deps: upgrade…`.
+
+---
 
 Paste into a fresh session. **Goal: re-architect the egui Management UI
 (`tools/macatrium-mgmt-ui`) from the current pipeline-stage tabs
@@ -88,22 +107,23 @@ let the user add/edit in Settings (persist to `~/.macatrium.json`). Decide:
 targets registry as a `data/targets.json` (like `templates.json`/`donors.json`,
 bundled via `include_bytes!`) **plus** user overrides in settings — recommended.
 
-## Suggested build order (keep the GUI compiling/working between steps)
+## Build order (keep the GUI compiling/working between steps)
 
-0. **Targets/Templates model** — `targets.rs` (registry + bundled defaults), extend
-   `Settings` with user targets; a `Target::apply_to(&mut BuildConfig)`.
-1. **Settings screen + first-run wizard** — detect `rb-cli` (PATH), prompt for
-   MacPack + MG-Archive folders; save to `~/.macatrium.json`. Surface Targets/Templates.
-2. **Restructure tabs → jobs**: Build / Add-to-disk / Library / Attain / Settings.
-   Keep `to_config`/`apply_config` as the controller.
-3. **Build screen** — Target combo → title picker (filter the ~1489-title bundled
-   library by kind/genre/search) → output. Hide donor/dir plumbing into Settings.
-4. **Library screen** — browse/edit titles + compatibility facets; Load Existing
-   MacAtrium Disk imports its catalog.
-5. **Add-to-disk** — pick an existing output `.hda` → pick titles → inject (maps to
-   harvest-into-existing + catalog regen; needs a build path that targets an
-   existing disk, cf. `atrium image` finder_replace/startup-items).
-6. **Attain** — set `macpack_dir`; MG downloader (`atrium fetch`, gated on MG-Archive).
+0. ✅ **Targets/Templates model** — `targets.rs` (registry + bundled defaults +
+   user targets in `Settings`); `Target::apply_to(&mut BuildConfig)`; CLI `targets`.
+1. ✅ **Settings screen + first-run wizard** — `rb-cli` detect, MacPack/MG-Archive
+   folders → `~/.macatrium.json`; Targets editor + read-only Templates list.
+2. ✅ **Restructure tabs → jobs**: Build / Add-to-disk / Library / Attain / Settings.
+   `to_config`/`apply_config` kept verbatim as the controller.
+3. ✅ **Build screen** — Target combo → virtualised/searchable/kind-filtered title
+   picker over the bundled ~1489 titles → output. Plumbing behind Advanced.
+4. ✅ **Library screen** — browse (library ⊕ compat) + edit facets; Load Existing
+   MacAtrium Disk imports its catalog. (genre filter + box art still pending.)
+5. ⏳ **Add-to-disk** — pick an existing output `.hda` → pick titles → inject. UI
+   scaffolded; **inject backend is the next task** (harvest-into-existing + catalog
+   regen — see STATUS at the top; design it as an `atrium` controller fn).
+6. ◑ **Attain** — `macpack_dir` register (done); MG downloader caches the *selected*
+   titles into the cache (`fetch::run` with `into:None`), gated on MG-Archive.
 
 ## Open design questions to settle as you go
 
