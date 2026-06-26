@@ -4,8 +4,10 @@
 //! or rb-cli path is specific to one machine. The build reads `macpack_dir` to
 //! resolve donor disks referenced by their original filename (e.g. `boot.vhd`).
 
+use crate::targets::Target;
 use anyhow::{Context, Result};
 use serde::{Deserialize, Serialize};
+use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 
 #[derive(Deserialize, Serialize, Clone, Default, Debug)]
@@ -22,6 +24,11 @@ pub struct Settings {
     /// Download / work cache dir.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub cache_dir: Option<PathBuf>,
+    /// User-defined build [Targets](crate::targets), keyed by display name. These
+    /// overlay the bundled defaults (a user target wins on a name collision) — see
+    /// [`targets::Registry::load_default`](crate::targets::Registry::load_default).
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    pub targets: BTreeMap<String, Target>,
 }
 
 impl Settings {
