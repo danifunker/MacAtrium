@@ -9,9 +9,8 @@ name = "macatrium-mgmt-ui"
 path = "src/main.rs"
 
 [dependencies]
-eframe = "0.34"
-rfd = "0.15"
-anyhow = "1"
+eframe = "0.35"
+rfd = "0.17"
 serde_json = { version = "1", features = ["preserve_order"] }
 # The CLI's logic, reused verbatim — every action the GUI takes is an atrium call.
 atrium = { path = "../atrium-tool" }

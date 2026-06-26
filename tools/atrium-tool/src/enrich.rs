@@ -209,7 +209,7 @@ fn parse_games(path: &Path, platform: &str) -> Result<Vec<LbGame>> {
             }
             Event::Text(e) if in_game => {
                 if let Some(f) = cur {
-                    acc.entry(f).or_default().push_str(&e.xml_content()?);
+                    acc.entry(f).or_default().push_str(&e.xml10_content()?);
                 }
             }
             Event::End(e) => {
@@ -302,7 +302,7 @@ fn parse_images(path: &Path, wanted: &HashSet<String>) -> Result<HashMap<String,
             },
             Event::Text(e) if in_img => {
                 if let Some(f) = cur {
-                    acc.entry(f).or_default().push_str(&e.xml_content()?);
+                    acc.entry(f).or_default().push_str(&e.xml10_content()?);
                 }
             }
             Event::End(e) => {
