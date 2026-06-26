@@ -12,6 +12,7 @@ pub mod fetch;
 pub mod harvest;
 pub mod icons;
 pub mod image;
+pub mod library;
 pub mod macroman;
 pub mod merge;
 pub mod mg;

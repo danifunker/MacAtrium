@@ -301,6 +301,35 @@ enum Cmd {
         #[arg(long)]
         out: Option<PathBuf>,
     },
+
+    /// Library Builder: (re)generate the curated library from source disks.
+    Library {
+        #[command(subcommand)]
+        action: LibraryCmd,
+    },
+}
+
+#[derive(Subcommand)]
+enum LibraryCmd {
+    /// Scan donor disks (the MacPack) and emit a comprehensive `library.jsonl` —
+    /// one record per title (id/name/kind/year/genre/app/harvest_src), no copying.
+    Scan {
+        /// Folder holding the donor disks (e.g. the unzipped MacPack).
+        #[arg(long)]
+        macpack: PathBuf,
+        /// Donor disk filename(s) within --macpack to scan; absolute paths allowed.
+        /// Default: boot.vhd + Supplement.vhd.
+        #[arg(long = "disk")]
+        disks: Vec<String>,
+        /// Output library.jsonl.
+        #[arg(long)]
+        out: PathBuf,
+        /// MacPack release tag recorded in the header (e.g. 20240825-RC1).
+        #[arg(long)]
+        release: Option<String>,
+        #[arg(long, default_value = "rb-cli")]
+        rb_cli: String,
+    },
 }
 
 fn main() -> Result<()> {
@@ -462,6 +491,50 @@ fn main() -> Result<()> {
                 eprintln!("patched -> {} KB / {} KB  ({})", p, m, dst.display());
             }
         }
+        Cmd::Library { action } => match action {
+            LibraryCmd::Scan { macpack, disks, out, release, rb_cli } => {
+                let rb = atrium::rbcli::RbCli::new(&rb_cli);
+                let names = if disks.is_empty() {
+                    vec!["boot.vhd".to_string(), "Supplement.vhd".to_string()]
+                } else {
+                    disks
+                };
+                let resolved: Vec<(String, PathBuf)> = names
+                    .into_iter()
+                    .map(|n| {
+                        let pb = PathBuf::from(&n);
+                        let p = if pb.is_absolute() { pb } else { macpack.join(&n) };
+                        (n, p)
+                    })
+                    .filter(|(n, p)| {
+                        let ok = p.exists();
+                        if !ok {
+                            eprintln!("  skip donor (not found): {n}");
+                        }
+                        ok
+                    })
+                    .collect();
+                anyhow::ensure!(
+                    !resolved.is_empty(),
+                    "no donor disks found in {}",
+                    macpack.display()
+                );
+                for (n, _) in &resolved {
+                    eprintln!("  scanning donor: {n}");
+                }
+                let report = atrium::library::scan(&rb, &resolved, &out, release.as_deref())?;
+                eprintln!(
+                    "library scan: {} title(s){} -> {}",
+                    report.titles,
+                    if report.dupes > 0 {
+                        format!(" ({} duplicate id(s) skipped)", report.dupes)
+                    } else {
+                        String::new()
+                    },
+                    out.display()
+                );
+            }
+        },
     }
     Ok(())
 }
