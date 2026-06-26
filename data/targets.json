@@ -1,0 +1,14 @@
+{
+  "Mac Plus / SE — System 6.0.8 (B&W)": {
+    "base_os": "6.0.8",
+    "art_depths": ["1"],
+    "app_mem_kb": [512, 384],
+    "label": "1-bit black & white for a compact Mac (Plus/SE/Classic, ≤4 MB). Smallest image; no Color QuickDraw needed."
+  },
+  "Macintosh LC / II — System 7.1 (Colour)": {
+    "base_os": "7.1",
+    "art_depths": ["1", "8"],
+    "app_mem_kb": [1024, 768],
+    "label": "256-colour build with a 1-bit art fallback. For a colour-capable 68k Mac."
+  }
+}

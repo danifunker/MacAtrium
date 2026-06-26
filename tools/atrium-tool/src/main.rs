@@ -308,6 +308,11 @@ enum Cmd {
         action: LibraryCmd,
     },
 
+    /// List the build Targets — named profiles (base OS + art depths + launcher
+    /// RAM + disk size) the GUI's Target picker and a build select. Shows the
+    /// bundled defaults overlaid with any user targets from ~/.macatrium.json.
+    Targets,
+
     /// View or update the user settings (~/.macatrium.json): machine-local source
     /// locations + tool paths. With no flags, prints the current settings.
     Config {
@@ -573,6 +578,21 @@ fn main() -> Result<()> {
                 );
             }
         },
+        Cmd::Targets => {
+            let reg = atrium::targets::Registry::load_default();
+            let bundled = atrium::targets::Registry::bundled();
+            eprintln!("targets ({} total):", reg.0.len());
+            for (name, t) in &reg.0 {
+                let origin = if bundled.get(name) == Some(t) { "bundled" } else { "user" };
+                let depths = if t.art_depths.is_empty() { "-".into() } else { t.art_depths.join("/") };
+                let mem = t.app_mem_kb.map(|[p, m]| format!("{p}/{m} KB")).unwrap_or_else(|| "default".into());
+                eprintln!("  {name}  [{origin}]");
+                eprintln!("      base OS {}  ·  art {depths}  ·  RAM {mem}", t.base_os);
+                if !t.label.is_empty() {
+                    eprintln!("      {}", t.label);
+                }
+            }
+        }
         Cmd::Config { macpack_dir, mg_archive, rb_cli, cache_dir } => {
             use atrium::settings::{default_path, Settings};
             let path = default_path();

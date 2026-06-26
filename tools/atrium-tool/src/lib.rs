@@ -23,4 +23,5 @@ pub mod selection;
 pub mod settings;
 pub mod size_rsrc;
 pub mod snd;
+pub mod targets;
 pub mod templates;
