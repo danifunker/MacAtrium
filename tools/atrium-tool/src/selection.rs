@@ -148,15 +148,34 @@ pub fn resolve(
     Ok((chosen.iter().map(|r| r.id.clone()).collect(), missing))
 }
 
+/// Resolve a `harvest_src.donor` reference to a disk-image path: a `donors.json`
+/// alias first (e.g. "pop"/"supplement" — the curated overlay), else a disk
+/// *filename* (e.g. "boot.vhd" — what `library scan` records) found under the
+/// configured MacPack folder. `None` if neither resolves.
+fn resolve_donor(donor: &str, donors: &Donors, macpack_dir: Option<&Path>) -> Option<PathBuf> {
+    if let Some(p) = donors.get(donor) {
+        return Some(p.clone());
+    }
+    if let Some(dir) = macpack_dir {
+        let p = dir.join(donor);
+        if p.exists() {
+            return Some(p);
+        }
+    }
+    None
+}
+
 /// Turn a selection into a per-donor harvest list: each entry is a donor disk
 /// image and the app paths to pull from it. Selected apps with no `source`, or a
-/// `source` whose donor key isn't in the registry, are returned in `unresolved`
-/// (by id) so the caller can warn rather than silently skip.
+/// `source` whose donor neither matches a registry alias nor a disk in the
+/// MacPack folder, are returned in `unresolved` (by id) so the caller can warn
+/// rather than silently skip.
 pub fn harvest_plan(
     dataset: &Path,
     sel: &Selection,
     base_os: Option<&str>,
     donors: &Donors,
+    macpack_dir: Option<&Path>,
 ) -> Result<(Vec<(PathBuf, Vec<String>)>, Vec<String>)> {
     let rows = rows(dataset)?;
     let (chosen, _missing) = select_rows(&rows, sel, base_os);
@@ -164,12 +183,37 @@ pub fn harvest_plan(
     let mut unresolved = Vec::new();
     for r in chosen {
         match &r.source {
-            Some((donor, path)) => match donors.get(donor) {
-                Some(img) => groups.entry(img.clone()).or_default().push(path.clone()),
+            Some((donor, path)) => match resolve_donor(donor, donors, macpack_dir) {
+                Some(img) => groups.entry(img).or_default().push(path.clone()),
                 None => unresolved.push(r.id.clone()),
             },
             None => unresolved.push(r.id.clone()),
         }
     }
     Ok((groups.into_iter().collect(), unresolved))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::donors::Registry;
+
+    #[test]
+    fn donor_resolves_alias_then_filename() {
+        let mut reg = Registry::default();
+        reg.0.insert("pop".into(), PathBuf::from("/disks/pop.hda"));
+        // registry alias wins
+        assert_eq!(resolve_donor("pop", &reg, None), Some(PathBuf::from("/disks/pop.hda")));
+        // filename donor resolves under the MacPack folder (must exist)
+        let dir = std::env::temp_dir();
+        let f = dir.join("atrium_donor_boot.vhd");
+        std::fs::write(&f, b"x").unwrap();
+        assert_eq!(
+            resolve_donor("atrium_donor_boot.vhd", &reg, Some(&dir)),
+            Some(f.clone())
+        );
+        // unknown alias + missing file -> None
+        assert_eq!(resolve_donor("nope.vhd", &reg, Some(&dir)), None);
+        let _ = std::fs::remove_file(&f);
+    }
 }
