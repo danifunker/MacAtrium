@@ -100,20 +100,24 @@ fn folder_name(title: &str) -> String {
     s.chars().take(31).collect::<String>().trim().to_string()
 }
 
-/// Download `url` → `dest` via curl (resumable, generous timeout for big files).
-fn download(url: &str, dest: &Path, curl: &str) -> Result<()> {
+/// Download `url` → `dest` over HTTP (native Rust `ureq`/rustls — no external curl
+/// dependency). Streams to disk; skips if already cached.
+fn download(url: &str, dest: &Path) -> Result<()> {
     if dest.is_file() && std::fs::metadata(dest).map(|m| m.len()).unwrap_or(0) > 0 {
         return Ok(()); // already cached
     }
     if let Some(parent) = dest.parent() {
         std::fs::create_dir_all(parent)?;
     }
-    let dst = dest.to_string_lossy();
-    let status = std::process::Command::new(curl)
-        .args(["-sL", "--fail", "-A", USER_AGENT, "--max-time", "600", "-o", &dst, url])
-        .status()
-        .with_context(|| format!("running {curl}"))?;
-    anyhow::ensure!(status.success(), "curl failed for {url}");
+    let response = ureq::get(url)
+        .header("User-Agent", USER_AGENT)
+        .call()
+        .map_err(|e| anyhow::anyhow!("GET {url}: {e}"))?;
+    let mut reader = response.into_body().into_reader();
+    let mut file =
+        std::fs::File::create(dest).with_context(|| format!("creating {}", dest.display()))?;
+    std::io::copy(&mut reader, &mut file).with_context(|| format!("downloading {url}"))?;
+    drop(file);
     anyhow::ensure!(
         std::fs::metadata(dest).map(|m| m.len()).unwrap_or(0) > 0,
         "empty download for {url}"
@@ -170,7 +174,7 @@ pub fn run(
     apps_root: &str,
     append_to: Option<&Path>,
     rb_cli: &str,
-    curl: &str,
+    _curl: &str, // vestigial: downloads now use ureq (removed in the UI pass)
     stage: Option<&Path>,
 ) -> Result<()> {
     let dl_root = downloads
@@ -217,7 +221,7 @@ pub fn run(
         // Download from the static mirror into the (uncommitted) cache.
         let url = format!("{MIRROR}/{kind_dir}/{}", urlencode(&filename));
         let dest = dl_root.join(kind_dir).join(nid.to_string()).join(&filename);
-        if let Err(e) = download(&url, &dest, curl) {
+        if let Err(e) = download(&url, &dest) {
             eprintln!("  skip [{nid}] {title}: download failed: {e}");
             skipped += 1;
             continue;

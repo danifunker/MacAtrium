@@ -467,14 +467,14 @@ pub fn run(cfg: &BuildConfig) -> Result<()> {
                 if let Some(url) = v.get("art").and_then(Value::as_str) {
                     let ext = url.rsplit('.').next().filter(|e| e.len() <= 4).unwrap_or("img");
                     let dst = dl_dir.join(format!("{id}.{ext}"));
-                    if enrich::download(url, &dst, &cfg.curl).is_ok() {
+                    if enrich::download(url, &dst).is_ok() {
                         downloaded.insert(id.to_string(), dst);
                     }
                 }
                 if let Some(url) = v.get("shot").and_then(Value::as_str) {
                     let ext = url.rsplit('.').next().filter(|e| e.len() <= 4).unwrap_or("img");
                     let dst = dl_dir.join(format!("{id}.shot.{ext}"));
-                    if enrich::download(url, &dst, &cfg.curl).is_ok() {
+                    if enrich::download(url, &dst).is_ok() {
                         downloaded_shot.insert(id.to_string(), dst);
                     }
                 }
