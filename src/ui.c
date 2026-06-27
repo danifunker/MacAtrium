@@ -948,9 +948,16 @@ void ui_draw(Ui *u)
     }
 
     render_begin(u->r, u->win);
-    /* A mode change (overlay opened/closed/switched) needs one full repaint so
-     * the previous panel is cleared before the new view draws. */
-    if (u->mode != u->lastMode) { u->bgValid = 0; u->lastMode = u->mode; }
+    /* On a mode change, force one carousel repaint only when leaving a view that
+     * drew *over* the carousel (an overlay panel or a full-screen card) so that
+     * panel gets erased. Opening an overlay from the clean LIST/SAFE carousel
+     * needs none: the carousel is already in the GWorld, so the panel just
+     * composites on top — no needless re-decode of every icon + the cover. */
+    if (u->mode != u->lastMode) {
+        if (u->lastMode != UI_MODE_LIST)   /* LIST = clean carousel or safe screen */
+            u->bgValid = 0;
+        u->lastMode = u->mode;
+    }
     if (u->mode == UI_MODE_PREVIEW) {
         draw_preview(u);
         u->bgValid = 0;                 /* full-screen view -> carousel not in GWorld */
@@ -1332,7 +1339,9 @@ UiCommand ui_key(Ui *u, char ch)
                 model_type_ahead(u->m, ch);
             break;
     }
-    ui_draw(u);
+    /* Launching hands off to the game and tears down the launcher window, so the
+     * pre-launch repaint was a wasted full-screen blit the user saw flash by. */
+    if (cmd != UI_LAUNCH) ui_draw(u);
     return cmd;
 }
 
