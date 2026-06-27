@@ -240,34 +240,14 @@ static int load_index(void)
     return gNrefs > 0;
 }
 
-/* A brief "Loading <name>..." notice while a category page reads + parses (the
- * page render overwrites it as soon as the load finishes). */
-static void show_loading(const char *name)
-{
-    Rect  b  = gWin->portRect;
-    short cx = (short)((b.left + b.right) / 2);
-    short cy = (short)((b.top + b.bottom) / 2);
-    char  msg[80];
-    Rect  box;
-    short w;
-
-    strcpy(msg, "Loading ");
-    strncat(msg, name, sizeof msg - strlen(msg) - 5);
-    strcat(msg, "...");
-
-    SetRect(&box, (short)(cx - 170), (short)(cy - 24), (short)(cx + 170), (short)(cy + 24));
-    render_begin(&gRender, gWin);
-    render_fill(&gRender, &box, FILL_PANEL);
-    render_frame(&gRender, &box);
-    render_text_size(&gRender, 12);
-    w = render_text_width(&gRender, msg);
-    render_text(&gRender, (short)(cx - w / 2), (short)(cy + 4), msg, INK_NORMAL);
-    render_end(&gRender, gWin);
-}
-
 /* The model's PageLoader: read cats/<slug>.jsonl for category `catIdx` into gCat
  * (the one resident page) and install it via model_set_page. gCat.items is
- * allocated once at MAX_CAT_ITEMS and reused for every page. */
+ * allocated once at MAX_CAT_ITEMS and reused for every page.
+ *
+ * Loads synchronously with no "Loading…" notice: a page is one small file
+ * (≤ MAX_CAT_ITEMS records) so the read+parse is quick, and the notice was a
+ * second full-screen blit per category change — a visible flash before the page
+ * appeared. The next ui_draw paints the new page in one pass. */
 static int load_page(Model *m, int catIdx)
 {
     FSSpec      spec;
@@ -275,8 +255,6 @@ static int load_page(Model *m, int catIdx)
     long        len;
     char        path[80];
     const char *slug = m->cats[catIdx].slug;
-
-    show_loading(m->cats[catIdx].name);
 
     if (!gCat.items) {
         gCat.items = (CatItem *)NewPtr((Size)MAX_CAT_ITEMS * sizeof(CatItem));
