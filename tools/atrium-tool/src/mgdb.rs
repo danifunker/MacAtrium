@@ -51,6 +51,12 @@ pub struct Entry {
     pub arch: Vec<String>,
     pub categories: Vec<String>,
     pub perspective: Vec<String>,
+    /// Plain-text description (MG's HTML, stripped).
+    pub desc: String,
+    /// Publisher (or author) for the detail line.
+    pub developer: Option<String>,
+    /// The MG page slug (e.g. `games/dark-castle`) → [`Entry::page_url`].
+    pub url_alias: Option<String>,
     /// Colour (true) / B&W (false): curated (`compatibility.jsonl`) wins, else the
     /// offline screenshot-detect cache, else `None` (unknown).
     pub color: Option<bool>,
@@ -109,6 +115,20 @@ impl Entry {
         self.screenshots.iter().filter(|f| !is_box(f)).find_map(on_disk)
             .or_else(|| self.screenshots.iter().find_map(on_disk))
     }
+
+    /// Every screenshot/box image for this title that is actually on disk, in the
+    /// metadata's order — for a detail view's image carousel.
+    pub fn image_paths(&self, archive: &Path) -> Vec<PathBuf> {
+        let dir = archive.join(self.kind.dir()).join(self.nid.to_string());
+        self.screenshots.iter().map(|f| dir.join(f)).filter(|p| p.is_file()).collect()
+    }
+
+    /// The title's Macintosh Garden web page, from its `url_alias`.
+    pub fn page_url(&self) -> Option<String> {
+        self.url_alias
+            .as_ref()
+            .map(|a| format!("https://macintoshgarden.org/{}", a.trim_start_matches('/')))
+    }
 }
 
 fn arr_str(v: &Value, k: &str) -> Vec<String> {
@@ -116,6 +136,15 @@ fn arr_str(v: &Value, k: &str) -> Vec<String> {
         .and_then(Value::as_array)
         .map(|a| a.iter().filter_map(Value::as_str).map(str::to_string).collect())
         .unwrap_or_default()
+}
+
+/// First string of an array-or-string field (MG `publisher`/`author` are arrays).
+fn first_str(v: &Value, k: &str) -> Option<String> {
+    match v.get(k) {
+        Some(Value::Array(a)) => a.iter().find_map(Value::as_str).map(str::to_string),
+        Some(Value::String(s)) => Some(s.clone()),
+        _ => None,
+    }
 }
 
 /// First 4-digit year in a string field (MG years are strings, sometimes ranges).
@@ -236,6 +265,9 @@ fn parse_ndjson(path: &Path, key: &str, kind: Kind, out: &mut Vec<Entry>) -> Res
             arch: arr_str(g, "architecture"),
             categories,
             perspective: arr_str(g, "perspective"),
+            desc: g.get("description").and_then(Value::as_str).map(crate::mg::strip_html).unwrap_or_default(),
+            developer: first_str(g, "publisher").or_else(|| first_str(g, "author")),
+            url_alias: g.get("url_alias").and_then(Value::as_str).map(str::to_string),
             color: None,
             mouse: None,
             in_macpack: false,
@@ -410,6 +442,9 @@ mod tests {
             arch: arch.iter().map(|s| s.to_string()).collect(),
             categories: cats.iter().map(|s| s.to_string()).collect(),
             perspective: vec![],
+            desc: String::new(),
+            developer: None,
+            url_alias: None,
             color: None,
             mouse: None,
             in_macpack: false,
