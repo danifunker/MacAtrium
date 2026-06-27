@@ -89,19 +89,27 @@ fn ver_cmp(a: &str, b: &str) -> std::cmp::Ordering {
     }
 }
 
-fn os_ok(row: &Row, base_os: Option<&str>) -> bool {
-    let Some(os) = base_os else { return true };
-    if let Some(min) = &row.min_os {
+/// Whether a dotted OS version `os` (e.g. "7.5") falls within an optional
+/// `[min, max]` range (either bound absent = open on that side). The OS-scope
+/// test a build applies — exposed so a view (the GUI's OS-migration scrub) can
+/// drop titles a target OS is outside of, the same way the build does.
+pub fn os_in_range(os: &str, min: Option<&str>, max: Option<&str>) -> bool {
+    if let Some(min) = min {
         if ver_cmp(os, min) == std::cmp::Ordering::Less {
             return false;
         }
     }
-    if let Some(max) = &row.max_os {
+    if let Some(max) = max {
         if ver_cmp(os, max) == std::cmp::Ordering::Greater {
             return false;
         }
     }
     true
+}
+
+fn os_ok(row: &Row, base_os: Option<&str>) -> bool {
+    let Some(os) = base_os else { return true };
+    os_in_range(os, row.min_os.as_deref(), row.max_os.as_deref())
 }
 
 /// Apply a selection (+ optional OS scope) to the rows. Returns the chosen rows
@@ -197,6 +205,21 @@ pub fn harvest_plan(
 mod tests {
     use super::*;
     use crate::donors::Registry;
+
+    #[test]
+    fn os_range_bounds() {
+        // open range -> always in
+        assert!(os_in_range("7.5", None, None));
+        // min only
+        assert!(os_in_range("7.5", Some("7.0"), None));
+        assert!(!os_in_range("6.0.8", Some("7.0"), None));
+        // max only (the migration scrub: a 7.1-max title dropped on 7.5)
+        assert!(os_in_range("7.1", None, Some("7.1")));
+        assert!(!os_in_range("7.5", None, Some("7.1")));
+        // both bounds, component-wise compare
+        assert!(os_in_range("7.1", Some("6.0.8"), Some("7.5")));
+        assert!(!os_in_range("8.0", Some("6.0.8"), Some("7.5")));
+    }
 
     #[test]
     fn donor_resolves_alias_then_filename() {

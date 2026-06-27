@@ -70,12 +70,14 @@ struct LibRow {
     name: String,
     kind: String,
     year: String,
-    genres: Vec<String>, // multi-valued tags (slice-and-dice filter)
-    color: bool,         // true = Colour, false = B&W
-    mouse: bool,         // true = Mouse Required
-    hotkey: String,      // single-char launch hotkey (gamepad button map), "" = none
-    selected: bool,      // included by the title picker
-    dirty: bool,         // facet touched since last save
+    genres: Vec<String>,    // multi-valued tags (slice-and-dice filter)
+    min_os: Option<String>, // OS scope (dotted), from the compatibility overlay
+    max_os: Option<String>, // — used by the OS-migration scrub
+    color: bool,            // true = Colour, false = B&W
+    mouse: bool,            // true = Mouse Required
+    hotkey: String,         // single-char launch hotkey (gamepad button map), "" = none
+    selected: bool,         // included by the title picker
+    dirty: bool,            // facet touched since last save
 }
 
 /// One harvest source for `atrium image`: a donor disk image plus the app
@@ -135,7 +137,10 @@ struct App {
     sel_text: String,
     launcher: String,
     out_image: String,
-    add_disk_path: String, // Add-to-disk: the existing MacAtrium .hda
+    add_disk_path: String,     // Add-to-disk: the existing MacAtrium .hda
+    migrate_disk: String,      // Build/migrate: import titles from this .hda
+    // importing an existing disk's titles (migrate/clone) on a worker thread.
+    import_rx: Option<std::sync::mpsc::Receiver<Result<Vec<String>, String>>>,
     startup_items: String,
     startup_sound: String,
     shutdown_sound: String,
@@ -238,6 +243,8 @@ impl Default for App {
             launcher: String::new(),
             out_image: "/tmp/macatrium.hda".into(),
             add_disk_path: String::new(),
+            migrate_disk: String::new(),
+            import_rx: None,
             startup_items: "/System Folder/Startup Items".into(),
             startup_sound: String::new(),
             shutdown_sound: String::new(),
@@ -365,12 +372,21 @@ fn parse_library(lib: &str, compat: &str) -> Vec<LibRow> {
             .and_then(Value::as_array)
             .map(|a| a.iter().filter_map(Value::as_str).map(str::to_string).collect())
             .unwrap_or_default();
+        // OS scope (the overlay wins, else the base record): drives the migration scrub.
+        let os_field = |k: &str| {
+            ov.and_then(|o| o.get(k))
+                .and_then(Value::as_str)
+                .or_else(|| m.get(k).and_then(Value::as_str))
+                .map(str::to_string)
+        };
         rows.push(LibRow {
             id,
             name: m.get("name").and_then(Value::as_str).unwrap_or("").to_string(),
             kind: m.get("kind").and_then(Value::as_str).unwrap_or("").to_string(),
             year: m.get("year").and_then(Value::as_i64).map(|y| y.to_string()).unwrap_or_default(),
             genres,
+            min_os: os_field("minOS"),
+            max_os: os_field("maxOS"),
             color: facet_bool("color", false),
             mouse: facet_bool("mouse", true),
             hotkey,
@@ -604,6 +620,30 @@ impl App {
             self.art_index = idx;
             self.art_rx = None;
             self.thumb_cache.clear();
+        }
+        // Apply imported title ids (migrate/clone): tick the matching rows.
+        if let Some(res) = self.import_rx.as_ref().and_then(|rx| rx.try_recv().ok()) {
+            self.import_rx = None;
+            self.busy.clear();
+            match res {
+                Ok(ids) => {
+                    self.ensure_library();
+                    let want: HashSet<String> = ids.into_iter().collect();
+                    let mut n = 0;
+                    for r in &mut self.library {
+                        if want.contains(&r.id) {
+                            r.selected = true;
+                            n += 1;
+                        }
+                    }
+                    self.build_pick = true;
+                    self.sync_picker();
+                    self.status = format!(
+                        "Imported {n} title(s). Pick a Target, optionally Scrub, then Build to migrate/clone."
+                    );
+                }
+                Err(e) => self.status = format!("Import failed: {e}"),
+            }
         }
     }
 
@@ -917,6 +957,64 @@ impl App {
         }
     }
 
+    /// Read an existing MacAtrium disk's catalog and tick its titles in the
+    /// picker — the seed of an OS-migration or a clone. Runs rb-cli on a worker.
+    fn import_from_disk(&mut self, ctx: &egui::Context) {
+        let disk = self.migrate_disk.trim().to_string();
+        if disk.is_empty() {
+            self.status = "Pick the disk to import titles from first.".into();
+            return;
+        }
+        let rb = self.rb_cli.clone();
+        let meta_dir = self.metadata_dir.clone();
+        let (tx, rx) = std::sync::mpsc::channel();
+        let ctx2 = ctx.clone();
+        std::thread::spawn(move || {
+            let res = (|| -> Result<Vec<String>, String> {
+                let rbc = RbCli::new(&rb);
+                let tmp = std::env::temp_dir().join("macatrium-import-catalog.jsonl");
+                let _ = std::fs::remove_file(&tmp);
+                let src = format!("{}/catalog.jsonl", meta_dir.trim_end_matches('/'));
+                rbc.get(PathBuf::from(&disk).as_path(), &src, &tmp, true).map_err(|e| e.to_string())?;
+                let bytes = std::fs::read(&tmp).map_err(|e| e.to_string())?;
+                Ok(atrium::catalog::parse_compiled(&bytes)
+                    .iter()
+                    .filter_map(|v| v.get("id").and_then(Value::as_str).map(str::to_string))
+                    .collect())
+            })();
+            let _ = tx.send(res);
+            ctx2.request_repaint();
+        });
+        self.import_rx = Some(rx);
+        self.busy = "Importing titles".into();
+        self.status = "Importing titles from the disk…".into();
+    }
+
+    /// Un-tick selected titles whose OS scope (minOS/maxOS) excludes the current
+    /// Target's OS — the migration scrub, the same scope a build applies.
+    fn scrub_incompatible(&mut self) {
+        let os = self.base_os.trim().to_string();
+        if os.is_empty() {
+            self.status = "Pick a Target first — its OS is what titles are scrubbed against.".into();
+            return;
+        }
+        let mut scrubbed = 0;
+        for r in &mut self.library {
+            if r.selected
+                && !atrium::selection::os_in_range(&os, r.min_os.as_deref(), r.max_os.as_deref())
+            {
+                r.selected = false;
+                scrubbed += 1;
+            }
+        }
+        self.sync_picker();
+        self.status = if scrubbed == 0 {
+            format!("All selected titles are compatible with {os}.")
+        } else {
+            format!("Scrubbed {scrubbed} title(s) incompatible with {os}.")
+        };
+    }
+
     fn build_image(&mut self, ctx: &egui::Context) {
         if self.out_image.trim().is_empty()
             || (self.base_os.trim().is_empty() && self.base_system.trim().is_empty())
@@ -1102,6 +1200,31 @@ impl App {
             } else {
                 ui.label(egui::RichText::new("Every title compatible with the Target's OS will be included.").small().weak());
             }
+        });
+
+        ui.add_space(6.0);
+        ui.collapsing("Migrate / clone from an existing disk", |ui| {
+            ui.label(
+                egui::RichText::new(
+                    "Import another MacAtrium disk's titles, then pick a Target — a newer OS to \
+                     migrate, or the same to clone — and Build. Scrub drops the titles the chosen \
+                     OS can't run (minOS/maxOS), so a migration leaves them behind.",
+                )
+                .small().weak(),
+            );
+            path_row(ui, "Existing disk (.hda):", &mut self.migrate_disk, Pick::File);
+            ui.horizontal(|ui| {
+                if ui.add_enabled(!busy, egui::Button::new("Import titles")).clicked() {
+                    self.import_from_disk(ctx);
+                }
+                if ui
+                    .add_enabled(!busy, egui::Button::new("Scrub incompatible with Target"))
+                    .on_hover_text("Un-tick selected titles the current Target's OS can't run.")
+                    .clicked()
+                {
+                    self.scrub_incompatible();
+                }
+            });
         });
 
         ui.add_space(8.0);
@@ -1687,8 +1810,8 @@ mod tests {
     fn picker_selection_syncs_to_list() {
         let mut a = App::default();
         a.library = vec![
-            LibRow { id: "x".into(), name: "X".into(), kind: "game".into(), year: String::new(), genres: vec![], color: false, mouse: true, hotkey: String::new(), selected: true, dirty: false },
-            LibRow { id: "y".into(), name: "Y".into(), kind: "game".into(), year: String::new(), genres: vec![], color: false, mouse: true, hotkey: String::new(), selected: false, dirty: false },
+            LibRow { id: "x".into(), name: "X".into(), kind: "game".into(), year: String::new(), genres: vec![], min_os: None, max_os: None, color: false, mouse: true, hotkey: String::new(), selected: true, dirty: false },
+            LibRow { id: "y".into(), name: "Y".into(), kind: "game".into(), year: String::new(), genres: vec![], min_os: None, max_os: None, color: false, mouse: true, hotkey: String::new(), selected: false, dirty: false },
         ];
         a.build_pick = true;
         a.sync_picker();
@@ -1698,5 +1821,23 @@ mod tests {
         a.sel_text = "x, y".into();
         a.reflect_selection();
         assert!(a.library.iter().all(|r| r.selected));
+    }
+
+    // OS-migration scrub: titles the target OS can't run get un-ticked.
+    #[test]
+    fn migration_scrub_drops_out_of_range() {
+        let mut a = App::default();
+        a.base_os = "7.5".into(); // migrating to System 7.5
+        a.build_pick = true;
+        a.library = vec![
+            // playable only up to 7.1 -> dropped on 7.5
+            LibRow { id: "old".into(), name: "Old".into(), kind: "game".into(), year: String::new(), genres: vec![], min_os: None, max_os: Some("7.1".into()), color: false, mouse: true, hotkey: String::new(), selected: true, dirty: false },
+            // open OS range -> kept
+            LibRow { id: "any".into(), name: "Any".into(), kind: "game".into(), year: String::new(), genres: vec![], min_os: None, max_os: None, color: false, mouse: true, hotkey: String::new(), selected: true, dirty: false },
+        ];
+        a.scrub_incompatible();
+        assert!(!a.library[0].selected, "7.1-max title scrubbed on 7.5");
+        assert!(a.library[1].selected, "open-range title kept");
+        assert_eq!(a.sel_text, "any");
     }
 }
