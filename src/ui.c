@@ -382,7 +382,7 @@ static void carousel_layout(Ui *u, CarLayout *L)
         half   = (short)(centSz / 2);
         /* leave room for an arrow button at each edge so tiles never sit under it */
         nside  = ((W - L->clx) / 2 - half - MARGIN - ARROW_W) / (sideSz + L->sideGap);
-        if (nside > 4) nside = 4;
+        if (nside > 2) nside = 2;   /* a fixed 5-up carousel: centre + 2 each side */
         if (nside < 1) nside = 1;
 
         L->cx = cx; L->iconCy = iconCy; L->centSz = centSz;
@@ -517,10 +517,13 @@ static void draw_carousel(Ui *u)
          * twice per repaint — the "multiple passes"). A stable icon column avoids
          * both. */
         draw_tile(u, cat->idx[center], cur, cx, iconCy, centSz);
-        {
+        {   /* 2px square selection box around the centred (selected) icon */
             Rect f;
-            SetRect(&f, (short)(cx - half - 3), (short)(iconCy - half - 3),
-                    (short)(cx + half + 3), (short)(iconCy + half + 3));
+            short pad = (short)(half + 5);
+            SetRect(&f, (short)(cx - pad), (short)(iconCy - pad),
+                    (short)(cx + pad), (short)(iconCy + pad));
+            render_frame(r, &f);
+            InsetRect(&f, 1, 1);
             render_frame(r, &f);
         }
         /* ◀▶ navigation arrows flanking the carousel. Both stay active because the
