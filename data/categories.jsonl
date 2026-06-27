@@ -1,0 +1,1491 @@
+# data/categories.jsonl — the editable category DB (docs/21), keyed by id.
+# Seeded by `atrium library categorize`; hand/GUI edits are preserved on re-run.
+{"id":"1000-miles-1-0","categories":["Card & Casino","Black & White"]}
+{"id":"1863-1-0","categories":["Games"]}
+{"id":"1990-ford-simulator-ii","categories":["Action & Arcade","Black & White"]}
+{"id":"2040-patches","categories":["Utilities"]}
+{"id":"22nd-street-whist-tutor-1-0","categories":["Card & Casino","Black & White"]}
+{"id":"3-in-three-1-2","categories":["Puzzle"]}
+{"id":"3d-checkers-2-0","categories":["Strategy & Sim","Black & White"]}
+{"id":"3d-checkers-5-1","categories":["Strategy & Sim","Black & White"]}
+{"id":"3d-tic-tac-toe","categories":["Strategy & Sim"]}
+{"id":"3d-x-o-0-4","categories":["Games"]}
+{"id":"3rd-floor-1-1","categories":["Adventure","Black & White"]}
+{"id":"3wiz-2-5-bw","categories":["Games"]}
+{"id":"4d-boxing-1-0","categories":["Sports"]}
+{"id":"4th-dimension-2-2-3","categories":["Applications"]}
+{"id":"4th-inches","categories":["Sports","Black & White"]}
+{"id":"5-stix-1-32","categories":["Card & Casino","Black & White"]}
+{"id":"a-l-i-e-n-s","categories":["Action & Arcade"]}
+{"id":"a-mess-o-trouble-1-8","categories":["Adventure","Black & White"]}
+{"id":"a-mind-forever-voyaging","categories":["Interactive Fiction"]}
+{"id":"a-train-1-0","categories":["Strategy & Sim"]}
+{"id":"abalone-1-4-2","categories":["Strategy & Sim"]}
+{"id":"abalone-1-6-2","categories":["Strategy & Sim"]}
+{"id":"accordion-1-0","categories":["Card & Casino","Black & White"]}
+{"id":"achi-1-0","categories":["Strategy & Sim","Black & White"]}
+{"id":"action-strategy-baseball-1-1-3","categories":["Sports","Black & White"]}
+{"id":"additional-subtraction-2-2","categories":["Educational"]}
+{"id":"adobe-illustrator","categories":["Applications"]}
+{"id":"adobe-type-manager","categories":["Utilities"]}
+{"id":"advcasino-strategy-1-0-1","categories":["Games"]}
+{"id":"adventure-550","categories":["Interactive Fiction","Black & White"]}
+{"id":"adventure-da-88","categories":["Games"]}
+{"id":"adventuremaker-1-0","categories":["Educational","Black & White","Applications"]}
+{"id":"adventures-musicland-demo","categories":["Games"]}
+{"id":"adventures-of-snake-1-0","categories":["Action & Arcade"]}
+{"id":"adventures-plus","categories":["Educational","Applications"]}
+{"id":"after-dark","categories":["Applications"]}
+{"id":"agax-1-3-2","categories":["Utilities"]}
+{"id":"aimless-0-8","categories":["Applications"]}
+{"id":"air-hockey","categories":["Games"]}
+{"id":"air-warrior-2-1a-mono","categories":["Games"]}
+{"id":"airborne-1-0","categories":["Action & Arcade"]}
+{"id":"alchemy-2-5-1","categories":["Applications"]}
+{"id":"aldrich-s-solitaire","categories":["Games"]}
+{"id":"aldus-super-3d-2-5","categories":["Black & White","Applications"]}
+{"id":"alex-s-encrypt-1-0-1-fat","categories":["Utilities"]}
+{"id":"all-the-right-type","categories":["Black & White","Games"]}
+{"id":"amps-3-0","categories":["Action & Arcade","Black & White"]}
+{"id":"amps-3-0-b2","categories":["Action & Arcade","Black & White"]}
+{"id":"ancient-art-of-war-at-sea-the","categories":["Strategy & Sim","Black & White"]}
+{"id":"ancient-art-of-war-the-1-0","categories":["Games"]}
+{"id":"ancient-art-of-war-the-1-01","categories":["Games"]}
+{"id":"angband-2-0-1","categories":["Role-Playing","Black & White"]}
+{"id":"angband-2-7-9v6","categories":["Games"]}
+{"id":"angband-3-0-5","categories":["Role-Playing","Black & White"]}
+{"id":"another-fine-mess-1-8","categories":["Adventure","Interactive Fiction","Black & White"]}
+{"id":"apache-strike","categories":["Action & Arcade","Black & White"]}
+{"id":"apollo-1-22","categories":["Black & White","Utilities"]}
+{"id":"appinfo-1-0","categories":["Black & White","Utilities"]}
+{"id":"apple-file-exchange","categories":["Utilities"]}
+{"id":"appleshare","categories":["Black & White","Utilities"]}
+{"id":"aqua-blooper-piper","categories":["Puzzle"]}
+{"id":"archon","categories":["Action & Arcade","Strategy & Sim"]}
+{"id":"arkanoid-1-10","categories":["Games"]}
+{"id":"armor-alley","categories":["Action & Arcade","Strategy & Sim","Black & White"]}
+{"id":"art-of-war-3-0","categories":["Games"]}
+{"id":"arthur","categories":["Interactive Fiction"]}
+{"id":"artillery-2-0-2","categories":["Strategy & Sim"]}
+{"id":"asante-network","categories":["Utilities"]}
+{"id":"asciipaint","categories":["Black & White","Applications"]}
+{"id":"asdg-split-join-1-2-1","categories":["Utilities"]}
+{"id":"ashes-to-ashes","categories":["Action & Arcade"]}
+{"id":"ashland-revolution-demo","categories":["Adventure","Interactive Fiction","Black & White"]}
+{"id":"assault-2-0","categories":["Strategy & Sim","Black & White"]}
+{"id":"asteroids-0-1","categories":["Games"]}
+{"id":"at-ease","categories":["Utilities"]}
+{"id":"at-the-carnival-1-7","categories":["Games"]}
+{"id":"ataxx-1-03","categories":["Strategy & Sim"]}
+{"id":"atc-2-0","categories":["Games"]}
+{"id":"atomino-2-0-bw","categories":["Games"]}
+{"id":"attack-marble","categories":["Games"]}
+{"id":"autoduel-1-00","categories":["Action & Arcade","Role-Playing"]}
+{"id":"autquit7-1-4-1","categories":["Utilities"]}
+{"id":"axis-the-game-cheater","categories":["Utilities"]}
+{"id":"babylabyrinth-1-05","categories":["Games"]}
+{"id":"bachman-2-0-8","categories":["Action & Arcade"]}
+{"id":"backbay","categories":["Applications"]}
+{"id":"backgammon-1-0","categories":["Strategy & Sim"]}
+{"id":"backgammon-2-0-1","categories":["Strategy & Sim","Black & White"]}
+{"id":"backstab","categories":["Strategy & Sim"]}
+{"id":"baker-s-dozen-1-0","categories":["Card & Casino","Black & White"]}
+{"id":"baker-s-dozen-2-0","categories":["Card & Casino","Black & White"]}
+{"id":"balance-of-power-2-08","categories":["Strategy & Sim","Black & White"]}
+{"id":"balance-of-the-planet-1-00","categories":["Strategy & Sim","Educational","Black & White"]}
+{"id":"ballaz-1-20a","categories":["Games"]}
+{"id":"ballistics-2-0","categories":["Strategy & Sim"]}
+{"id":"ballyhoo","categories":["Interactive Fiction"]}
+{"id":"bandit-kings-of-ancient-china","categories":["Strategy & Sim","Black & White"]}
+{"id":"banzai-1-0","categories":["Action & Arcade"]}
+{"id":"bards-tale-1-0","categories":["Games"]}
+{"id":"bars","categories":["Applications"]}
+{"id":"bash-big-blue","categories":["Action & Arcade"]}
+{"id":"basketball-2-5","categories":["Games"]}
+{"id":"battle-chess-1-0-2-mono","categories":["Strategy & Sim","Black & White"]}
+{"id":"battle-mac","categories":["Strategy & Sim"]}
+{"id":"battle-stations","categories":["Games"]}
+{"id":"battlecruiser-1-0","categories":["Games"]}
+{"id":"battlefront-series","categories":["Strategy & Sim"]}
+{"id":"battleship-1-2-2","categories":["Strategy & Sim"]}
+{"id":"battleship-1-3","categories":["Strategy & Sim"]}
+{"id":"battleship-2-0-2","categories":["Strategy & Sim"]}
+{"id":"battlestar-1-0","categories":["Strategy & Sim","Black & White"]}
+{"id":"battletanks-2-12","categories":["Strategy & Sim"]}
+{"id":"bazfaz-1-0","categories":["Action & Arcade"]}
+{"id":"beagleworks-1-0-1","categories":["Black & White","Applications"]}
+{"id":"beast-1-2","categories":["Strategy & Sim"]}
+{"id":"bedlam-1-1","categories":["Action & Arcade"]}
+{"id":"bedlam-1-2","categories":["Action & Arcade"]}
+{"id":"beehave-beehive-1-1","categories":["Strategy & Sim"]}
+{"id":"ben-s-castle-1-5","categories":["Adventure","Interactive Fiction","Black & White"]}
+{"id":"bert-1-1-4","categories":["Action & Arcade"]}
+{"id":"best-baseball-3-3","categories":["Sports"]}
+{"id":"betwixt-3-51","categories":["Strategy & Sim","Black & White"]}
+{"id":"beyond-dark-castle-1-0","categories":["Recommended","Action & Arcade","Black & White"]}
+{"id":"beyond-dark-castle-1-1","categories":["Black & White","Games"]}
+{"id":"beyond-twilight-vale-0-8","categories":["Games"]}
+{"id":"beyond-zork","categories":["Interactive Fiction","Black & White"]}
+{"id":"big-one-the","categories":["Action & Arcade","Black & White"]}
+{"id":"bikaka-1-0","categories":["Puzzle"]}
+{"id":"bill","categories":["Applications"]}
+{"id":"bill-elliott-s-nascar-challenge","categories":["Action & Arcade"]}
+{"id":"bill-s-casino","categories":["Card & Casino","Black & White"]}
+{"id":"billiard-parlour","categories":["Strategy & Sim","Sports"]}
+{"id":"billiards","categories":["Games"]}
+{"id":"bird-race","categories":["Card & Casino"]}
+{"id":"birthdays-and-such-1-4","categories":["Applications"]}
+{"id":"blackbox-1-00","categories":["Games"]}
+{"id":"blackbox-1-2-2","categories":["Games"]}
+{"id":"blackjack-4-0","categories":["Card & Casino"]}
+{"id":"blackjack2","categories":["Games"]}
+{"id":"blaze-1-0","categories":["Action & Arcade"]}
+{"id":"blit-1-0","categories":["Puzzle"]}
+{"id":"blockade-0-91","categories":["Puzzle"]}
+{"id":"blockball-1-0","categories":["Black & White","Games"]}
+{"id":"blocker-1-2","categories":["Puzzle","Black & White"]}
+{"id":"blocker-1-21","categories":["Puzzle","Black & White"]}
+{"id":"blockout-1-3","categories":["Puzzle","Black & White"]}
+{"id":"bmx-the-racing-game","categories":["Action & Arcade"]}
+{"id":"board-games","categories":["Strategy & Sim"]}
+{"id":"bolo-0-99-2","categories":["Recommended","Action & Arcade","Strategy & Sim"]}
+{"id":"bolo-0-99-7bv","categories":["Games"]}
+{"id":"bolo-plus-pack-1-0","categories":["Games"]}
+{"id":"bomber-1-0","categories":["Applications"]}
+{"id":"bombs-2-2","categories":["Puzzle"]}
+{"id":"bonk-1-0-b","categories":["Action & Arcade"]}
+{"id":"border-zone","categories":["Interactive Fiction","Black & White"]}
+{"id":"bot-arena-1-0","categories":["Games"]}
+{"id":"bouncer-1-0","categories":["Action & Arcade","Black & White"]}
+{"id":"bouncing-balls","categories":["Action & Arcade","Black & White"]}
+{"id":"bowl-a-rama","categories":["Games"]}
+{"id":"box-em","categories":["Action & Arcade","Black & White"]}
+{"id":"brackettroids-1-0","categories":["Games"]}
+{"id":"brain-damage","categories":["Games"]}
+{"id":"brain-teasers","categories":["Puzzle","Black & White"]}
+{"id":"brand-othello-1-0","categories":["Strategy & Sim"]}
+{"id":"breach-1-0","categories":["Role-Playing"]}
+{"id":"break-bricks","categories":["Games"]}
+{"id":"breakthru-1-0","categories":["Puzzle"]}
+{"id":"brick-bat-1-0","categories":["Games"]}
+{"id":"brickles-5-0","categories":["Action & Arcade"]}
+{"id":"brickles-7-0","categories":["Action & Arcade","Black & White"]}
+{"id":"brickles-plus-2-0","categories":["Action & Arcade"]}
+{"id":"brickles-plus-3-1","categories":["Action & Arcade"]}
+{"id":"bricks-1-03","categories":["Action & Arcade"]}
+{"id":"brickwell-1-0","categories":["Puzzle","Black & White"]}
+{"id":"bridge-8-0","categories":["Card & Casino"]}
+{"id":"bridge-baron-ii-demo","categories":["Games"]}
+{"id":"brownie-dog-pack","categories":["Games"]}
+{"id":"browsers","categories":["Utilities"]}
+{"id":"bubba-1-1","categories":["Puzzle","Black & White"]}
+{"id":"bugglings-1-0","categories":["Educational"]}
+{"id":"buick-dimensions-90","categories":["Games"]}
+{"id":"bureaucracy","categories":["Interactive Fiction","Black & White"]}
+{"id":"burglar-1-1","categories":["Action & Arcade"]}
+{"id":"burn-2-5","categories":["Utilities"]}
+{"id":"burtonia-1-1","categories":["Strategy & Sim"]}
+{"id":"bus-d-out-0-25-84","categories":["Action & Arcade"]}
+{"id":"bus-d-out-0-25a-99","categories":["Games"]}
+{"id":"c-in-c","categories":["Strategy & Sim"]}
+{"id":"caesar-1-0","categories":["Strategy & Sim"]}
+{"id":"caesar-1-01","categories":["Strategy & Sim"]}
+{"id":"caesar-s-palace-2-0","categories":["Games"]}
+{"id":"cairo-shootout-1-2","categories":["Action & Arcade","Black & White"]}
+{"id":"cairo-shootout-1-2u","categories":["Games"]}
+{"id":"calculator-ii","categories":["Utilities"]}
+{"id":"camel-1-0","categories":["Strategy & Sim"]}
+{"id":"cameraid-classic-1-3-1","categories":["Applications"]}
+{"id":"camp-cantitoe","categories":["Adventure","Interactive Fiction","Black & White"]}
+{"id":"canfield-1-0","categories":["Card & Casino"]}
+{"id":"canfield-2-0","categories":["Card & Casino"]}
+{"id":"canfield-3-1","categories":["Card & Casino"]}
+{"id":"canfield-4-0","categories":["Card & Casino"]}
+{"id":"cannon-fodder","categories":["Strategy & Sim"]}
+{"id":"canopener","categories":["Black & White","Utilities"]}
+{"id":"cantattain-ii-1-04a","categories":["Games"]}
+{"id":"cap-n-magneto-86","categories":["Games"]}
+{"id":"cap-n-magneto-93","categories":["Games"]}
+{"id":"capitalist-pig-1-0-2","categories":["Strategy & Sim","Black & White"]}
+{"id":"captain-blood","categories":["Adventure","Black & White"]}
+{"id":"car-wars-1-0","categories":["Games"]}
+{"id":"carbon-copy","categories":["Adventure","Interactive Fiction","Black & White"]}
+{"id":"carmen-america-s-past-1-0","categories":["Games"]}
+{"id":"carmen-europe-1-1","categories":["Games"]}
+{"id":"carmen-sandiego-1-0","categories":["Recommended","Educational"]}
+{"id":"carmen-sandiego-usa-1-2","categories":["Games"]}
+{"id":"casino-master-3-23","categories":["Card & Casino"]}
+{"id":"castle-of-ert-1-0","categories":["Adventure","Interactive Fiction"]}
+{"id":"castle-of-ert-1-1","categories":["Adventure","Interactive Fiction"]}
+{"id":"catchme","categories":["Action & Arcade"]}
+{"id":"catwalk-1-1","categories":["Action & Arcade"]}
+{"id":"cavernquest-2-0","categories":["Games"]}
+{"id":"cd-dvd-drivers","categories":["Utilities"]}
+{"id":"celtic-cross-tarot","categories":["Applications"]}
+{"id":"charlie-1-0","categories":["Strategy & Sim"]}
+{"id":"chase-em","categories":["Games"]}
+{"id":"cheat-ii-3-0","categories":["Black & White","Utilities"]}
+{"id":"checkers-1-3","categories":["Strategy & Sim"]}
+{"id":"checkers-2-0","categories":["Strategy & Sim"]}
+{"id":"checkers-deluxe-1-0","categories":["Strategy & Sim"]}
+{"id":"checkmate-1-0-5","categories":["Strategy & Sim","Black & White"]}
+{"id":"chello-1-0","categories":["Strategy & Sim"]}
+{"id":"chello-1-1","categories":["Strategy & Sim"]}
+{"id":"chessmaster-2000-the-1-0","categories":["Black & White","Games"]}
+{"id":"chessmaster-2000-the-1-02","categories":["Black & White","Games"]}
+{"id":"chessmaster-2100-1-2","categories":["Strategy & Sim","Black & White"]}
+{"id":"chinese-puzzle-1-0","categories":["Games"]}
+{"id":"chipmunk-basic-3-5-6","categories":["Applications"]}
+{"id":"chrysanthemum-1-01","categories":["Puzzle"]}
+{"id":"chuck-yeager-s-aft-1-00","categories":["Games"]}
+{"id":"chuck-yeager-s-air-combat-1-3","categories":["Action & Arcade"]}
+{"id":"chutes-1-2","categories":["Games"]}
+{"id":"citadel","categories":["Role-Playing","Black & White"]}
+{"id":"citgo","categories":["Applications"]}
+{"id":"city-adventure-1-1","categories":["Adventure","Interactive Fiction","Black & White"]}
+{"id":"city-defense","categories":["Action & Arcade"]}
+{"id":"city-defense-93","categories":["Action & Arcade"]}
+{"id":"civil-war","categories":["Educational"]}
+{"id":"civil-war-the-1-0","categories":["Educational"]}
+{"id":"civilization-1-1-2","categories":["Games"]}
+{"id":"clarisworks","categories":["Applications"]}
+{"id":"classic-12-s-adams-adventures","categories":["Games"]}
+{"id":"classic-5-the-1-1-0","categories":["Strategy & Sim","Card & Casino"]}
+{"id":"classic-tennis","categories":["Sports"]}
+{"id":"cleopatra","categories":["Games"]}
+{"id":"clipmaster-2-0","categories":["Utilities"]}
+{"id":"closure","categories":["Strategy & Sim"]}
+{"id":"club-casino","categories":["Card & Casino"]}
+{"id":"club-racquetball-1-0","categories":["Games"]}
+{"id":"coffee-timer-1-1-fat","categories":["Applications"]}
+{"id":"cogito","categories":["Puzzle"]}
+{"id":"colony","categories":["Action & Arcade","Black & White"]}
+{"id":"colorfall-1-01","categories":["Puzzle"]}
+{"id":"colorfall-1-11","categories":["Puzzle"]}
+{"id":"colossal-cave-adventure","categories":["Games"]}
+{"id":"colossal-cave-revisited","categories":["Games"]}
+{"id":"columns-1-0","categories":["Puzzle","Black & White"]}
+{"id":"columns-1-1","categories":["Puzzle","Black & White"]}
+{"id":"comic-strip-factory","categories":["Applications"]}
+{"id":"comicworks","categories":["Applications"]}
+{"id":"command-hq-1-0-0","categories":["Strategy & Sim"]}
+{"id":"concentration","categories":["Strategy & Sim"]}
+{"id":"concertware","categories":["Applications"]}
+{"id":"conflux-1-0","categories":["Puzzle"]}
+{"id":"connect-four","categories":["Strategy & Sim"]}
+{"id":"continuum-1-03","categories":["Action & Arcade","Black & White"]}
+{"id":"copter-1-1","categories":["Action & Arcade"]}
+{"id":"core-1-00","categories":["Strategy & Sim"]}
+{"id":"core-war","categories":["Games"]}
+{"id":"corruption-1-11","categories":["Interactive Fiction"]}
+{"id":"cosmic-osmo-1-6","categories":["Recommended","Educational","Black & White"]}
+{"id":"covert-action-1-1","categories":["Strategy & Sim"]}
+{"id":"covert-action-1-101","categories":["Strategy & Sim"]}
+{"id":"cpu-stat-1-03","categories":["Utilities"]}
+{"id":"crab-attack-ii","categories":["Action & Arcade"]}
+{"id":"crab-scrabble","categories":["Strategy & Sim","Black & White"]}
+{"id":"crack-of-doom-1-0","categories":["Interactive Fiction","Black & White"]}
+{"id":"crazy-cars-1-3","categories":["Action & Arcade"]}
+{"id":"creator-changer-2-8-4","categories":["Utilities"]}
+{"id":"creepy-castle","categories":["Action & Arcade"]}
+{"id":"cribbage","categories":["Card & Casino"]}
+{"id":"cribbage-1-1d","categories":["Games"]}
+{"id":"cribbage-2-4","categories":["Card & Casino"]}
+{"id":"cribbage-2-6","categories":["Card & Casino"]}
+{"id":"cricket-draw-1-1-1","categories":["Black & White","Applications"]}
+{"id":"cricket-paint","categories":["Black & White","Applications"]}
+{"id":"critical-mass-1-0","categories":["Strategy & Sim","Black & White"]}
+{"id":"crossmaster","categories":["Black & White","Games"]}
+{"id":"crosspuzzler-1-10","categories":["Games"]}
+{"id":"crosswise","categories":["Strategy & Sim"]}
+{"id":"crossword-creator-1-15","categories":["Puzzle"]}
+{"id":"crypt-the-1-1","categories":["Action & Arcade","Black & White"]}
+{"id":"cryptosolve","categories":["Games"]}
+{"id":"crystal-cave","categories":["Games"]}
+{"id":"crystal-cave-adventure-2-2","categories":["Interactive Fiction"]}
+{"id":"crystal-crazy-1-0-2","categories":["Action & Arcade","Black & White"]}
+{"id":"crystal-crazy-1-0-4","categories":["Action & Arcade","Black & White"]}
+{"id":"crystal-crazy-1-0-6","categories":["Action & Arcade","Black & White"]}
+{"id":"crystal-quest-2-2-5m","categories":["Games"]}
+{"id":"crystal-raider","categories":["Action & Arcade"]}
+{"id":"ctb-1-01","categories":["Games"]}
+{"id":"cubase","categories":["Applications"]}
+{"id":"cubic-zirconia-cave-0-8b","categories":["Games"]}
+{"id":"cumulonimbus-1-00","categories":["Games"]}
+{"id":"curse-of-azure-bonds-1-1","categories":["Games"]}
+{"id":"curse-of-vengeance","categories":["Role-Playing","Interactive Fiction"]}
+{"id":"cursed-puzzle","categories":["Interactive Fiction","Black & White"]}
+{"id":"cutthroats","categories":["Interactive Fiction"]}
+{"id":"cyberblast","categories":["Action & Arcade"]}
+{"id":"cycles-the","categories":["Action & Arcade"]}
+{"id":"cyclops","categories":["Action & Arcade","Black & White"]}
+{"id":"d-d-generator","categories":["Role-Playing","Applications"]}
+{"id":"daily-double-horse-racing","categories":["Action & Arcade"]}
+{"id":"daleks-0-3","categories":["Strategy & Sim"]}
+{"id":"daleks-forever-1-0","categories":["Strategy & Sim"]}
+{"id":"daleksplus","categories":["Games"]}
+{"id":"dark-castle-1-2","categories":["Recommended","Action & Arcade","Games"]}
+{"id":"dark-queen-of-krynn-the","categories":["Role-Playing"]}
+{"id":"darkside-of-the-mac","categories":["Applications"]}
+{"id":"darkwood-2-5","categories":["Role-Playing"]}
+{"id":"darts-1-0","categories":["Sports","Black & White"]}
+{"id":"darts-1-5","categories":["Sports","Black & White"]}
+{"id":"darwin","categories":["Strategy & Sim"]}
+{"id":"darwin-s-dilemma-2-0-1-1","categories":["Puzzle"]}
+{"id":"dash-hansen","categories":["Games"]}
+{"id":"deadend-1-1-1","categories":["Puzzle"]}
+{"id":"deadline","categories":["Interactive Fiction"]}
+{"id":"death-mall-demo","categories":["Games"]}
+{"id":"death-therapy","categories":["Action & Arcade"]}
+{"id":"decipher-the-dna-1-0","categories":["Puzzle"]}
+{"id":"decode-applefile-1-1","categories":["Utilities"]}
+{"id":"deep-angst","categories":["Adventure","Interactive Fiction"]}
+{"id":"deep-angst-ii","categories":["Adventure"]}
+{"id":"deep-ennui","categories":["Adventure","Interactive Fiction"]}
+{"id":"deep-space-drifter","categories":["Interactive Fiction","Black & White"]}
+{"id":"defender-of-the-crown-0-95","categories":["Strategy & Sim"]}
+{"id":"deja-vu-icom","categories":["Adventure"]}
+{"id":"deja-vu-icom-2-5","categories":["Adventure","Black & White"]}
+{"id":"deja-vu-ii-lost-in-las-vegas","categories":["Adventure","Black & White"]}
+{"id":"dejavu-rubicon","categories":["Strategy & Sim"]}
+{"id":"deluxe-music-cs-2-5","categories":["Applications"]}
+{"id":"deneba-artworks-1-0-1","categories":["Applications"]}
+{"id":"deneba-canvas","categories":["Applications"]}
+{"id":"deneba-ultrapaint-1-0","categories":["Applications"]}
+{"id":"desert-trek-1-04","categories":["Strategy & Sim"]}
+{"id":"deskpicture-4-5","categories":["Black & White","Utilities"]}
+{"id":"desktop-db-diver-1-0-6","categories":["Utilities"]}
+{"id":"desktop-terminator-1-01","categories":["Utilities"]}
+{"id":"despair-1-4","categories":["Strategy & Sim","Black & White"]}
+{"id":"destroyer-1-0","categories":["Strategy & Sim"]}
+{"id":"diag","categories":["Utilities"]}
+{"id":"diamonds-1-52","categories":["Games"]}
+{"id":"diamonds-2-0-4","categories":["Games"]}
+{"id":"diatom","categories":["Applications"]}
+{"id":"dinner-at-eight","categories":["Applications"]}
+{"id":"dirt-bike-2-1","categories":["Action & Arcade","Black & White"]}
+{"id":"disinfectant-3-7-1","categories":["Black & White","Utilities"]}
+{"id":"disktimer-1-1-1","categories":["Utilities"]}
+{"id":"disktimerii","categories":["Black & White","Utilities"]}
+{"id":"donkey-doo","categories":["Action & Arcade","Black & White"]}
+{"id":"doomsday-machine","categories":["Adventure","Interactive Fiction","Black & White"]}
+{"id":"dots-1-0-2","categories":["Strategy & Sim","Black & White"]}
+{"id":"doublel-1-0","categories":["Games"]}
+{"id":"downhill-racer","categories":["Games"]}
+{"id":"dr-macinto-2-4","categories":["Puzzle"]}
+{"id":"drachen-1-03","categories":["Games"]}
+{"id":"dracula-s-castle-2-51","categories":["Interactive Fiction","Black & White"]}
+{"id":"drag-and-drop-1-1-1","categories":["Utilities"]}
+{"id":"dragon-1-0","categories":["Strategy & Sim"]}
+{"id":"dragon-1-1","categories":["Strategy & Sim"]}
+{"id":"dragon-fractal-1-0","categories":["Games"]}
+{"id":"dragon-go-2-1","categories":["Games"]}
+{"id":"dragon-s-lair","categories":["Games"]}
+{"id":"dragon-s-lair-2","categories":["Games"]}
+{"id":"dragonblade-1-0","categories":["Role-Playing"]}
+{"id":"drakmyth-castle","categories":["Adventure","Interactive Fiction","Black & White"]}
+{"id":"dropper-1-1","categories":["Puzzle"]}
+{"id":"dropper-1-1-2","categories":["Puzzle"]}
+{"id":"dropper-1-3-1","categories":["Puzzle"]}
+{"id":"dubbelmoral","categories":["Action & Arcade","Black & White"]}
+{"id":"duck-hunt","categories":["Action & Arcade"]}
+{"id":"dudley-adventure","categories":["Games"]}
+{"id":"dungeon-2-7m","categories":["Games"]}
+{"id":"dungeon-3-2b-glk","categories":["Interactive Fiction"]}
+{"id":"dungeon-of-doom-4-0","categories":["Role-Playing"]}
+{"id":"dungeon-of-doom-5-4","categories":["Role-Playing","Black & White"]}
+{"id":"dungeon-revealed-the-1-0","categories":["Role-Playing"]}
+{"id":"dungeon-revealed-the-1-2-3","categories":["Role-Playing"]}
+{"id":"dungeons-2-0c","categories":["Games"]}
+{"id":"dungeons-of-dunjin","categories":["Interactive Fiction"]}
+{"id":"dungeonworld-ii","categories":["Games"]}
+{"id":"dutil-s-jack-1-0","categories":["Strategy & Sim","Black & White"]}
+{"id":"dutil-s-nim","categories":["Puzzle","Black & White"]}
+{"id":"dynamo","categories":["Educational","Applications"]}
+{"id":"dynasty-of-dar","categories":["Adventure","Interactive Fiction"]}
+{"id":"earl-weaver-baseball-1-5","categories":["Sports","Black & White"]}
+{"id":"eidisi","categories":["Adventure","Interactive Fiction","Black & White"]}
+{"id":"elevator-espionage","categories":["Action & Arcade"]}
+{"id":"empire-deluxe-1-1","categories":["Strategy & Sim"]}
+{"id":"empire-master-1-9-3","categories":["Games"]}
+{"id":"enchanted-scepters","categories":["Adventure","Interactive Fiction"]}
+{"id":"enchanter","categories":["Interactive Fiction"]}
+{"id":"enhanced-release-1","categories":["Interactive Fiction"]}
+{"id":"enhanced-release-2","categories":["Interactive Fiction"]}
+{"id":"enhanced-release-3","categories":["Interactive Fiction"]}
+{"id":"enigma","categories":["Puzzle"]}
+{"id":"errorfree-1-0-1","categories":["Games"]}
+{"id":"escape-from-saecvrom","categories":["Adventure","Interactive Fiction"]}
+{"id":"escape-from-school","categories":["Adventure","Interactive Fiction"]}
+{"id":"esper68k","categories":["Applications"]}
+{"id":"euchre","categories":["Card & Casino","Black & White"]}
+{"id":"eudora-1-3-1","categories":["Utilities"]}
+{"id":"everyman-2","categories":["Games"]}
+{"id":"everyman-vs-the-glob-monster","categories":["Games"]}
+{"id":"evocation-la-sfida-b-w","categories":["Games"]}
+{"id":"expert-backgammon-ge-3-1-3","categories":["Games"]}
+{"id":"explorer-demo-1987","categories":["Adventure","Interactive Fiction","Black & White"]}
+{"id":"explorer-demo-1989","categories":["Adventure","Interactive Fiction","Black & White"]}
+{"id":"explorer-demo-1990","categories":["Adventure","Interactive Fiction","Black & White"]}
+{"id":"exportfl","categories":["Utilities"]}
+{"id":"extension-list","categories":["Utilities"]}
+{"id":"extras","categories":["Interactive Fiction"]}
+{"id":"eye-beast-1-5","categories":["Action & Arcade"]}
+{"id":"f-a-s-soccer","categories":["Sports","Black & White"]}
+{"id":"f-ry-tale","categories":["Games"]}
+{"id":"f1-race-1-0","categories":["Action & Arcade","Black & White"]}
+{"id":"f40-pursuit-simulator-1-1","categories":["Action & Arcade"]}
+{"id":"faces-tris-iii","categories":["Puzzle"]}
+{"id":"factory-1-1","categories":["Puzzle"]}
+{"id":"falcon-2-2-2","categories":["Games"]}
+{"id":"fantasy-quest","categories":["Adventure"]}
+{"id":"fast-break","categories":["Sports"]}
+{"id":"fat-free-1-2-2","categories":["Black & White","Utilities"]}
+{"id":"faulty-towers-of-hanoi-1-2","categories":["Puzzle","Black & White"]}
+{"id":"fellowship-of-the-ring-the-1-0","categories":["Games"]}
+{"id":"ferrari-g-p","categories":["Games"]}
+{"id":"fetch-2-1-2","categories":["Utilities"]}
+{"id":"fetch-3-0-3","categories":["Utilities"]}
+{"id":"fidget-1-0","categories":["Strategy & Sim","Black & White"]}
+{"id":"fifteens-1-5","categories":["Card & Casino","Black & White"]}
+{"id":"filefan","categories":["Utilities"]}
+{"id":"final-impact-1-00","categories":["Action & Arcade","Black & White"]}
+{"id":"finale-2-6-1","categories":["Applications"]}
+{"id":"finder-info-1-1-1","categories":["Utilities"]}
+{"id":"finding-d-concept-demo","categories":["Adventure","Black & White"]}
+{"id":"fire-brigade-1-1","categories":["Games"]}
+{"id":"fire-brigade-2-0","categories":["Strategy & Sim"]}
+{"id":"fire-witch-1-01","categories":["Games"]}
+{"id":"fire-zone-1-0v","categories":["Games"]}
+{"id":"fist-fighters","categories":["Action & Arcade"]}
+{"id":"five-stones-1-0","categories":["Strategy & Sim"]}
+{"id":"fivestones-2-0","categories":["Games"]}
+{"id":"fivestones-2-3","categories":["Games"]}
+{"id":"flappy-mac-1-1","categories":["Action & Arcade"]}
+{"id":"flight-commander-1-1","categories":["Strategy & Sim"]}
+{"id":"flipper-1-0","categories":["Puzzle"]}
+{"id":"flipper-2-0","categories":["Puzzle"]}
+{"id":"floortiles-1-1","categories":["Puzzle"]}
+{"id":"fly","categories":["Action & Arcade"]}
+{"id":"fokker-triplane-flight-sim-2-89","categories":["Games"]}
+{"id":"font","categories":["Utilities"]}
+{"id":"fontastic-2-8","categories":["Utilities"]}
+{"id":"fontastic-plus-2-0-2","categories":["Black & White","Utilities"]}
+{"id":"fontographer-3-2","categories":["Utilities"]}
+{"id":"fool-s-errand-2-0","categories":["Puzzle","Black & White"]}
+{"id":"fool-s-errand-the-1-1","categories":["Puzzle","Black & White"]}
+{"id":"fool-s-errand-the-3-0","categories":["Puzzle","Black & White"]}
+{"id":"forbidden-castle-1-0","categories":["Games"]}
+{"id":"fortress","categories":["Card & Casino"]}
+{"id":"forty-thieves-2-0","categories":["Card & Casino"]}
+{"id":"forty-thieves-2-1","categories":["Card & Casino"]}
+{"id":"four-in-one-1-1-7","categories":["Interactive Fiction"]}
+{"id":"foxbase","categories":["Black & White","Applications"]}
+{"id":"fraction-munchers-1-0","categories":["Educational"]}
+{"id":"frankie-s-dungeon-1-0","categories":["Games"]}
+{"id":"fred-rogers-terrorist","categories":["Adventure","Interactive Fiction"]}
+{"id":"frenzy-1-00","categories":["Action & Arcade"]}
+{"id":"fs-atc-2-1","categories":["Games"]}
+{"id":"fs-atc-3-1","categories":["Games"]}
+{"id":"ftpd-3-0-0","categories":["Utilities"]}
+{"id":"full-metal-mac-1-0","categories":["Strategy & Sim"]}
+{"id":"full-metal-mac-1-0-1","categories":["Strategy & Sim"]}
+{"id":"full-metal-planete-1-2","categories":["Strategy & Sim"]}
+{"id":"fullwrite-2-0-6","categories":["Applications"]}
+{"id":"fun-in-space-2-0","categories":["Action & Arcade","Black & White"]}
+{"id":"fungus-2-0","categories":["Strategy & Sim"]}
+{"id":"funpak-videx","categories":["Games"]}
+{"id":"fusillade","categories":["Action & Arcade"]}
+{"id":"futuria-3-1","categories":["Games"]}
+{"id":"fuutball","categories":["Sports","Black & White"]}
+{"id":"galactic-empire-1-0-3","categories":["Strategy & Sim"]}
+{"id":"galactic-empire-2-0-3","categories":["Strategy & Sim"]}
+{"id":"galactic-frontiers-1-0","categories":["Strategy & Sim","Black & White"]}
+{"id":"galactic-trader-1-12","categories":["Strategy & Sim"]}
+{"id":"galactic-warrior","categories":["Adventure","Interactive Fiction","Black & White"]}
+{"id":"galax-1-1","categories":["Strategy & Sim","Black & White"]}
+{"id":"galaxis-1-01","categories":["Strategy & Sim"]}
+{"id":"galaxis-1-2","categories":["Strategy & Sim"]}
+{"id":"galaxy","categories":["Applications"]}
+{"id":"gallery-2-0","categories":["Games"]}
+{"id":"gamemaker-2-9-1","categories":["Educational","Applications"]}
+{"id":"gamemaster-1-0","categories":["Strategy & Sim"]}
+{"id":"gangwars-2-0","categories":["Games"]}
+{"id":"gate-1-0-2","categories":["Action & Arcade","Adventure"]}
+{"id":"gatekeeper-1-3","categories":["Black & White","Utilities"]}
+{"id":"gauntlet","categories":["Action & Arcade"]}
+{"id":"gemstone-0-01","categories":["Games"]}
+{"id":"geometric-golfer-the","categories":["Sports","Educational"]}
+{"id":"gifconverter-2-3-7","categories":["Black & White","Applications"]}
+{"id":"gin-rummy-2-0","categories":["Card & Casino"]}
+{"id":"glider-2-02","categories":["Action & Arcade","Black & White"]}
+{"id":"glider-3-0","categories":["Action & Arcade","Black & White"]}
+{"id":"glider-3-1-2","categories":["Recommended","Action & Arcade","Black & White"]}
+{"id":"glider-3-1-4","categories":["Action & Arcade","Black & White"]}
+{"id":"glider-4-06","categories":["Action & Arcade","Black & White"]}
+{"id":"glider-4-10","categories":["Action & Arcade","Black & White"]}
+{"id":"global-dilemma-1-12","categories":["Strategy & Sim"]}
+{"id":"glypha-3-0","categories":["Action & Arcade","Black & White"]}
+{"id":"glypha-ii-1-0","categories":["Games"]}
+{"id":"glypha-ii-1-1","categories":["Games"]}
+{"id":"gm-s-aid-1-01","categories":["Role-Playing","Applications"]}
+{"id":"gnop-1-0","categories":["Action & Arcade","Black & White"]}
+{"id":"gnu-chess-3-0","categories":["Strategy & Sim"]}
+{"id":"gnu-chess-3-0-92","categories":["Strategy & Sim"]}
+{"id":"gnuchessmac-4-0b5","categories":["Games"]}
+{"id":"go","categories":["Strategy & Sim","Black & White"]}
+{"id":"gobbler-1-0-1","categories":["Action & Arcade","Black & White"]}
+{"id":"gobbler-1-1-2","categories":["Action & Arcade","Black & White"]}
+{"id":"godgame-1-1","categories":["Games"]}
+{"id":"gold-bug-1-0","categories":["Adventure","Interactive Fiction","Black & White"]}
+{"id":"gold-digger-1-3-1","categories":["Games"]}
+{"id":"gold-of-the-americas-1-1","categories":["Strategy & Sim"]}
+{"id":"gold-rush","categories":["Adventure"]}
+{"id":"golf-1-0","categories":["Card & Casino"]}
+{"id":"golf-1-1","categories":["Card & Casino"]}
+{"id":"golf-2-0","categories":["Card & Casino"]}
+{"id":"golf-5-1","categories":["Card & Casino"]}
+{"id":"golf-mac-way","categories":["Games"]}
+{"id":"golfmaster-1-1-2p","categories":["Applications"]}
+{"id":"gomerfun-0-3","categories":["Applications"]}
+{"id":"gomoku","categories":["Strategy & Sim"]}
+{"id":"gophergolf-2-0-7","categories":["Games"]}
+{"id":"grailquest","categories":["Adventure","Interactive Fiction","Black & White"]}
+{"id":"grand-prix-circuit","categories":["Action & Arcade"]}
+{"id":"grand-slam-tennis-1-0","categories":["Games"]}
+{"id":"gravitation-4-0","categories":["Games"]}
+{"id":"gravitation-5-0","categories":["Games"]}
+{"id":"grendel-dazz","categories":["Adventure","Interactive Fiction","Black & White"]}
+{"id":"grid-1-0","categories":["Strategy & Sim"]}
+{"id":"grid-wars-1-0","categories":["Games"]}
+{"id":"ground-zero-2-1","categories":["Games"]}
+{"id":"ground-zero-2-2","categories":["Action & Arcade"]}
+{"id":"guns-butter-1-10","categories":["Games"]}
+{"id":"gunshy-0-1","categories":["Puzzle"]}
+{"id":"gunshy-1-2-1","categories":["Puzzle"]}
+{"id":"gunshy-1-3","categories":["Puzzle"]}
+{"id":"gunshy-2-0","categories":["Puzzle"]}
+{"id":"gunslinger-1-0","categories":["Black & White","Games"]}
+{"id":"hack-1-0-3-1","categories":["Role-Playing"]}
+{"id":"hacker","categories":["Games"]}
+{"id":"hacker-ii","categories":["Games"]}
+{"id":"halloween-night-2-0","categories":["Educational"]}
+{"id":"halls-of-montezuma-1-1","categories":["Games"]}
+{"id":"halma-1-2","categories":["Strategy & Sim"]}
+{"id":"hangman-10-0","categories":["Puzzle","Black & White"]}
+{"id":"hangman-6-0","categories":["Puzzle"]}
+{"id":"hangman-9-0","categories":["Puzzle","Black & White"]}
+{"id":"hangman-plus-3-0","categories":["Puzzle"]}
+{"id":"happy-new-year","categories":["Applications"]}
+{"id":"hardball","categories":["Games"]}
+{"id":"hardball-ii","categories":["Sports"]}
+{"id":"harpoon-1-0","categories":["Strategy & Sim","Black & White"]}
+{"id":"harrier-strike-mission-ii","categories":["Action & Arcade","Black & White"]}
+{"id":"haul-it-2-1","categories":["Strategy & Sim","Black & White"]}
+{"id":"haunted-house-1-4","categories":["Adventure","Black & White"]}
+{"id":"hazardous-1-2","categories":["Action & Arcade"]}
+{"id":"heapfixer-1-01","categories":["Black & White","Utilities"]}
+{"id":"heartquest-0-8-1","categories":["Action & Arcade"]}
+{"id":"heartquest-1-1","categories":["Action & Arcade"]}
+{"id":"hearts-1-6","categories":["Card & Casino"]}
+{"id":"heaven-earth-b-w-1-0","categories":["Games"]}
+{"id":"helix-2-0","categories":["Applications"]}
+{"id":"hellhaven-1-0","categories":["Adventure"]}
+{"id":"helomath","categories":["Educational","Black & White"]}
+{"id":"heritage-3-11","categories":["Applications"]}
+{"id":"hex","categories":["Strategy & Sim"]}
+{"id":"hexedit","categories":["Black & White","Utilities"]}
+{"id":"hexmines-1-1","categories":["Puzzle"]}
+{"id":"hexmines-2-0-4","categories":["Puzzle"]}
+{"id":"hexnake-1-0","categories":["Action & Arcade","Black & White"]}
+{"id":"hexpuzzle-3-0","categories":["Puzzle"]}
+{"id":"hextris-1-0","categories":["Puzzle","Black & White"]}
+{"id":"hidden-agenda-1-0","categories":["Strategy & Sim","Black & White"]}
+{"id":"high-roller","categories":["Role-Playing","Applications"]}
+{"id":"hitchhiker-s-guide","categories":["Games"]}
+{"id":"hobbit-the-1-1","categories":["Black & White","Games"]}
+{"id":"hole-in-one-b","categories":["Games"]}
+{"id":"holiday-lemmings-1-5-3","categories":["Puzzle"]}
+{"id":"holiday-lemmings-1994","categories":["Games"]}
+{"id":"hollywood-hijinx","categories":["Interactive Fiction","Black & White"]}
+{"id":"holy-roller-1-1","categories":["Role-Playing","Applications"]}
+{"id":"hostages-1-0","categories":["Action & Arcade","Black & White"]}
+{"id":"hot-air-balloon-2-3","categories":["Action & Arcade","Black & White"]}
+{"id":"hot-air-balloon-2-3s","categories":["Games"]}
+{"id":"hotel-caper-1-0","categories":["Games"]}
+{"id":"hoyle-ii","categories":["Games"]}
+{"id":"hoyle-s","categories":["Games"]}
+{"id":"humpback","categories":["Strategy & Sim"]}
+{"id":"hunt-for-red-october-the-1-0","categories":["Black & White","Games"]}
+{"id":"hunt-for-red-october-the-1-1","categories":["Strategy & Sim","Black & White"]}
+{"id":"hunt-the-wumpus","categories":["Adventure","Black & White"]}
+{"id":"hunting-the-eland","categories":["Games"]}
+{"id":"hustle-1-1","categories":["Games"]}
+{"id":"hypercard-1-0-1","categories":["Black & White","Applications"]}
+{"id":"hypercard-1-2-2","categories":["Applications"]}
+{"id":"hypercard-1-2-5","categories":["Applications"]}
+{"id":"hypercard-2-1","categories":["Applications"]}
+{"id":"hypercard-2-4-1","categories":["Applications"]}
+{"id":"hypercard-player-2-4-1","categories":["Applications"]}
+{"id":"i-ching","categories":["Applications"]}
+{"id":"i-f","categories":["Adventure","Interactive Fiction","Black & White"]}
+{"id":"iago-1-0","categories":["Strategy & Sim"]}
+{"id":"icon-archiver-2-0","categories":["Utilities"]}
+{"id":"icon-machine","categories":["Black & White","Utilities"]}
+{"id":"icon-positioner-0-6-1e","categories":["Utilities"]}
+{"id":"icon-rescue-1-0","categories":["Utilities"]}
+{"id":"icon-tools-1-5","categories":["Utilities"]}
+{"id":"iconbounce","categories":["Applications"]}
+{"id":"iconquest-1-21","categories":["Puzzle"]}
+{"id":"iggy-iggopolis-2-0","categories":["Games"]}
+{"id":"iggy-iggopolis-87","categories":["Games"]}
+{"id":"importfl","categories":["Black & White","Utilities"]}
+{"id":"inchworm-2-0","categories":["Action & Arcade"]}
+{"id":"indiana-jones-last-crusade-1-1","categories":["Games"]}
+{"id":"infidel","categories":["Interactive Fiction"]}
+{"id":"influence-2-1","categories":["Strategy & Sim","Black & White"]}
+{"id":"ingemar-s-skiing-game-1-0-3","categories":["Sports","Black & White"]}
+{"id":"initpicker-3-02","categories":["Utilities"]}
+{"id":"intermac-bumper-ships-1-1","categories":["Action & Arcade"]}
+{"id":"intruder","categories":["Adventure","Interactive Fiction","Black & White"]}
+{"id":"intruder-1-1","categories":["Adventure","Interactive Fiction","Black & White"]}
+{"id":"invaders-2-0","categories":["Action & Arcade"]}
+{"id":"invasion-20xx","categories":["Games"]}
+{"id":"investigator-no-1","categories":["Interactive Fiction","Black & White"]}
+{"id":"invisible-file-copier-1-0","categories":["Utilities"]}
+{"id":"ipnetrouter","categories":["Utilities"]}
+{"id":"ishar-fr","categories":["Games"]}
+{"id":"ishido-1-5-1-b-w","categories":["Games"]}
+{"id":"iso-1-0-4","categories":["Games"]}
+{"id":"isobounce-2-2a","categories":["Games"]}
+{"id":"jack","categories":["Puzzle","Black & White"]}
+{"id":"jack-beanstalk","categories":["Games"]}
+{"id":"jack-nicklaus-golf-1-0","categories":["Games"]}
+{"id":"jacks-1-1","categories":["Games"]}
+{"id":"jailbreak-1-0","categories":["Interactive Fiction","Black & White"]}
+{"id":"jeopardy-demo","categories":["Games"]}
+{"id":"jetpack-1-2","categories":["Action & Arcade","Black & White"]}
+{"id":"jewelbox-1-0","categories":["Puzzle"]}
+{"id":"jewelbox-2-0-2","categories":["Puzzle"]}
+{"id":"jinxter-1-2","categories":["Interactive Fiction"]}
+{"id":"joker-poker","categories":["Games"]}
+{"id":"jotto-1-2","categories":["Puzzle","Black & White"]}
+{"id":"journey","categories":["Interactive Fiction"]}
+{"id":"journey-the","categories":["Interactive Fiction"]}
+{"id":"journey-the-1-5","categories":["Interactive Fiction"]}
+{"id":"jumble","categories":["Applications"]}
+{"id":"jump-it-1-05","categories":["Black & White","Games"]}
+{"id":"kaleidokubes-1-0-1","categories":["Puzzle"]}
+{"id":"kani-miso-0-291","categories":["Action & Arcade"]}
+{"id":"karnov-1-1","categories":["Action & Arcade"]}
+{"id":"karrousel-park","categories":["Games"]}
+{"id":"karth-of-the-jungle","categories":["Games"]}
+{"id":"karth-of-the-jungle-ii","categories":["Games"]}
+{"id":"katie-s-farm","categories":["Educational"]}
+{"id":"keys-to-the-kastle","categories":["Action & Arcade","Black & White"]}
+{"id":"keys-to-the-kastle-ii","categories":["Action & Arcade"]}
+{"id":"keyswapper-1-11","categories":["Utilities"]}
+{"id":"kid-pix","categories":["Recommended","Educational","Black & White","Applications"]}
+{"id":"kieran-demo","categories":["Games"]}
+{"id":"killer-frogs-demo","categories":["Games"]}
+{"id":"killer-kalah","categories":["Games"]}
+{"id":"king-albert","categories":["Games"]}
+{"id":"king-of-solitaire-2-0","categories":["Card & Casino"]}
+{"id":"king-s-bounty-1-0","categories":["Role-Playing"]}
+{"id":"king-s-quest-i","categories":["Games"]}
+{"id":"king-s-quest-ii","categories":["Adventure"]}
+{"id":"king-s-quest-iii","categories":["Adventure"]}
+{"id":"kingcity-1-02-demo","categories":["Games"]}
+{"id":"klondike-2-0","categories":["Card & Casino"]}
+{"id":"klondike-3-6","categories":["Card & Casino"]}
+{"id":"klondike-4-0","categories":["Card & Casino"]}
+{"id":"klondike-7-7-1","categories":["Card & Casino"]}
+{"id":"knight-0-6c","categories":["Games"]}
+{"id":"knight-0-7","categories":["Puzzle","Strategy & Sim","Black & White"]}
+{"id":"knightedit-1-4","categories":["Applications"]}
+{"id":"knights-kings-b-w-1-01","categories":["Strategy & Sim","Educational"]}
+{"id":"kung-fu-chivalry","categories":["Action & Arcade","Black & White"]}
+{"id":"kye-2-1","categories":["Puzzle"]}
+{"id":"la-pierre-molle-1-0","categories":["Games"]}
+{"id":"la-times","categories":["Games"]}
+{"id":"la-times-2","categories":["Games"]}
+{"id":"labyrinth-1-2b","categories":["Games"]}
+{"id":"landslide-1-1","categories":["Strategy & Sim"]}
+{"id":"larry-agi-2-06","categories":["Games"]}
+{"id":"laserchase-1-2","categories":["Action & Arcade"]}
+{"id":"laserwriter-8-5-1","categories":["Utilities"]}
+{"id":"lawn-zapper-1-0","categories":["Action & Arcade","Black & White"]}
+{"id":"lazlife","categories":["Puzzle","Applications"]}
+{"id":"leather-goddesses-of-phobos","categories":["Interactive Fiction"]}
+{"id":"legacy","categories":["Games"]}
+{"id":"legends-of-the-lost-realm-1-5","categories":["Games"]}
+{"id":"legends-of-the-lost-realm-2-0","categories":["Games"]}
+{"id":"legends-of-the-lost-realm-ii","categories":["Black & White","Games"]}
+{"id":"lembracs","categories":["Games"]}
+{"id":"lemmings-1-1","categories":["Recommended","Puzzle"]}
+{"id":"lemmings-1-5-2","categories":["Puzzle"]}
+{"id":"leprechaun-3-0","categories":["Puzzle"]}
+{"id":"let-s-get-tanked-1-0","categories":["Games"]}
+{"id":"letterforms-illusion","categories":["Puzzle","Black & White"]}
+{"id":"lexi-cross","categories":["Puzzle"]}
+{"id":"life-1-0","categories":["Puzzle","Black & White","Applications"]}
+{"id":"life-1-2","categories":["Puzzle","Black & White","Applications"]}
+{"id":"life-death-1-01","categories":["Black & White","Games"]}
+{"id":"life-hack-1-0","categories":["Puzzle","Applications"]}
+{"id":"lifelab","categories":["Puzzle","Applications"]}
+{"id":"lightcycle-duel-1-2","categories":["Action & Arcade"]}
+{"id":"lightcycle-duel-1-21","categories":["Action & Arcade"]}
+{"id":"lines-of-action","categories":["Puzzle"]}
+{"id":"little-pythagoras","categories":["Adventure","Puzzle","Black & White"]}
+{"id":"loc","categories":["Games"]}
+{"id":"lode-runner-1-0","categories":["Action & Arcade","Puzzle"]}
+{"id":"lode-runner-1-2","categories":["Action & Arcade","Puzzle"]}
+{"id":"loom","categories":["Adventure"]}
+{"id":"lose-your-marbles-1-0","categories":["Games"]}
+{"id":"lost-adventure-2-0-2","categories":["Interactive Fiction","Black & White"]}
+{"id":"lost-new-york-1-0-2f","categories":["Games"]}
+{"id":"lost-princess","categories":["Adventure","Interactive Fiction","Black & White"]}
+{"id":"lost-skater-the","categories":["Adventure","Interactive Fiction"]}
+{"id":"lunar-phantom-1-0","categories":["Action & Arcade"]}
+{"id":"lunar-rescue-ann-arbor","categories":["Action & Arcade"]}
+{"id":"lunar-rescue-pcai","categories":["Action & Arcade","Black & White"]}
+{"id":"lunarlander","categories":["Games"]}
+{"id":"lyriq-crosswords-1-0b","categories":["Games"]}
+{"id":"m-lord-s-warrior","categories":["Adventure","Interactive Fiction","Black & White"]}
+{"id":"mac-boom","categories":["Action & Arcade","Black & White"]}
+{"id":"mac-centipede","categories":["Action & Arcade"]}
+{"id":"mac-challenger","categories":["Games"]}
+{"id":"mac-gunner","categories":["Action & Arcade"]}
+{"id":"mac-missiles","categories":["Action & Arcade"]}
+{"id":"mac-pong-ii-1-0","categories":["Action & Arcade","Black & White"]}
+{"id":"mac-s-bar","categories":["Applications"]}
+{"id":"mac-slots-1-0","categories":["Games"]}
+{"id":"mac-spudd","categories":["Adventure","Interactive Fiction"]}
+{"id":"mac-tuberling","categories":["Educational"]}
+{"id":"macastro-1-7","categories":["Applications"]}
+{"id":"macbandit-1-0","categories":["Games"]}
+{"id":"macbandit-1-1","categories":["Card & Casino"]}
+{"id":"macbasic","categories":["Applications"]}
+{"id":"macblocks","categories":["Puzzle","Black & White"]}
+{"id":"macboss-1-0","categories":["Games"]}
+{"id":"macbreak-1-1","categories":["Action & Arcade"]}
+{"id":"macbugs","categories":["Action & Arcade"]}
+{"id":"macbzone-1-1-demo","categories":["Games"]}
+{"id":"maccasino","categories":["Card & Casino","Black & White"]}
+{"id":"macchase-1-45","categories":["Games"]}
+{"id":"macchase-2-0","categories":["Action & Arcade"]}
+{"id":"macconcentration","categories":["Strategy & Sim"]}
+{"id":"maccribbage","categories":["Games"]}
+{"id":"maccricket-b-w","categories":["Games"]}
+{"id":"macd-d-0-5","categories":["Role-Playing","Applications"]}
+{"id":"macdraw","categories":["Applications"]}
+{"id":"macdraw-poker-2-2","categories":["Card & Casino"]}
+{"id":"macdrone","categories":["Strategy & Sim","Black & White"]}
+{"id":"macdrums-1-01","categories":["Applications"]}
+{"id":"macedge-ii-5-0","categories":["Games"]}
+{"id":"maceroids","categories":["Games"]}
+{"id":"macfootball","categories":["Sports"]}
+{"id":"macghost-1-0","categories":["Games"]}
+{"id":"macglobe-1-5-0","categories":["Applications"]}
+{"id":"macgolf-2-0","categories":["Sports"]}
+{"id":"macgolf-3-0","categories":["Sports","Black & White"]}
+{"id":"macgolf-classic-1-1","categories":["Sports"]}
+{"id":"macgopher05b14","categories":["Utilities"]}
+{"id":"macinooga-choo-choo-1-0","categories":["Games"]}
+{"id":"macintalk-1-31","categories":["Utilities"]}
+{"id":"macintosh-programmer-s-workshop","categories":["Applications"]}
+{"id":"maclanding-0-6","categories":["Games"]}
+{"id":"macluff","categories":["Strategy & Sim"]}
+{"id":"macman-0-9","categories":["Games"]}
+{"id":"macman-classic-pro","categories":["Games"]}
+{"id":"macmanager-1-0","categories":["Strategy & Sim"]}
+{"id":"macmatch-1-0","categories":["Strategy & Sim"]}
+{"id":"macmines-1-0","categories":["Puzzle"]}
+{"id":"macmissiles-86","categories":["Games"]}
+{"id":"macmoria-5-4","categories":["Games"]}
+{"id":"macninja-3-0","categories":["Action & Arcade","Black & White"]}
+{"id":"macnpcgenerator","categories":["Role-Playing","Applications"]}
+{"id":"macpaint","categories":["Applications"]}
+{"id":"macpascal-7-3","categories":["Applications"]}
+{"id":"macpatience-2-01","categories":["Card & Casino"]}
+{"id":"macpente-3-2","categories":["Strategy & Sim","Black & White"]}
+{"id":"macpgp263ii","categories":["Utilities"]}
+{"id":"macping-3-0-3","categories":["Utilities"]}
+{"id":"macpoly","categories":["Games"]}
+{"id":"macporkbarrel-0-2b","categories":["Games"]}
+{"id":"macppp2-01cm4","categories":["Utilities"]}
+{"id":"macpro-football","categories":["Games"]}
+{"id":"macpuzzle","categories":["Puzzle"]}
+{"id":"macrobots-1-0","categories":["Educational"]}
+{"id":"macroots-7-3","categories":["Applications"]}
+{"id":"macrummy-1-0","categories":["Games"]}
+{"id":"macsbug","categories":["Utilities"]}
+{"id":"macsevens","categories":["Card & Casino"]}
+{"id":"macshell-0-54b","categories":["Utilities"]}
+{"id":"macskate-1-4","categories":["Games"]}
+{"id":"macski-1-0","categories":["Sports","Black & White"]}
+{"id":"macski-1-6","categories":["Sports","Black & White"]}
+{"id":"macsnails-1-0","categories":["Action & Arcade"]}
+{"id":"macspeed-1-0","categories":["Utilities"]}
+{"id":"macssh-68k-2-1f3","categories":["Utilities"]}
+{"id":"mactelnet-2-6","categories":["Utilities"]}
+{"id":"mactrek-0-99","categories":["Strategy & Sim","Black & White"]}
+{"id":"mactris-1-1","categories":["Games"]}
+{"id":"macvnc-1-2","categories":["Utilities"]}
+{"id":"macwelcome-1-4","categories":["Utilities"]}
+{"id":"macwrite","categories":["Applications"]}
+{"id":"magic-rings","categories":["Adventure","Interactive Fiction"]}
+{"id":"magic-square","categories":["Applications"]}
+{"id":"make-millions","categories":["Strategy & Sim"]}
+{"id":"man-hunter-new-york","categories":["Games"]}
+{"id":"man-hunter-san-francisco","categories":["Games"]}
+{"id":"mancala-1-1","categories":["Strategy & Sim"]}
+{"id":"mansion-1-0","categories":["Adventure","Interactive Fiction","Black & White"]}
+{"id":"mapper-2-0","categories":["Role-Playing","Black & White","Applications"]}
+{"id":"marienbad","categories":["Puzzle","Black & White"]}
+{"id":"mark4-1-21","categories":["Games"]}
+{"id":"mars-1-0","categories":["Games"]}
+{"id":"master-s-familiar","categories":["Role-Playing","Applications"]}
+{"id":"master-video-poker-2-0","categories":["Games"]}
+{"id":"mastermaze","categories":["Adventure"]}
+{"id":"match-15-1-2","categories":["Games"]}
+{"id":"math-rabbit-2-0","categories":["Educational"]}
+{"id":"mathematica","categories":["Applications"]}
+{"id":"mavis-beacon-teaches-typing-1-3","categories":["Educational","Black & White"]}
+{"id":"maxram-2-4","categories":["Utilities"]}
+{"id":"maxtads-1-1-6","categories":["Educational","Applications"]}
+{"id":"maxwell","categories":["Applications"]}
+{"id":"maxzip-1-7-8","categories":["Educational","Applications"]}
+{"id":"maze-of-the-questing-beast","categories":["Adventure","Puzzle"]}
+{"id":"maze-survival","categories":["Action & Arcade"]}
+{"id":"maze-wars","categories":["Action & Arcade","Black & White"]}
+{"id":"maze2","categories":["Games"]}
+{"id":"mazer-3d-3-0","categories":["Games"]}
+{"id":"mazerlaze","categories":["Puzzle"]}
+{"id":"mazermac","categories":["Applications"]}
+{"id":"mccherdak","categories":["Games"]}
+{"id":"mcgee","categories":["Educational"]}
+{"id":"mean-18-ultimate-golf","categories":["Sports"]}
+{"id":"meander","categories":["Games"]}
+{"id":"mech-zone-1-0-1","categories":["Strategy & Sim"]}
+{"id":"mediasizer-1-3-3-fat","categories":["Utilities"]}
+{"id":"megaroids","categories":["Action & Arcade","Black & White"]}
+{"id":"meltdown","categories":["Applications"]}
+{"id":"memmgr","categories":["Games"]}
+{"id":"memory-2-1","categories":["Strategy & Sim"]}
+{"id":"micro-bridge-companion","categories":["Card & Casino","Black & White"]}
+{"id":"microsoft-file-2-00a","categories":["Applications"]}
+{"id":"microsoft-word","categories":["Applications"]}
+{"id":"microsoft-works-1-1","categories":["Applications"]}
+{"id":"midi-mgmt-tools-2-0-2","categories":["Utilities"]}
+{"id":"midnight-rescue-1-0","categories":["Games"]}
+{"id":"midnight-snack","categories":["Adventure","Interactive Fiction"]}
+{"id":"midway-1-0","categories":["Strategy & Sim","Black & White"]}
+{"id":"might-and-magic-iii-b-w","categories":["Games"]}
+{"id":"might-magic-i-1-04","categories":["Games"]}
+{"id":"might-magic-i-92","categories":["Games"]}
+{"id":"might-magic-ii-1-04","categories":["Games"]}
+{"id":"mike-s-house","categories":["Adventure","Interactive Fiction"]}
+{"id":"mind-games-b-w","categories":["Games"]}
+{"id":"mindwheel","categories":["Games"]}
+{"id":"mindy-the-quest-for-home","categories":["Adventure","Interactive Fiction","Black & White"]}
+{"id":"mine-1-0","categories":["Puzzle"]}
+{"id":"mine-field-1-1","categories":["Puzzle","Black & White"]}
+{"id":"mine-sweeper","categories":["Puzzle"]}
+{"id":"mines-1-0","categories":["Puzzle"]}
+{"id":"mines-1-02","categories":["Puzzle"]}
+{"id":"minesweeper-1-0","categories":["Games"]}
+{"id":"minesweeper-2-0","categories":["Games"]}
+{"id":"minigolf","categories":["Games"]}
+{"id":"minitorian","categories":["Adventure","Interactive Fiction"]}
+{"id":"minotaur-1-0-1b","categories":["Games"]}
+{"id":"mirosoft-excel","categories":["Applications"]}
+{"id":"missile-command-1-2","categories":["Action & Arcade"]}
+{"id":"missile-command-2-3","categories":["Action & Arcade"]}
+{"id":"missile-command-3-0","categories":["Action & Arcade"]}
+{"id":"mission-starlight-1-1","categories":["Action & Arcade","Black & White"]}
+{"id":"mission-thunderbolt-1-0","categories":["Role-Playing"]}
+{"id":"mixed-up-mother-goose","categories":["Educational"]}
+{"id":"mode32-7-5","categories":["Utilities"]}
+{"id":"moebius","categories":["Action & Arcade","Role-Playing"]}
+{"id":"mombasa-1-1","categories":["Strategy & Sim"]}
+{"id":"monastery-pinball-game-1-1","categories":["Games"]}
+{"id":"monopoly-4-0","categories":["Strategy & Sim","Black & White"]}
+{"id":"monsters-make-believe-2-0","categories":["Educational"]}
+{"id":"montana-1-0","categories":["Card & Casino"]}
+{"id":"montana-2-0","categories":["Card & Casino"]}
+{"id":"moonbase-1-02","categories":["Strategy & Sim"]}
+{"id":"moonmist","categories":["Interactive Fiction"]}
+{"id":"moria-1-1-1","categories":["Role-Playing"]}
+{"id":"moria-4-874","categories":["Role-Playing"]}
+{"id":"mormonoids-1-25","categories":["Games"]}
+{"id":"morpion-1-0-0d2","categories":["Games"]}
+{"id":"morse-mania-0-2b","categories":["Games"]}
+{"id":"motor-bike-1-0","categories":["Sports","Black & White"]}
+{"id":"motu-performer-1-22","categories":["Black & White","Applications"]}
+{"id":"mount","categories":["Utilities"]}
+{"id":"mountain-of-mayhem","categories":["Adventure","Interactive Fiction","Black & White"]}
+{"id":"mouse-on-the-menu","categories":["Games"]}
+{"id":"mouse-stampede-1-0-0","categories":["Action & Arcade"]}
+{"id":"mouse-stampede-2-0","categories":["Action & Arcade","Black & White"]}
+{"id":"mr-cycloid","categories":["Applications"]}
+{"id":"ms-flight-simulator-4-0","categories":["Games"]}
+{"id":"multipion","categories":["Games"]}
+{"id":"murder-in-the-stacks","categories":["Games"]}
+{"id":"musicfun-demo","categories":["Applications"]}
+{"id":"musicworks","categories":["Applications"]}
+{"id":"mutant-beach-b-w","categories":["Games"]}
+{"id":"mystery-box","categories":["Strategy & Sim"]}
+{"id":"mystery-master-felony","categories":["Puzzle"]}
+{"id":"nativechecker","categories":["Black & White","Utilities"]}
+{"id":"necropolis","categories":["Adventure","Interactive Fiction","Black & White"]}
+{"id":"nemesis-go-master-5-07b","categories":["Games"]}
+{"id":"nethack-2-3e1","categories":["Games"]}
+{"id":"nethack-3-0ir10","categories":["Games"]}
+{"id":"nethack-3-0j","categories":["Games"]}
+{"id":"nethack-3-1-3","categories":["Role-Playing","Black & White"]}
+{"id":"nethackplus-3-1-3","categories":["Games"]}
+{"id":"nethacktng-3-1-3","categories":["Games"]}
+{"id":"netpresenz-4-1","categories":["Utilities"]}
+{"id":"nettrek-3-0","categories":["Strategy & Sim"]}
+{"id":"new-daleks-2-0","categories":["Strategy & Sim"]}
+{"id":"new-wizard-s-fire","categories":["Games"]}
+{"id":"nfl-pro-league-football","categories":["Sports","Black & White"]}
+{"id":"night-hawk-1-0","categories":["Games"]}
+{"id":"nih-image-1-55","categories":["Applications"]}
+{"id":"nim-1-0","categories":["Games"]}
+{"id":"nisus-compact-3-474c","categories":["Applications"]}
+{"id":"nisus-writer-4-1-6f","categories":["Applications"]}
+{"id":"no-greater-glory-1-0","categories":["Strategy & Sim"]}
+{"id":"nobunaga-s-ambition","categories":["Strategy & Sim"]}
+{"id":"nofinder-1-0b3","categories":["Utilities"]}
+{"id":"nord-and-bert","categories":["Interactive Fiction"]}
+{"id":"north-atlantic-86-1-2b","categories":["Games"]}
+{"id":"notadventure-ii","categories":["Interactive Fiction","Black & White"]}
+{"id":"notify-3-0-5","categories":["Utilities"]}
+{"id":"now-hear-this","categories":["Utilities"]}
+{"id":"nubb-1-22","categories":["Puzzle"]}
+{"id":"nudgemouser-2-0-2","categories":["Utilities"]}
+{"id":"nuke-snake-1-2","categories":["Action & Arcade"]}
+{"id":"number-munchers-1-2","categories":["Recommended","Educational"]}
+{"id":"o-g-r-e-1-08","categories":["Games"]}
+{"id":"odd-jobs-1-5","categories":["Utilities"]}
+{"id":"officeattack-1-0","categories":["Games"]}
+{"id":"officeattack-88","categories":["Games"]}
+{"id":"oh-no-more-lemmings-1-0","categories":["Games"]}
+{"id":"oids-1-3","categories":["Action & Arcade"]}
+{"id":"ok","categories":["Games"]}
+{"id":"omar-bridge","categories":["Games"]}
+{"id":"omega-1-4","categories":["Strategy & Sim"]}
+{"id":"on-cue-ii","categories":["Utilities"]}
+{"id":"on-the-contrary-1-4","categories":["Games"]}
+{"id":"on-the-contrary-ii-1-0","categories":["Strategy & Sim","Black & White"]}
+{"id":"on-the-edge-3-1","categories":["Card & Casino"]}
+{"id":"one-on-one","categories":["Games"]}
+{"id":"operation-com-bat-1-0","categories":["Strategy & Sim"]}
+{"id":"operation-desert-storm-1-5","categories":["Action & Arcade"]}
+{"id":"operation-intercept-1-0-1","categories":["Games"]}
+{"id":"operation-tsunami-1-0","categories":["Action & Arcade","Black & White"]}
+{"id":"orb-mazez-1-0b2","categories":["Games"]}
+{"id":"orb-mazez-1-2","categories":["Action & Arcade"]}
+{"id":"orb-quest","categories":["Games"]}
+{"id":"orb-wars-2-0","categories":["Games"]}
+{"id":"orbital-mech","categories":["Strategy & Sim"]}
+{"id":"oregon-trail-1-0","categories":["Recommended","Strategy & Sim","Educational"]}
+{"id":"orion-1-82","categories":["Strategy & Sim"]}
+{"id":"otello-1-0","categories":["Strategy & Sim","Black & White"]}
+{"id":"otello-2-0","categories":["Strategy & Sim","Black & White"]}
+{"id":"outflank","categories":["Strategy & Sim","Black & White"]}
+{"id":"oxyd-3-6","categories":["Puzzle"]}
+{"id":"p-w-adventure","categories":["Adventure","Black & White"]}
+{"id":"p51-mustang","categories":["Games"]}
+{"id":"pagemaker","categories":["Applications"]}
+{"id":"pai-gow","categories":["Strategy & Sim","Black & White"]}
+{"id":"paint-it-1-0","categories":["Applications"]}
+{"id":"painter-1-2","categories":["Applications"]}
+{"id":"panic-1-0","categories":["Action & Arcade"]}
+{"id":"panorama-1-5","categories":["Black & White","Applications"]}
+{"id":"pararena-1-1","categories":["Sports","Black & White"]}
+{"id":"pararena-1-2","categories":["Sports","Black & White"]}
+{"id":"pararena-1-2-1","categories":["Sports","Black & White"]}
+{"id":"pararena-1-3","categories":["Sports","Black & White"]}
+{"id":"patton-strikes-back","categories":["Strategy & Sim"]}
+{"id":"pawn-the-2-3","categories":["Interactive Fiction"]}
+{"id":"pax-imperia-1-0-1","categories":["Strategy & Sim"]}
+{"id":"pcs-1-1-demo","categories":["Games"]}
+{"id":"pdf","categories":["Utilities"]}
+{"id":"peg-puzzle-pak","categories":["Puzzle"]}
+{"id":"pensate-1-0","categories":["Puzzle"]}
+{"id":"periapt","categories":["Adventure"]}
+{"id":"pga-tour-golf","categories":["Sports"]}
+{"id":"pga-tour-golf-ii","categories":["Sports"]}
+{"id":"pharaoh-88","categories":["Strategy & Sim","Black & White"]}
+{"id":"pharaoh-90","categories":["Strategy & Sim","Black & White"]}
+{"id":"phoenix-the-1-2","categories":["Adventure","Interactive Fiction","Black & White"]}
+{"id":"photomac-1-0","categories":["Applications"]}
+{"id":"photoshop","categories":["Black & White","Applications"]}
+{"id":"phraze-craze-plus","categories":["Puzzle","Black & White"]}
+{"id":"pick-n-pile","categories":["Puzzle"]}
+{"id":"picotthouse-1-1","categories":["Educational"]}
+{"id":"pinball-construction-set-2-5","categories":["Action & Arcade"]}
+{"id":"pipe-dream-1-1","categories":["Puzzle"]}
+{"id":"pirate-attack","categories":["Adventure"]}
+{"id":"pirates","categories":["Adventure","Educational"]}
+{"id":"piston-1-0-1","categories":["Games"]}
+{"id":"planetfall","categories":["Interactive Fiction"]}
+{"id":"plato-s-cave","categories":["Games"]}
+{"id":"playmaker-football-2-0","categories":["Sports"]}
+{"id":"pleiades-1-0","categories":["Games"]}
+{"id":"plundered-hearts","categories":["Interactive Fiction","Black & White"]}
+{"id":"pnuk1-0","categories":["Games"]}
+{"id":"pokeno","categories":["Games"]}
+{"id":"police-quest-i","categories":["Games"]}
+{"id":"polyominoes-2-0","categories":["Puzzle"]}
+{"id":"pong-0-8-7","categories":["Action & Arcade"]}
+{"id":"pool-of-radiance-1-1","categories":["Role-Playing"]}
+{"id":"pools-of-darkness-1-0","categories":["Role-Playing"]}
+{"id":"popup-folder-2-0-1","categories":["Utilities"]}
+{"id":"power-players-2-1-1","categories":["Strategy & Sim","Black & White"]}
+{"id":"powerpoint","categories":["Black & White","Applications"]}
+{"id":"praxis-1-5","categories":["Action & Arcade"]}
+{"id":"prince-of-persia-1-0","categories":["Action & Arcade"]}
+{"id":"print2pict-3-7-1","categories":["Utilities"]}
+{"id":"printtopdf-2-4-5","categories":["Black & White","Utilities"]}
+{"id":"product-registration","categories":["Interactive Fiction"]}
+{"id":"protector-shark-1-1","categories":["Applications"]}
+{"id":"protocols","categories":["Utilities"]}
+{"id":"psion-chess","categories":["Strategy & Sim"]}
+{"id":"psychotic","categories":["Adventure","Black & White"]}
+{"id":"pt-109","categories":["Strategy & Sim","Black & White"]}
+{"id":"puissance-4","categories":["Games"]}
+{"id":"puppy-love","categories":["Strategy & Sim"]}
+{"id":"puzz-l-1-0","categories":["Puzzle","Black & White"]}
+{"id":"puzz-l-1-1","categories":["Puzzle","Black & White"]}
+{"id":"puzzle-ii-1-2","categories":["Games"]}
+{"id":"pyramid-1-01","categories":["Card & Casino","Black & White"]}
+{"id":"pyramid-2-0a","categories":["Games"]}
+{"id":"pyramid-of-ert-1-2","categories":["Adventure","Interactive Fiction","Black & White"]}
+{"id":"pyramid-of-no-return","categories":["Adventure","Interactive Fiction","Black & White"]}
+{"id":"pyramid-of-peril","categories":["Games"]}
+{"id":"pyro","categories":["Applications"]}
+{"id":"pyschedelia","categories":["Applications"]}
+{"id":"quarterstaff-infocom","categories":["Role-Playing","Interactive Fiction","Black & White"]}
+{"id":"quarterstaff-ses","categories":["Role-Playing","Interactive Fiction","Black & White"]}
+{"id":"queen-quest","categories":["Adventure","Interactive Fiction","Black & White"]}
+{"id":"quest-for-t-rex","categories":["Adventure","Interactive Fiction"]}
+{"id":"quest-for-the-dark-sword","categories":["Adventure","Interactive Fiction","Black & White"]}
+{"id":"quester","categories":["Games"]}
+{"id":"quickpop-2-11","categories":["Utilities"]}
+{"id":"quickpopup","categories":["Black & White","Utilities"]}
+{"id":"quill-2-2","categories":["Black & White","Utilities"]}
+{"id":"quintette-1-0","categories":["Games"]}
+{"id":"quovadis","categories":["Games"]}
+{"id":"race-1-3","categories":["Games"]}
+{"id":"radar-command","categories":["Applications"]}
+{"id":"radical-castle-1-0","categories":["Adventure","Interactive Fiction"]}
+{"id":"railroad-tycoon-1-01","categories":["Games"]}
+{"id":"ram-charger-3-0-1","categories":["Utilities"]}
+{"id":"rambunctious","categories":["Utilities"]}
+{"id":"ramdoubler-1-6-2","categories":["Utilities"]}
+{"id":"rascal-billiards","categories":["Games"]}
+{"id":"rassling-1-0","categories":["Strategy & Sim"]}
+{"id":"ray-s-maze-1-5","categories":["Adventure","Interactive Fiction","Black & White"]}
+{"id":"re-pete-1-5","categories":["Puzzle"]}
+{"id":"re-pete-2-2","categories":["Puzzle"]}
+{"id":"reach-for-the-stars-3-01","categories":["Strategy & Sim","Black & White"]}
+{"id":"reader-rabbit-2","categories":["Recommended","Educational"]}
+{"id":"reader-rabbit-2-2","categories":["Educational"]}
+{"id":"reader-rabbit-3","categories":["Educational"]}
+{"id":"reader-rabbit-3-0","categories":["Educational"]}
+{"id":"readtime-1-0-1","categories":["Utilities"]}
+{"id":"ready-for-letters","categories":["Games"]}
+{"id":"recycle-1-0","categories":["Strategy & Sim","Black & White"]}
+{"id":"red-stars-white-nights","categories":["Strategy & Sim","Black & White"]}
+{"id":"redcoder-2-1","categories":["Strategy & Sim"]}
+{"id":"reflexplus-1-01","categories":["Applications"]}
+{"id":"rescompare-2-6","categories":["Black & White","Utilities"]}
+{"id":"rescue","categories":["Action & Arcade","Strategy & Sim"]}
+{"id":"rescue-2-0-2","categories":["Action & Arcade","Strategy & Sim"]}
+{"id":"resedit","categories":["Black & White","Utilities"]}
+{"id":"resorcerer-1-2-5","categories":["Black & White","Utilities"]}
+{"id":"retro-engine-0-8","categories":["Games"]}
+{"id":"reunion-4-0","categories":["Applications"]}
+{"id":"reversi","categories":["Strategy & Sim"]}
+{"id":"rhodes-1-0","categories":["Puzzle"]}
+{"id":"ringwarp-0-9d","categories":["Games"]}
+{"id":"risk","categories":["Recommended","Strategy & Sim"]}
+{"id":"risk-deluxe-1-0","categories":["Strategy & Sim"]}
+{"id":"risk-ii-2-40","categories":["Games"]}
+{"id":"road-racer","categories":["Black & White","Games"]}
+{"id":"roboids-1-0","categories":["Action & Arcade"]}
+{"id":"roboids-ii-1-0","categories":["Games"]}
+{"id":"robosport","categories":["Strategy & Sim"]}
+{"id":"robot-battle-1-1d-beta","categories":["Games"]}
+{"id":"robot-planet","categories":["Adventure","Interactive Fiction"]}
+{"id":"robowar-1-5-1","categories":["Strategy & Sim","Black & White"]}
+{"id":"robowar-3-0","categories":["Strategy & Sim","Black & White"]}
+{"id":"robowar-3-1","categories":["Strategy & Sim","Black & White"]}
+{"id":"robowar-4-1-2","categories":["Strategy & Sim","Black & White"]}
+{"id":"rogue-1-0","categories":["Role-Playing"]}
+{"id":"romantic-encounters-at-the-dome","categories":["Strategy & Sim","Interactive Fiction"]}
+{"id":"romi-1-2-1-rummy","categories":["Games"]}
+{"id":"rose-garden","categories":["Action & Arcade"]}
+{"id":"royal-malaise-part-1","categories":["Games"]}
+{"id":"royal-trick-track","categories":["Games"]}
+{"id":"run-for-the-money-1-1","categories":["Games"]}
+{"id":"runaround","categories":["Games"]}
+{"id":"rupture-the-rapture-6-6-7","categories":["Action & Arcade"]}
+{"id":"russian-roulette-1-1-1","categories":["Games"]}
+{"id":"s-c-out-1-4","categories":["Puzzle"]}
+{"id":"s-d-i","categories":["Action & Arcade"]}
+{"id":"saddam-s-revenge-1-1","categories":["Puzzle"]}
+{"id":"safari-1-0","categories":["Action & Arcade"]}
+{"id":"safari-ii-1-1","categories":["Action & Arcade"]}
+{"id":"sail-away-1-0","categories":["Strategy & Sim"]}
+{"id":"sands-of-fire-1-1","categories":["Strategy & Sim","Black & White"]}
+{"id":"sands-of-time","categories":["Adventure","Interactive Fiction","Black & White"]}
+{"id":"sargo-noidz","categories":["Strategy & Sim","Black & White"]}
+{"id":"sargon-iii-1-0","categories":["Strategy & Sim"]}
+{"id":"sargon-iv-1-0","categories":["Strategy & Sim"]}
+{"id":"save-the-farm-2-2-b","categories":["Action & Arcade"]}
+{"id":"scarab-of-ra-1-2","categories":["Role-Playing","Black & White"]}
+{"id":"scarab-of-ra-1-3","categories":["Role-Playing","Black & White"]}
+{"id":"scarab-of-ra-1-4","categories":["Role-Playing","Black & White"]}
+{"id":"schmoozer-about-the-world","categories":["Games"]}
+{"id":"scrabble-2-3","categories":["Strategy & Sim"]}
+{"id":"screenrecorder","categories":["Black & White","Utilities"]}
+{"id":"screensnap-2-4","categories":["Utilities"]}
+{"id":"scrnpict-1-0","categories":["Utilities"]}
+{"id":"scruffy-1-5","categories":["Action & Arcade","Black & White"]}
+{"id":"search","categories":["Utilities"]}
+{"id":"seastalker","categories":["Interactive Fiction"]}
+{"id":"secret-of-the-silver-blade-1-1","categories":["Games"]}
+{"id":"sensei-geometry-1-2","categories":["Educational"]}
+{"id":"seven-blocks","categories":["Games"]}
+{"id":"sfs-1-0","categories":["Games"]}
+{"id":"shadow-keep-2-2","categories":["Role-Playing","Black & White"]}
+{"id":"shadowgate","categories":["Adventure","Black & White"]}
+{"id":"shanghai-1-0","categories":["Strategy & Sim"]}
+{"id":"shanghai-2-01","categories":["Strategy & Sim"]}
+{"id":"shanghai-ii-dragon-s-eye-1-04","categories":["Strategy & Sim"]}
+{"id":"shatterball-0-27","categories":["Action & Arcade","Black & White"]}
+{"id":"shattered-stone-1-0","categories":["Role-Playing"]}
+{"id":"sheeprace","categories":["Games"]}
+{"id":"sherlock","categories":["Interactive Fiction","Black & White"]}
+{"id":"shogi-0-3a4","categories":["Games"]}
+{"id":"shogun","categories":["Games"]}
+{"id":"showsizes-2-2-3","categories":["Utilities"]}
+{"id":"shufflepuck-1-0","categories":["Sports"]}
+{"id":"shufflepuck-cafe-1-0","categories":["Sports","Black & White"]}
+{"id":"shuttle-88","categories":["Strategy & Sim"]}
+{"id":"sierra-championship-boxing","categories":["Games"]}
+{"id":"sierra-patch","categories":["Black & White","Utilities"]}
+{"id":"silicon-volleyball-2-0","categories":["Action & Arcade"]}
+{"id":"simant-1-0","categories":["Games"]}
+{"id":"simcity-1-1","categories":["Strategy & Sim"]}
+{"id":"simcity-1-11","categories":["Recommended","Strategy & Sim"]}
+{"id":"simcity-1-2bw","categories":["Games"]}
+{"id":"simcity-1-3b-w","categories":["Games"]}
+{"id":"simcity-1-4","categories":["Strategy & Sim"]}
+{"id":"simearth-2-0bw","categories":["Games"]}
+{"id":"simlife-1-0-1","categories":["Strategy & Sim"]}
+{"id":"sitting-duck","categories":["Action & Arcade","Black & White"]}
+{"id":"sky-shadow-1-0-2","categories":["Action & Arcade"]}
+{"id":"sky-shadow-1-1-9m","categories":["Games"]}
+{"id":"slabbers-3-1-3","categories":["Games"]}
+{"id":"slam-dunk-1-30","categories":["Sports"]}
+{"id":"slime-invaders-2-0-7","categories":["Action & Arcade"]}
+{"id":"slo-mo","categories":["Utilities"]}
+{"id":"smythworld-1-1","categories":["Adventure"]}
+{"id":"snake-1-1","categories":["Action & Arcade"]}
+{"id":"snake-bar-87","categories":["Games"]}
+{"id":"snake-bar-90","categories":["Games"]}
+{"id":"snaketix","categories":["Games"]}
+{"id":"snapshotter1-0b5","categories":["Utilities"]}
+{"id":"snoopy-vs-the-red-baron","categories":["Action & Arcade"]}
+{"id":"social-climber","categories":["Action & Arcade"]}
+{"id":"softmac-transfer","categories":["Utilities"]}
+{"id":"sokoban-1-0","categories":["Puzzle"]}
+{"id":"sokoban-2-4-2a","categories":["Games"]}
+{"id":"solitaire","categories":["Card & Casino"]}
+{"id":"solitaire-1-1","categories":["Games"]}
+{"id":"sorcerer","categories":["Interactive Fiction"]}
+{"id":"sorceror-s-quest-demo","categories":["Games"]}
+{"id":"sordoth-s-castle-1-1","categories":["Games"]}
+{"id":"sound-designer-1-12","categories":["Applications"]}
+{"id":"sound-mover-1-74","categories":["Black & White","Utilities"]}
+{"id":"soundedit","categories":["Black & White","Applications"]}
+{"id":"space-ace","categories":["Black & White","Games"]}
+{"id":"space-ace-2-bw","categories":["Games"]}
+{"id":"space-artillery","categories":["Strategy & Sim"]}
+{"id":"space-attack","categories":["Action & Arcade"]}
+{"id":"space-bubbles-0-93","categories":["Action & Arcade"]}
+{"id":"space-dodge-1-1","categories":["Games"]}
+{"id":"space-invaders","categories":["Games"]}
+{"id":"space-quest-i-b","categories":["Adventure"]}
+{"id":"space-quest-ii-1-51","categories":["Adventure"]}
+{"id":"space-quest-iii","categories":["Adventure"]}
+{"id":"space-rogue-1-0","categories":["Action & Arcade","Black & White"]}
+{"id":"space-tag-1-0","categories":["Action & Arcade"]}
+{"id":"space-war","categories":["Games"]}
+{"id":"spacealert-2-0-2","categories":["Black & White","Utilities"]}
+{"id":"spacebattle-1-01","categories":["Games"]}
+{"id":"spacebubbles-1-0","categories":["Games"]}
+{"id":"spacefight-1-1","categories":["Action & Arcade"]}
+{"id":"spacefighter","categories":["Games"]}
+{"id":"spacestation-pheta-1-5","categories":["Puzzle","Black & White"]}
+{"id":"spacestation-pheta-2-3","categories":["Puzzle","Black & White"]}
+{"id":"spacestation-pheta-2-7","categories":["Puzzle","Black & White"]}
+{"id":"spacetag-1-0","categories":["Games"]}
+{"id":"spacewar-97","categories":["Games"]}
+{"id":"sparkz","categories":["Action & Arcade"]}
+{"id":"spear-of-destiny","categories":["Adventure"]}
+{"id":"spectre-1-0","categories":["Action & Arcade"]}
+{"id":"speedometer","categories":["Black & White","Utilities"]}
+{"id":"spellbreaker","categories":["Interactive Fiction"]}
+{"id":"spelunx-b-w","categories":["Games"]}
+{"id":"spider-1-1m-b","categories":["Games"]}
+{"id":"splat-ers-1-05","categories":["Action & Arcade","Sports"]}
+{"id":"spoydworks-solitaire-1-2-1","categories":["Card & Casino"]}
+{"id":"sqix","categories":["Action & Arcade","Black & White"]}
+{"id":"star-fleet-i","categories":["Black & White","Games"]}
+{"id":"star-flight","categories":["Applications"]}
+{"id":"star-patrol","categories":["Strategy & Sim"]}
+{"id":"star-roids-7-0","categories":["Action & Arcade","Black & White"]}
+{"id":"star-stormer-0-28","categories":["Action & Arcade"]}
+{"id":"star-trek","categories":["Adventure","Interactive Fiction"]}
+{"id":"star-trek-kobayashi-alternative","categories":["Games"]}
+{"id":"star-trek-plus-2-8-1","categories":["Strategy & Sim"]}
+{"id":"star-trek-promethean-prophecy","categories":["Games"]}
+{"id":"star-trek-tng","categories":["Games"]}
+{"id":"star-trip","categories":["Games"]}
+{"id":"star-wars-1-0","categories":["Action & Arcade","Black & White"]}
+{"id":"starcross","categories":["Interactive Fiction"]}
+{"id":"starflight-1-00-mono","categories":["Games"]}
+{"id":"starflight-ii-1-1","categories":["Games"]}
+{"id":"starglider","categories":["Games"]}
+{"id":"starport","categories":["Adventure"]}
+{"id":"starscape-1-0","categories":["Games"]}
+{"id":"startrek-2-1","categories":["Games"]}
+{"id":"startupmaker-1-0","categories":["Black & White","Utilities"]}
+{"id":"stationfall","categories":["Interactive Fiction","Black & White"]}
+{"id":"stellar-imperium-1-01","categories":["Strategy & Sim"]}
+{"id":"stellar-spy-0-9","categories":["Action & Arcade"]}
+{"id":"stellar7-1-0","categories":["Games"]}
+{"id":"stock-market-crash","categories":["Black & White","Games"]}
+{"id":"storybook-weaver-1-0","categories":["Educational"]}
+{"id":"storymaker","categories":["Applications"]}
+{"id":"strange-disappearance","categories":["Adventure","Black & White"]}
+{"id":"strange-hotel-5-0","categories":["Games"]}
+{"id":"strategic-conquest-1-0","categories":["Strategy & Sim"]}
+{"id":"strategic-conquest-3-01","categories":["Strategy & Sim"]}
+{"id":"strategic-conquest-4-0","categories":["Strategy & Sim"]}
+{"id":"strategic-conquest-plus-2-0","categories":["Strategy & Sim"]}
+{"id":"stratego-0-95","categories":["Strategy & Sim"]}
+{"id":"stratego-1-1-1","categories":["Strategy & Sim"]}
+{"id":"strip-fat","categories":["Utilities"]}
+{"id":"stuntcopter-1-0","categories":["Action & Arcade"]}
+{"id":"stuntcopter-1-2","categories":["Action & Arcade"]}
+{"id":"stuntcopter-1-6","categories":["Action & Arcade","Black & White"]}
+{"id":"stuntcopter-2-0","categories":["Action & Arcade","Black & White"]}
+{"id":"sub-battle-b-w","categories":["Games"]}
+{"id":"sub-battle-simulator-1-50","categories":["Strategy & Sim","Black & White"]}
+{"id":"sub-battle-simulator-87","categories":["Black & White","Games"]}
+{"id":"substitute-1-7-7","categories":["Utilities"]}
+{"id":"subwar","categories":["Strategy & Sim","Black & White"]}
+{"id":"sultan-s-palace-the-2-1-2","categories":["Games"]}
+{"id":"super-hang-on-1-2","categories":["Action & Arcade"]}
+{"id":"super-mines-1-0","categories":["Puzzle"]}
+{"id":"super-munchers-1-0","categories":["Puzzle","Educational"]}
+{"id":"super-studio-session","categories":["Black & White","Applications"]}
+{"id":"superpaint","categories":["Black & White","Applications"]}
+{"id":"surgeon-1-5","categories":["Strategy & Sim"]}
+{"id":"surgeon-iii","categories":["Games"]}
+{"id":"surgery-1-6","categories":["Puzzle"]}
+{"id":"surgery-1-7","categories":["Puzzle"]}
+{"id":"suspect","categories":["Interactive Fiction"]}
+{"id":"suspended","categories":["Interactive Fiction"]}
+{"id":"swamp-gas","categories":["Games"]}
+{"id":"swamp-gas-europe","categories":["Games"]}
+{"id":"swamp-witch","categories":["Adventure","Black & White"]}
+{"id":"swamplord-2","categories":["Games"]}
+{"id":"sword-of-siegfried-1-0","categories":["Adventure","Interactive Fiction","Black & White"]}
+{"id":"system-7-pack-3-5","categories":["Black & White","Utilities"]}
+{"id":"system-picker-1-1a3","categories":["Utilities"]}
+{"id":"system-s-twilight-1-1-0","categories":["Puzzle"]}
+{"id":"systemswitcher-1-1-1","categories":["Utilities"]}
+{"id":"tablut-1-0","categories":["Strategy & Sim"]}
+{"id":"tads-run-time-system","categories":["Applications"]}
+{"id":"take-a-break-1-0-1","categories":["Games"]}
+{"id":"talking-moose","categories":["Applications"]}
+{"id":"talking-solitaire","categories":["Games"]}
+{"id":"tangram","categories":["Puzzle","Black & White"]}
+{"id":"tank-commander-88","categories":["Action & Arcade","Black & White"]}
+{"id":"tank-commander-90","categories":["Action & Arcade","Black & White"]}
+{"id":"targhan-fr","categories":["Action & Arcade","Adventure","Black & White"]}
+{"id":"tarot-us","categories":["Applications"]}
+{"id":"taskmaker-2-0","categories":["Role-Playing"]}
+{"id":"taskmaker-2-2-4","categories":["Role-Playing"]}
+{"id":"tass-times-in-tonetown","categories":["Interactive Fiction"]}
+{"id":"tee-oh","categories":["Puzzle","Black & White"]}
+{"id":"teltnuag-87","categories":["Games"]}
+{"id":"teltnuag-90","categories":["Games"]}
+{"id":"temple-of-apshai-trilogy","categories":["Games"]}
+{"id":"tennis","categories":["Games"]}
+{"id":"tens-2-01","categories":["Games"]}
+{"id":"test-drive-ii-the-duel-1-0","categories":["Games"]}
+{"id":"tetris-1-0","categories":["Puzzle"]}
+{"id":"tetris-1-1","categories":["Puzzle"]}
+{"id":"tetris-1-2","categories":["Recommended","Puzzle"]}
+{"id":"tetris-1-3","categories":["Puzzle"]}
+{"id":"tetris-max-2-3","categories":["Puzzle"]}
+{"id":"tetris-max-2-9","categories":["Puzzle"]}
+{"id":"tetrix-1-1","categories":["Puzzle"]}
+{"id":"texris-1-21","categories":["Puzzle"]}
+{"id":"text-to-speech-1-5","categories":["Utilities"]}
+{"id":"the-exorcist-0-95b5","categories":["Utilities"]}
+{"id":"the-legend-lives","categories":["Games"]}
+{"id":"the-lurking-horror","categories":["Interactive Fiction","Black & White"]}
+{"id":"the-witness","categories":["Interactive Fiction"]}
+{"id":"theatre","categories":["Interactive Fiction","Black & White"]}
+{"id":"theldrow-1-0","categories":["Role-Playing"]}
+{"id":"theldrow-2-2","categories":["Role-Playing"]}
+{"id":"theldrow-2-3","categories":["Role-Playing"]}
+{"id":"themouse2b","categories":["Black & White","Utilities"]}
+{"id":"thetypeist-1-0","categories":["Utilities"]}
+{"id":"thexder-1-0-1","categories":["Action & Arcade","Black & White"]}
+{"id":"think-ahead","categories":["Strategy & Sim"]}
+{"id":"think-ahead-2-0","categories":["Strategy & Sim","Black & White"]}
+{"id":"third-dimension-1-0","categories":["Strategy & Sim"]}
+{"id":"this-ain-t-othello","categories":["Strategy & Sim"]}
+{"id":"through-the-looking-glass","categories":["Games"]}
+{"id":"tic-tac-toe-too","categories":["Strategy & Sim"]}
+{"id":"tidy-it-up-1-0","categories":["Utilities"]}
+{"id":"time-streak","categories":["Adventure","Interactive Fiction","Black & White"]}
+{"id":"timedrive","categories":["Black & White","Utilities"]}
+{"id":"tinies-b-w","categories":["Puzzle"]}
+{"id":"titan-1-0","categories":["Action & Arcade"]}
+{"id":"tmon-2-8-4","categories":["Black & White","Utilities"]}
+{"id":"tom-landry-strategy-football","categories":["Sports"]}
+{"id":"tomb-of-taskmaker-1-0-1a3","categories":["Games"]}
+{"id":"tombworld-1990","categories":["Adventure","Interactive Fiction"]}
+{"id":"tombworld-demo-1987","categories":["Adventure","Interactive Fiction"]}
+{"id":"tombworld-demo-1989","categories":["Adventure","Interactive Fiction"]}
+{"id":"tomeviewer","categories":["Black & White","Utilities"]}
+{"id":"torpedos","categories":["Games"]}
+{"id":"toxic-ravine-1-1","categories":["Action & Arcade","Black & White"]}
+{"id":"transylvania","categories":["Interactive Fiction"]}
+{"id":"transylvania-2","categories":["Games"]}
+{"id":"trek-1-1","categories":["Strategy & Sim"]}
+{"id":"trek-revisited","categories":["Strategy & Sim","Black & White"]}
+{"id":"trimines1-0-demo","categories":["Games"]}
+{"id":"trinity","categories":["Interactive Fiction"]}
+{"id":"triple-yahtzee","categories":["Strategy & Sim"]}
+{"id":"trist-1-00","categories":["Strategy & Sim"]}
+{"id":"trojka-1-0","categories":["Puzzle"]}
+{"id":"tron-2-1","categories":["Action & Arcade","Black & White"]}
+{"id":"tron-3-0","categories":["Action & Arcade","Black & White"]}
+{"id":"tron-4-0d","categories":["Games"]}
+{"id":"trust-betrayal","categories":["Strategy & Sim"]}
+{"id":"ttconverter1-5","categories":["Utilities"]}
+{"id":"turbogopher-1-0-8b4","categories":["Utilities"]}
+{"id":"twisted-1-6","categories":["Adventure"]}
+{"id":"type-creator-database-3-1","categories":["Utilities"]}
+{"id":"type-resolve-2-0-1","categories":["Utilities"]}
+{"id":"ultima-ii","categories":["Games"]}
+{"id":"ums-ii-1-2-6","categories":["Strategy & Sim","Black & White"]}
+{"id":"ums-universal-military-sim","categories":["Games"]}
+{"id":"unbreakout","categories":["Games"]}
+{"id":"uncharted-waters","categories":["Strategy & Sim"]}
+{"id":"uninvited","categories":["Adventure"]}
+{"id":"universal-hint-system","categories":["Utilities"]}
+{"id":"unix-hangman","categories":["Games"]}
+{"id":"unlimited-adventures-1-2","categories":["Games"]}
+{"id":"unnkulian-unventure","categories":["Games"]}
+{"id":"unnkulian-unventure-2-2-0","categories":["Games"]}
+{"id":"utaan-attack","categories":["Action & Arcade"]}
+{"id":"utopia-3-3","categories":["Interactive Fiction"]}
+{"id":"v-for-victory-4-01","categories":["Strategy & Sim"]}
+{"id":"valley-of-peril-1-0","categories":["Adventure"]}
+{"id":"vampire-castle","categories":["Interactive Fiction"]}
+{"id":"vanlandingham","categories":["Applications"]}
+{"id":"vax2runner","categories":["Puzzle"]}
+{"id":"vegas-video-poker","categories":["Card & Casino"]}
+{"id":"venice-project-the","categories":["Games"]}
+{"id":"venture-s-business-sim","categories":["Games"]}
+{"id":"verifile-1-3-fat","categories":["Utilities"]}
+{"id":"vette","categories":["Action & Arcade"]}
+{"id":"vette-1-02","categories":["Games"]}
+{"id":"video-poker-1-0","categories":["Card & Casino"]}
+{"id":"village-the","categories":["Adventure","Interactive Fiction","Black & White"]}
+{"id":"virex-5-7-1","categories":["Utilities"]}
+{"id":"virtual-desktop-1-9-5","categories":["Utilities"]}
+{"id":"vnc-68k-3-3-3b2","categories":["Utilities"]}
+{"id":"voodoo-island","categories":["Games"]}
+{"id":"vremya","categories":["Black & White","Utilities"]}
+{"id":"wacky-wheel-1-0","categories":["Puzzle","Black & White"]}
+{"id":"waku-demo","categories":["Games"]}
+{"id":"wargle","categories":["Action & Arcade","Black & White"]}
+{"id":"wargle-ii-demo","categories":["Games"]}
+{"id":"warlock","categories":["Action & Arcade","Black & White"]}
+{"id":"warlords-1-1-5","categories":["Strategy & Sim","Black & White"]}
+{"id":"wator","categories":["Strategy & Sim"]}
+{"id":"wave-15","categories":["Games"]}
+{"id":"wayne-gretzky-hockey-1-0bw","categories":["Games"]}
+{"id":"welltris-1-1","categories":["Puzzle"]}
+{"id":"wesleyan-tetris","categories":["Puzzle"]}
+{"id":"where-in-time-is-carmen-1-0","categories":["Games"]}
+{"id":"window-3-0","categories":["Applications"]}
+{"id":"window-blaster","categories":["Games"]}
+{"id":"windwalker-mono","categories":["Games"]}
+{"id":"winners","categories":["Interactive Fiction"]}
+{"id":"wishbringer","categories":["Interactive Fiction"]}
+{"id":"wishing-well","categories":["Adventure","Black & White"]}
+{"id":"wizard-s-fire","categories":["Action & Arcade"]}
+{"id":"wizard-s-fire-ii","categories":["Action & Arcade","Black & White"]}
+{"id":"wizard-s-warehouse","categories":["Adventure","Interactive Fiction"]}
+{"id":"wizardry-i-1-10","categories":["Games"]}
+{"id":"wizardry-i-3-02","categories":["Games"]}
+{"id":"wizardry-i-4-00","categories":["Games"]}
+{"id":"wizardry-ii","categories":["Role-Playing","Black & White"]}
+{"id":"wizardry-vi","categories":["Role-Playing","Black & White"]}
+{"id":"wolves-1-0","categories":["Games"]}
+{"id":"word-munchers-1-2","categories":["Educational"]}
+{"id":"word-search","categories":["Games"]}
+{"id":"word-wonder-2-2","categories":["Games"]}
+{"id":"wordmaker-1-0-4","categories":["Black & White","Applications"]}
+{"id":"wordperfect-3-1","categories":["Applications"]}
+{"id":"wordsearch-deluxe-1-06","categories":["Puzzle"]}
+{"id":"wordtris-1-00","categories":["Puzzle"]}
+{"id":"world-builder-1-1","categories":["Educational","Applications"]}
+{"id":"world-class-leaderboard-golf","categories":["Games"]}
+{"id":"worm","categories":["Action & Arcade"]}
+{"id":"writenow","categories":["Applications"]}
+{"id":"wumpuspro-1-0","categories":["Games"]}
+{"id":"xmas-lemmings","categories":["Games"]}
+{"id":"xpect","categories":["Applications"]}
+{"id":"xyphus-1-0","categories":["Role-Playing"]}
+{"id":"yacht-race","categories":["Action & Arcade"]}
+{"id":"yahtzee-1-0","categories":["Strategy & Sim","Black & White"]}
+{"id":"zero-gravity-2-0","categories":["Action & Arcade"]}
+{"id":"zero-gravity-ver-91","categories":["Games"]}
+{"id":"zhore-s-xers-2-3","categories":["Adventure","Interactive Fiction","Black & White"]}
+{"id":"zippy","categories":["Black & White","Games"]}
+{"id":"zoomation","categories":["Games"]}
+{"id":"zoony","categories":["Adventure","Interactive Fiction"]}
+{"id":"zork-i","categories":["Interactive Fiction"]}
+{"id":"zork-ii","categories":["Interactive Fiction"]}
+{"id":"zork-iii","categories":["Interactive Fiction"]}
+{"id":"zork-zero","categories":["Interactive Fiction"]}
+{"id":"zterm-1-0-1","categories":["Utilities"]}
+{"id":"prince-of-persia","categories":["Recommended","Action & Arcade","No Mouse Required"]}
+{"id":"dark-castle","categories":["Action & Arcade","Black & White"]}
+{"id":"beyond-dark-castle","categories":["Action & Arcade","Black & White"]}
+{"id":"shufflepuck-cafe","categories":["Recommended","Sports","Black & White"]}
+{"id":"crystal-quest","categories":["Recommended","Action & Arcade","Black & White"]}
+{"id":"lemmings","categories":["Puzzle"]}
+{"id":"simcity","categories":["Strategy & Sim"]}
+{"id":"deja-vu","categories":["Adventure","Black & White"]}
+{"id":"spectre","categories":["Recommended","Action & Arcade","No Mouse Required"]}
+{"id":"tetris","categories":["Puzzle","Black & White"]}
+{"id":"simpletext","categories":["Applications"]}
