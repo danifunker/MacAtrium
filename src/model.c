@@ -129,11 +129,13 @@ void model_build(Model *m, Catalog *cat)
 {
     int i, k;
 
-    m->cat     = cat;
-    m->ncats   = 0;
-    m->curCat  = 0;
-    m->curItem = 0;
-    m->topRow  = 0;
+    m->cat       = cat;
+    m->ncats     = 0;
+    m->curCat    = 0;
+    m->curItem   = 0;
+    m->topRow    = 0;
+    m->loader    = 0;     /* legacy: all items resident, no paging */
+    m->loadedCat = -1;
 
     /* slot 0 = synthesized "All" */
     {
@@ -160,6 +162,50 @@ void model_build(Model *m, Catalog *cat)
     /* order items within each category */
     for (i = 0; i < m->ncats; i++)
         sort_cat(m, &m->cats[i]);
+}
+
+void model_index_init(Model *m, const CatRef *refs, int nrefs, PageLoader loader)
+{
+    int i;
+    if (nrefs > MODEL_MAX_CATS) nrefs = MODEL_MAX_CATS;
+
+    m->cat       = 0;
+    m->ncats     = nrefs;
+    m->curCat    = 0;
+    m->curItem   = 0;
+    m->topRow    = 0;
+    m->loadedCat = -1;
+    m->loader    = loader;
+
+    for (i = 0; i < nrefs; i++) {
+        ModelCat *c = &m->cats[i];
+        memset(c, 0, sizeof *c);
+        strncpy(c->name, refs[i].name, ITEM_CAT_LEN - 1);
+        c->name[ITEM_CAT_LEN - 1] = '\0';
+        strncpy(c->slug, refs[i].slug, ITEM_CAT_LEN - 1);
+        c->slug[ITEM_CAT_LEN - 1] = '\0';
+        c->count       = refs[i].count;   /* from the index until the page loads */
+        c->listOrdered = refs[i].listOrdered;
+    }
+}
+
+void model_set_page(Model *m, Catalog *page)
+{
+    ModelCat *c;
+    int r, n;
+
+    m->cat = page;
+    if (m->curCat < 0 || m->curCat >= m->ncats) return;
+    c = &m->cats[m->curCat];
+
+    n = page ? page->nitems : 0;
+    if (n > MAX_ITEMS) n = MAX_ITEMS;
+    for (r = 0; r < n; r++) c->idx[r] = r;   /* page IS this category, in order */
+    c->count = n;
+    m->loadedCat = m->curCat;
+
+    if (m->curItem >= c->count) m->curItem = c->count > 0 ? c->count - 1 : 0;
+    if (m->curItem < 0) m->curItem = 0;
 }
 
 ModelCat *model_cur_cat(Model *m)
@@ -245,6 +291,9 @@ int model_move_cat(Model *m, int delta)
     m->curCat  = nc;
     m->curItem = 0;
     m->topRow  = 0;
+    /* Paged: pull in the new category's page (the loader shows the loading
+     * screen + reads cats/<slug>.jsonl, then calls model_set_page). */
+    if (m->loader && m->loadedCat != m->curCat) m->loader(m, m->curCat);
     return 1;
 }
 
@@ -258,9 +307,13 @@ int model_select(Model *m, const char *catName, const char *itemId)
     /* category by name (case-insensitive, matching build-time naming) */
     for (i = 0; i < m->ncats; i++)
         if (ci_cmp(m->cats[i].name, catName) == 0) { m->curCat = i; break; }
-    /* not found -> leave curCat as-is (default 0 = "All") */
+    /* not found -> leave curCat as-is (default 0) */
     m->curItem = 0;
     m->topRow  = 0;
+
+    /* Paged: load the (possibly newly-selected) category's page before we look
+     * for the item in it. */
+    if (m->loader && m->loadedCat != m->curCat) m->loader(m, m->curCat);
 
     if (!itemId || !itemId[0]) return 0;
 

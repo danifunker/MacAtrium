@@ -284,6 +284,52 @@ static void test_model_select(void)
     CHECK(model_select(&m, 0, 0) == 0, "select null no-op");
 }
 
+/* A stub page loader (no Toolbox): builds a 2-item page for any category. */
+static CatItem g_page_items[8];
+static Catalog g_page;
+static int     g_load_calls;
+static int stub_loader(Model *m, int catIdx)
+{
+    (void)catIdx;
+    g_load_calls++;
+    memset(g_page_items, 0, sizeof g_page_items);
+    strcpy(g_page_items[0].id, "a"); strcpy(g_page_items[0].name, "Aaa");
+    g_page_items[0].ncats = 1; strcpy(g_page_items[0].cats[0], "x");
+    strcpy(g_page_items[1].id, "b"); strcpy(g_page_items[1].name, "Bbb");
+    g_page_items[1].ncats = 1; strcpy(g_page_items[1].cats[0], "x");
+    g_page.items = g_page_items; g_page.cap = 8; g_page.nitems = 2; g_page.dropped = 0;
+    model_set_page(m, &g_page);
+    return 1;
+}
+
+static void test_model_paged(void)
+{
+    CatRef refs[3];
+    Model  m;
+    int    before;
+    memset(refs, 0, sizeof refs);
+    strcpy(refs[0].name, "Recommended"); strcpy(refs[0].slug, "recommended"); refs[0].count = 18; refs[0].listOrdered = 1;
+    strcpy(refs[1].name, "Action");      strcpy(refs[1].slug, "action");      refs[1].count = 128;
+    strcpy(refs[2].name, "Puzzle");      strcpy(refs[2].slug, "puzzle");      refs[2].count = 50;
+
+    g_load_calls = 0;
+    model_index_init(&m, refs, 3, stub_loader);
+    CHECK(m.ncats == 3, "paged index_init sets ncats from the index");
+    CHECK(strcmp(model_cur_cat(&m)->name, "Recommended") == 0, "paged lands on Recommended (default)");
+    CHECK(m.cats[1].count == 128, "index count before a page loads");
+    CHECK(m.loadedCat == -1, "no page loaded at index init");
+
+    stub_loader(&m, 0);   /* caller loads the first page at boot */
+    CHECK(m.loadedCat == 0 && model_cur_cat(&m)->count == 2, "first page loaded; count = page nitems");
+    CHECK(strcmp(model_cur_item(&m)->id, "a") == 0, "current item comes from the page");
+
+    before = g_load_calls;
+    CHECK(model_move_cat(&m, 1) == 1, "move to the next category");
+    CHECK(m.curCat == 1 && m.loadedCat == 1, "moving category loaded its page via the loader");
+    CHECK(g_load_calls == before + 1, "loader fired exactly once on the move");
+    CHECK(model_move_item(&m, 1) == 1 && strcmp(model_cur_item(&m)->id, "b") == 0, "move item within the page");
+}
+
 static void test_catindex(void)
 {
     /* The paged catalog index (docs/21): one {name,slug,count,ordered} per line. */
@@ -315,6 +361,7 @@ int main(void)
     test_catalog_drops_bad();
     test_catalog_optional_fields();
     test_catindex();
+    test_model_paged();
     test_model_categories();
     test_model_sort();
     test_model_list_ordered();

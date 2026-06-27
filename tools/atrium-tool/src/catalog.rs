@@ -745,6 +745,44 @@ pub fn inject(
     Ok(())
 }
 
+/// Inject a paged catalog tree (docs/21) — `index.jsonl` + `cats/<slug>.jsonl` +
+/// `hotkeys.jsonl` — into an image's metadata dir (and `metadata/cats`), as TEXT.
+/// The launcher reads `metadata/index.jsonl` first; if present it pages, else it
+/// falls back to the legacy single `catalog.jsonl`.
+pub fn inject_paged(rb_bin: &str, image: &Path, paged_dir: &Path, metadata_dir: &str) -> Result<()> {
+    let rb = RbCli::new(rb_bin);
+    let md = metadata_dir.trim_end_matches('/');
+    rb.mkdir_p(image, md)?;
+    let cats_vol = format!("{md}/cats");
+    rb.mkdir_p(image, &cats_vol)?;
+
+    for f in ["index.jsonl", "hotkeys.jsonl"] {
+        let host = paged_dir.join(f);
+        if host.exists() {
+            rb.put_text(image, &host, &format!("{md}/{f}"), "TEXT", "ttxt")
+                .with_context(|| format!("injecting {f}"))?;
+        }
+    }
+    let cats_host = paged_dir.join("cats");
+    let mut pages: Vec<std::path::PathBuf> = std::fs::read_dir(&cats_host)
+        .with_context(|| format!("reading {}", cats_host.display()))?
+        .filter_map(|e| e.ok().map(|e| e.path()))
+        .filter(|p| p.extension().map(|x| x == "jsonl").unwrap_or(false))
+        .collect();
+    pages.sort();
+    for p in &pages {
+        let name = p.file_name().unwrap().to_string_lossy().into_owned();
+        rb.put_text(image, p, &format!("{cats_vol}/{name}"), "TEXT", "ttxt")
+            .with_context(|| format!("injecting page {name}"))?;
+    }
+    eprintln!(
+        "injected paged catalog -> {} : {md}/ (index + {} page(s) + hotkeys)",
+        image.display(),
+        pages.len()
+    );
+    Ok(())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

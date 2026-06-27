@@ -582,10 +582,27 @@ pub fn run(cfg: &BuildConfig) -> Result<()> {
             if more > 0 { format!(", … (+{more} more)") } else { String::new() }
         );
     }
-    eprintln!("[6/7] catalog      generate + inject");
+    eprintln!("[6/7] catalog      generate + inject (paged, docs/21)");
+    // Paged catalog — handles any library size; the launcher prefers it. Uses the
+    // bundled taxonomy + category DB (a build is portable; no extra paths).
+    let paged_dir = stage.join("paged");
+    let tax = stage.join("taxonomy.json");
+    std::fs::write(&tax, crate::config::EMBEDDED_TAXONOMY)?;
+    let cats = stage.join("categories.jsonl");
+    std::fs::write(&cats, crate::config::EMBEDDED_CATEGORIES)?;
+    let report = catalog::run_paged(&present, &paged_dir, Some(&cats), Some(&tax), false, false)?;
+    eprintln!(
+        "[6/7] catalog      {} item(s) in {} categor(y/ies) / {} page(s)",
+        report.items, report.categories, report.pages
+    );
+    catalog::inject_paged(&cfg.rb_cli, &cfg.out, &paged_dir, &cfg.metadata_dir)?;
+    // Legacy single-file catalog too (back-compat for an old launcher; an over-256
+    // library can't be a single file, so that case is paged-only).
     let cat = stage.join("catalog.jsonl");
-    let report = catalog::run(&present, &cat, false, false)?;
-    catalog::inject(&cfg.rb_cli, &cfg.out, &cat, &cfg.metadata_dir, Some(&stage))?;
+    match catalog::run(&present, &cat, false, false) {
+        Ok(_) => catalog::inject(&cfg.rb_cli, &cfg.out, &cat, &cfg.metadata_dir, Some(&stage))?,
+        Err(e) => eprintln!("[6/7] catalog      legacy single-file skipped: {e}"),
+    }
 
     if cfg.finder_replace {
         eprintln!("[7/7] launcher     install AS the Finder (System 6 boot shell)");
@@ -617,10 +634,11 @@ pub fn run(cfg: &BuildConfig) -> Result<()> {
     }
 
     eprintln!(
-        "\nimage built: {} ({} items, {} categories)",
+        "\nimage built: {} ({} items, {} categories, {} page(s))",
         cfg.out.display(),
         report.items,
-        report.categories.len()
+        report.categories,
+        report.pages
     );
     Ok(())
 }
