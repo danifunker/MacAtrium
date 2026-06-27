@@ -362,27 +362,26 @@ pub fn categorize(
             if let Some(kc) = tax.kind_map.get(kind) {
                 push(kc);
             }
-            let mut had_game_bucket = false;
             if let Some(gs) = rec_obj.get("genre").and_then(Value::as_array) {
                 for g in gs.iter().filter_map(Value::as_str) {
                     if let Some(b) = tax.genre_map.get(g) {
                         push(b);
-                        had_game_bucket = true;
                     }
                 }
             }
             let facet = |k: &str| facets.get(id).and_then(|f| f.get(k)).and_then(Value::as_bool);
-            if facet("color") == Some(false) {
-                push("Black & White");
+            // Every GAME lands in Color or Black & White — so none are unreachable
+            // (this replaces the old catch-all). The explicit colour facet wins;
+            // else the era heuristic (the Mac was 1-bit only until the Mac II,
+            // 1987); else default to B&W (most un-dated MacPack titles are old).
+            let is_game = !tax.kind_map.contains_key(kind);
+            if is_game {
+                let year = rec_obj.get("year").and_then(Value::as_i64);
+                let color = facet("color").unwrap_or_else(|| year.map(|y| y >= 1987).unwrap_or(false));
+                push(if color { "Color" } else { "Black & White" });
             }
             if facet("mouse") == Some(false) {
                 push("No Mouse Required");
-            }
-            // A game with no genre bucket (and not an app/utility) lands in the
-            // catch-all so it's still reachable until hand-sorted.
-            let is_game = !tax.kind_map.contains_key(kind);
-            if is_game && !had_game_bucket && !tax.catch_all_game.is_empty() {
-                push(&tax.catch_all_game);
             }
             cats
         };

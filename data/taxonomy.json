@@ -11,14 +11,14 @@
     "Card & Casino",
     "Sports",
     "Educational",
+    "Color",
     "Black & White",
     "No Mouse Required",
-    "Games",
     "Applications",
     "Utilities"
   ],
   "default": "Recommended",
-  "catch_all_game": "Games",
+  "catch_all_game": "",
   "kind_map": { "app": "Applications", "utility": "Utilities" },
   "genre_map": {
     "Arcade": "Action & Arcade",
