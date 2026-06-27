@@ -45,10 +45,15 @@ two columns or a side detail/art pane.
 The control surface is intentionally tiny so MiSTer joystick→key mapping covers
 it and a real keyboard feels obvious:
 
+> **Note:** the mockup above is the original *list* sketch. The shipped build
+> renders a horizontal **carousel** of item icons with a detail/art pane below, so
+> the axes are the reverse of that sketch — **← / → move items, ↑ / ↓ change
+> category** (the on-screen hint reads `← → game   ^v category`).
+
 | Input | Action |
 |-------|--------|
-| **↑ / ↓** | Move selection within the current category |
-| **← / →** | Switch category (and/or page a long list — see below) |
+| **← / →** | Move the selection through items in the current category page |
+| **↑ / ↓** | Change **category** — loads that category's page on demand (see *Category paging*) |
 | **Return / Enter** | Launch the selected item |
 | **Esc** | Open/close the top-level menu (Show Finder, Restart, Shut Down) |
 | **I** | **More Info** card for the selection (Return launches; any other key returns) |
@@ -78,9 +83,28 @@ display fields the catalog now carries (`vendor`, `genre` string; see
 chooses which the inline pane, More Info card, and `P` preview show; the choice
 persists in prefs. Each falls back to the other when only one exists.
 
-Left/Right doubles as category switch and, for very long single categories,
-paging — final mapping to settle during implementation. Keep **one consistent
-"back" affordance** (Esc) so there's never a dead end.
+### Category paging
+
+Categories are the spine of navigation, and the catalog is **paged by category**
+so a big library stays within a 4 MB Mac's RAM (the full design + RAM math live in
+[21-category-paging.md](21-category-paging.md); the on-disk format in
+[06](06-content-pipeline.md)). What that means for the UI:
+
+- The launcher boots holding only the **category index** (names + counts) and the
+  **first** category's items — it **lands on Recommended**, the curated default.
+  There is no "All" view (it would be the whole library — too big for one page).
+- **↑ / ↓ change category.** Each change loads that category's page from disk
+  (`cats/<slug>.jsonl`) on demand, showing a brief **"Loading <category>…"**
+  notice; only the current page is ever resident. So flipping categories is how you
+  move through the library, and the set of categories comes from the editable
+  **category DB** (a title can appear in several — Bolo is in *Action & Arcade*,
+  *Strategy & Sim*, *Color*, and *Recommended* at once).
+- A category bigger than the per-page cap (128) is split by the build into
+  numbered **sub-pages** ("Action & Arcade (2)"), each just another category in the
+  ↑/↓ list — so "page a long category" *is* moving to its next sub-page.
+- **← / →** move within the loaded page; **Page Up / Page Down** jump a screenful;
+  **letter keys** type-ahead within the page. Keep **one consistent "back"
+  affordance** (Esc) so there's never a dead end.
 
 ### The top-level menu (Esc)
 

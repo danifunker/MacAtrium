@@ -62,8 +62,8 @@ depth-specific behind a thin interface so the bulk of the code is portable C.
 |--------|----------------|
 | `main` | Toolbox init, environment detection, event loop, lifecycle |
 | `env` | `Gestalt`/trap probes: OS version, Color QD, launch caps, screen bounds/depth, Shutdown Mgr |
-| `catalog` | Read + parse the catalog JSONL into in-memory item/category structs |
-| `model` | In-memory library: categories, items, the synthetic "All", current selection/cursor |
+| `catalog` | Parse a catalog **page** (`cats/<slug>.jsonl`) into in-memory `CatItem`s; `catindex_parse` reads the category index (`index.jsonl`). docs/06, docs/21 |
+| `model` | The **paged** library: the resident category index + the **one** current-category page (loaded on demand via a `PageLoader` callback). No synthetic "All"; lands on the first category (Recommended). Selection/cursor. Legacy whole-catalog mode kept as a fallback |
 | `theme` | Palette + font config; defaults + load overrides |
 | `render` | Drawing API used by the UI; dispatches to one of two backends |
 | `render_qd` | Classic-QuickDraw **B&W** backend |
