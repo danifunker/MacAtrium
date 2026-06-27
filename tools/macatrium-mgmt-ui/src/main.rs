@@ -32,7 +32,7 @@ use atrium::{
 use eframe::egui;
 use serde_json::{Map, Value};
 use std::collections::{HashMap, HashSet};
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 fn main() -> eframe::Result<()> {
     let opts = eframe::NativeOptions {
@@ -138,6 +138,8 @@ struct App {
     db_color: u8,     // 0 any · 1 colour · 2 B&W
     db_missing: bool, // only titles not in MacPack
     db_search: String,
+    db_selected: Option<usize>, // index into `db` of the detail-panel title
+    db_shot: usize,             // which screenshot of the selected title is shown
     // ---- shared paths / dataset editing ----
     rb_cli: String,
     metadata: String,   // LaunchBox Metadata.xml
@@ -261,6 +263,8 @@ impl Default for App {
             db_color: 0,
             db_missing: true, // default to the "what are we missing" view
             db_search: String::new(),
+            db_selected: None,
+            db_shot: 0,
             rb_cli,
             metadata: String::new(),
             mg_archive,
@@ -1717,44 +1721,56 @@ impl App {
                 self.run_db_detect(ctx);
             }
         });
+        ui.label(egui::RichText::new("● = missing from MacPack. Click a title for details + screenshots.").small().weak());
         ui.separator();
-        ui.horizontal(|ui| {
-            ui.add_sized([24.0, 16.0], egui::Label::new(egui::RichText::new("").strong()));
-            ui.add_sized([300.0, 16.0], egui::Label::new(egui::RichText::new("Title").strong()));
-            ui.add_sized([42.0, 16.0], egui::Label::new(egui::RichText::new("Year").strong()));
-            ui.add_sized([80.0, 16.0], egui::Label::new(egui::RichText::new("Arch").strong()));
-            ui.add_sized([150.0, 16.0], egui::Label::new(egui::RichText::new("OS").strong()));
-            ui.add_sized([56.0, 16.0], egui::Label::new(egui::RichText::new("Colour").strong()));
-            ui.add(egui::Label::new(egui::RichText::new("Category").strong()));
-        });
 
-        let db = self.db.as_ref().unwrap();
-        let row_h = ui.text_style_height(&egui::TextStyle::Body) + 6.0;
-        egui::ScrollArea::vertical()
-            .id_salt("db_table")
-            .auto_shrink([false, false])
-            .show_rows(ui, row_h, idxs.len(), |ui, range| {
-                for vis in range {
-                    let e = &db[idxs[vis]];
-                    let os = match (e.min_os(), e.max_os()) {
-                        (Some(a), Some(b)) if a != b => format!("{a} – {b}"),
-                        (Some(a), _) => a.to_string(),
-                        _ => "?".into(),
-                    };
-                    let col = match e.color { Some(true) => "colour", Some(false) => "B&W", None => "?" };
-                    ui.horizontal(|ui| {
-                        // a dot marks titles missing from MacPack
-                        let mark = if e.in_macpack { "" } else { "●" };
-                        ui.add_sized([24.0, 16.0], egui::Label::new(egui::RichText::new(mark).weak()));
-                        ui.add_sized([300.0, 16.0], egui::Label::new(&e.title).truncate());
-                        ui.add_sized([42.0, 16.0], egui::Label::new(e.year.map(|y| y.to_string()).unwrap_or_default()));
-                        ui.add_sized([80.0, 16.0], egui::Label::new(e.arch.join("/")).truncate());
-                        ui.add_sized([150.0, 16.0], egui::Label::new(os).truncate());
-                        ui.add_sized([56.0, 16.0], egui::Label::new(col));
-                        ui.add(egui::Label::new(egui::RichText::new(e.categories.join(", ")).weak()).truncate());
-                    });
-                }
+        // Master (filtered title list) ⟷ detail (the selected title + screenshots).
+        let archive = PathBuf::from(self.mg_archive.trim());
+        let sel = self.db_selected;
+        let shot = self.db_shot;
+        let mut clicked: Option<usize> = None;
+        let mut new_shot = shot;
+        {
+            let db = self.db.as_ref().unwrap();
+            let row_h = ui.text_style_height(&egui::TextStyle::Body) + 6.0;
+            ui.horizontal_top(|ui| {
+                ui.vertical(|ui| {
+                    ui.set_width(380.0);
+                    egui::ScrollArea::vertical()
+                        .id_salt("db_list")
+                        .auto_shrink([false, false])
+                        .max_height(440.0)
+                        .show_rows(ui, row_h, idxs.len(), |ui, range| {
+                            for vis in range {
+                                let gi = idxs[vis];
+                                let e = &db[gi];
+                                let dot = if e.in_macpack { "   " } else { "●  " };
+                                let yr = e.year.map(|y| format!("   ·  {y}")).unwrap_or_default();
+                                if ui
+                                    .selectable_label(sel == Some(gi), format!("{dot}{}{yr}", e.title))
+                                    .clicked()
+                                {
+                                    clicked = Some(gi);
+                                }
+                            }
+                        });
+                });
+                ui.separator();
+                ui.vertical(|ui| match sel.and_then(|i| db.get(i)) {
+                    Some(e) => db_detail(ui, e, &archive, shot, &mut new_shot),
+                    None => {
+                        ui.add_space(8.0);
+                        ui.label(egui::RichText::new("Select a title on the left to see its details and screenshots.").weak());
+                    }
+                });
             });
+        }
+        if let Some(c) = clicked {
+            self.db_selected = Some(c);
+            self.db_shot = 0;
+        } else {
+            self.db_shot = new_shot;
+        }
     }
 
     fn tab_attain(&mut self, ui: &mut egui::Ui, ctx: &egui::Context, busy: bool) {
@@ -1955,6 +1971,77 @@ impl App {
                 self.show_wizard = false;
             }
         });
+    }
+}
+
+/// The Database detail panel: the selected MG title's facts, description, MG
+/// page link, and a screenshot carousel (◀ / ▶ over its on-disk images). Reads
+/// `shot` (the current image index) and writes the new index to `new_shot`.
+fn db_detail(ui: &mut egui::Ui, e: &atrium::mgdb::Entry, archive: &Path, shot: usize, new_shot: &mut usize) {
+    ui.heading(&e.title);
+    if e.in_macpack {
+        ui.label(egui::RichText::new("✓ In MacPack").color(egui::Color32::from_rgb(0x4c, 0xaf, 0x50)));
+    } else {
+        ui.label(egui::RichText::new("● Missing from MacPack").color(egui::Color32::from_rgb(0xe0, 0x6c, 0x4c)).strong());
+    }
+    if let Some(url) = e.page_url() {
+        ui.hyperlink_to("Macintosh Garden page ↗", url);
+    }
+    ui.add_space(4.0);
+
+    egui::Grid::new("db_detail_grid").num_columns(2).striped(true).show(ui, |ui| {
+        let mut row = |k: &str, v: String| {
+            if !v.is_empty() {
+                ui.label(egui::RichText::new(k).weak());
+                ui.label(v);
+                ui.end_row();
+            }
+        };
+        row("Type", e.kind.label().to_string());
+        row("Year", e.year.map(|y| y.to_string()).unwrap_or_default());
+        row("Developer", e.developer.clone().unwrap_or_default());
+        row("Architecture", e.arch.join(", "));
+        row("Runs on", e.systems.join(", "));
+        row("Category", e.categories.join(", "));
+        row("Perspective", e.perspective.join(", "));
+        row("Colour", match e.color {
+            Some(true) => "Colour".into(),
+            Some(false) => "B&W".into(),
+            None => "unknown (Detect colour)".into(),
+        });
+        if let Some(m) = e.mouse {
+            row("Mouse", if m { "required".into() } else { "not required".into() });
+        }
+    });
+
+    if !e.desc.is_empty() {
+        ui.add_space(4.0);
+        egui::ScrollArea::vertical().id_salt("db_desc").max_height(120.0).show(ui, |ui| {
+            ui.label(&e.desc);
+        });
+    }
+
+    // Screenshot carousel over the title's on-disk images.
+    ui.add_space(6.0);
+    let shots = e.image_paths(archive);
+    if shots.is_empty() {
+        ui.label(egui::RichText::new("(no screenshots on disk)").weak());
+    } else {
+        let idx = shot.min(shots.len() - 1);
+        ui.horizontal(|ui| {
+            if ui.add_enabled(shots.len() > 1, egui::Button::new("◀")).clicked() {
+                *new_shot = (idx + shots.len() - 1) % shots.len();
+            }
+            ui.label(format!("{} / {}", idx + 1, shots.len()));
+            if ui.add_enabled(shots.len() > 1, egui::Button::new("▶")).clicked() {
+                *new_shot = (idx + 1) % shots.len();
+            }
+            if let Some(name) = shots[idx].file_name() {
+                ui.label(egui::RichText::new(name.to_string_lossy()).small().weak());
+            }
+        });
+        let uri = format!("file://{}", shots[idx].display());
+        ui.add(egui::Image::from_uri(uri).max_width(420.0).max_height(300.0));
     }
 }
 
