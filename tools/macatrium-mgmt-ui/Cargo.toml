@@ -14,3 +14,5 @@ rfd = "0.17"
 serde_json = { version = "1", features = ["preserve_order"] }
 # The CLI's logic, reused verbatim — every action the GUI takes is an atrium call.
 atrium = { path = "../atrium-tool" }
+# Image loaders for the title-picker box-art thumbnails (file:// + png/jpeg decode).
+egui_extras = { version = "0.35", features = ["image", "file"] }
