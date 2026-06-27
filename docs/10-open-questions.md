@@ -25,6 +25,22 @@ must be confirmed on a real System/emulator/core before we depend on them (🔬)
 > (Spike A: MacAtrium as the shell under MultiFinder — priority; B: startup app;
 > C: keep 6.0.8 for self-contained games, route the rest to 7.1/9.2.2).
 
+## Backlog (deferred — low-priority, not blocking)
+
+Small loose threads pulled out of the tool READMEs so the docs read clean. None
+are important; revisit opportunistically.
+
+- **`atrium fetch` — `.zip` / inner-disk-image extraction.** `fetch` extracts
+  StuffIt/CompactPro/MAR/BinHex/MacBinary today and *skips* `.zip`, raw disk
+  images, and `.sitx` (the last is a PPC/OS9-era format for the future 9.2.2
+  phase). Niche; most MG titles use the supported formats.
+- **GUI app icons.** `tools/macatrium-mgmt-ui/assets/icons/macatrium-*` are
+  placeholders — swap in a real icon before a public release.
+- **4-bit PICT on a colour-depth screen.** A 4-bit PICT faults Snow's QuickDraw
+  when drawn onto a *1-bit* screen (a QD 4→1-bit conversion bug, not an encoder
+  defect — the file round-trips fine). Its real check awaits a colour-depth Snow
+  run; in production the launcher loads the depth variant matching the screen.
+
 ## Open decisions (❓)
 
 | # | Question | Leaning / notes |
