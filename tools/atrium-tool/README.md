@@ -31,9 +31,11 @@ Every push builds + tests; releases publish on `main` / tag pushes.
 | `set` | **done** | CLI upsert of one override record (the colour/mouse "checkbox" + corrections) |
 | `pict` | **done** | PNG/JPEG → PICT at 1/4/8/16-bit (docs/06 Images) |
 | `image` | **done** | Orchestrate a full bootable build end-to-end (retires the bash `assemble.sh`) |
+| `add` | **done** | Add titles to an already-built MacAtrium disk in place — harvest + bake art + merge into its catalog (existing titles keep their art); no base copy or launcher reinstall |
 | `size` | **done** | Inspect or patch the launcher's `'SIZE'` (-1) memory partition (the per-config `app_mem_kb`) |
 | `library` | **done** | Library Builder: `scan` the MacPack → `library.jsonl`; `split` requirement/facet fields into `compatibility.jsonl` |
 | `config` | **done** | View/set machine-local settings (`~/.macatrium.json`): `macpack_dir`, `mg_archive`, `rb_cli`, `cache_dir` |
+| `targets` | **done** | List the build **Targets** — named profiles (base OS + art depths + launcher RAM + disk size); bundled `data/targets.json` ⊕ user targets in `~/.macatrium.json` |
 
 The pipeline: **`harvest`** (bare stubs from a donor disk) → **`enrich`** (fill
 metadata from LaunchBox) → **`merge`** (manual `overrides.jsonl`: colour/mouse +
@@ -202,12 +204,12 @@ atrium fetch --mg-archive ~/macgarden-archive --src data/library.jsonl --into ta
 - Extraction: `rb-cli archive extract` for StuffIt/CompactPro/MAR/BinHex-wrapped
   `.hqx`; `put-macbinary` for `.bin`. Injects the extracted tree
   structure-preserving (each path component sanitised HFS-safe).
-- Skips formats rb-cli can't open yet (`.zip`, disk images, `.sitx`) with a
-  message — `.sitx` is a PPC/OS9-era format for the later OS 9.2.2 phase.
+- Skips formats rb-cli doesn't open (`.zip`, disk images, `.sitx`) with a message
+  (backlogged — [docs/10](../../docs/10-open-questions.md#backlog-deferred--low-priority-not-blocking)).
 - **`--append-to <dataset>`**: finds the injected launch-target `APPL` and appends
   a minimal stub (`id/name/kind/year/genre/app`), de-duped by id, so the fetched
   title shows in the catalog — `atrium mg`/`enrich` fill the rest (same pattern as
-  `harvest`). Remaining: `.zip`/inner-disk-image handling.
+  `harvest`).
 
 ### `atrium merge`
 
@@ -296,6 +298,25 @@ build time (the flags — suspend/resume, 32-bit, high-level-event — are prese
 Measured/recommended: **`[512, 384]`** for a compact B&W 6.0.8 build (no off-screen
 GWorld on System 6) and **`[1024, 768]`** for a 7.x colour build (its ~472 KB peak
 keeps the GWorld in temp memory). Omit the field to keep the binary's 2 MB / 1 MB.
+
+### `atrium add`
+
+Add titles to an **already-built** MacAtrium `.hda` in place — no base copy, no
+launcher reinstall. Same JSON config as `image`, where `out` is the existing disk
+and `selection` the titles to add (plus `base_os`/`art_depths` matching the disk's
+Target):
+
+```sh
+atrium add --config add-more-titles.json
+```
+
+It harvests the selected titles into the disk, bakes their art, and **merges**
+their catalog records with the disk's current catalog — the titles already on the
+disk keep their baked art (the merge is at the compiled-catalog level, not a
+regenerate-from-scratch). The union is capped at the device's 256-item limit, and
+the disk is grown first only if `disk_size_mb` is set. This is what the GUI's
+**Add to disk** screen drives; an **OS-migration** is the same idea via `image`
+(import a built disk's titles, scrub the ones the new OS can't run, rebuild).
 
 ### `atrium size`
 
