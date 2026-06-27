@@ -226,9 +226,10 @@ int model_move_item(Model *m, int delta)
 {
     ModelCat *c = model_cur_cat(m);
     if (!c || c->count == 0) return 0;
-    int ni = m->curItem + delta;
-    if (ni < 0) ni = 0;
-    if (ni >= c->count) ni = c->count - 1;
+    /* Wrap around (a true carousel): left from the first item lands on the last,
+     * and vice versa — matching the wrapped tiles the UI shows on both sides. */
+    int ni = (m->curItem + delta) % c->count;
+    if (ni < 0) ni += c->count;
     if (ni == m->curItem) return 0;
     m->curItem = ni;
     return 1;
@@ -288,11 +289,17 @@ int model_move_cat(Model *m, int delta)
     if (nc < 0) nc = 0;
     if (nc >= m->ncats) nc = m->ncats - 1;
     if (nc == m->curCat) return 0;
+    /* Remember where we were in the category we're leaving, and restore where we
+     * last were in the one we're entering (model_set_page clamps it to the page). */
+    m->cats[m->curCat].savedItem = m->curItem;
     m->curCat  = nc;
-    m->curItem = 0;
+    m->curItem = m->cats[nc].savedItem;
+    if (m->curItem >= m->cats[nc].count) m->curItem = m->cats[nc].count > 0 ? m->cats[nc].count - 1 : 0;
+    if (m->curItem < 0) m->curItem = 0;
     m->topRow  = 0;
     /* Paged: pull in the new category's page (the loader shows the loading
-     * screen + reads cats/<slug>.jsonl, then calls model_set_page). */
+     * screen + reads cats/<slug>.jsonl, then calls model_set_page, which clamps
+     * the restored position to the freshly-loaded page count). */
     if (m->loader && m->loadedCat != m->curCat) m->loader(m, m->curCat);
     return 1;
 }

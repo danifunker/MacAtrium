@@ -35,6 +35,7 @@ typedef struct {
     int  idx[MAX_ITEMS];          /* indices into Catalog.items (current page in paged mode) */
     int  count;                   /* items in this category (from the index in paged mode) */
     int  listOrdered;             /* 1 = keep dataset order, don't sort */
+    int  savedItem;               /* last cursor position in this category (restored on return) */
 } ModelCat;
 
 struct Model;
