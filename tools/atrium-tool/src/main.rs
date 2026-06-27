@@ -282,6 +282,18 @@ enum Cmd {
         config: PathBuf,
     },
 
+    /// Add titles to an already-built MacAtrium disk, in place: harvest the
+    /// selected titles into the existing image, bake their art, and merge their
+    /// catalog records with the disk's current catalog (existing titles keep
+    /// their art). No base copy or launcher reinstall. Uses the same JSON config
+    /// as `image`, where `out` is the existing disk and `selection` the new titles.
+    Add {
+        /// Add config (JSON): `out` = the existing MacAtrium .hda, `selection` =
+        /// the titles to add (+ `base_os`/`art_depths` matching the disk's Target).
+        #[arg(long)]
+        config: PathBuf,
+    },
+
     /// Inspect or patch the launcher's `'SIZE'` (-1) memory partition — the
     /// per-config `app_mem_kb` that `atrium image` bakes in. With no `--pref`,
     /// prints the current preferred/minimum; with `--pref` (and optional `--min`),
@@ -505,6 +517,9 @@ fn main() -> Result<()> {
         }
         Cmd::Image { config } => {
             image::run_from_path(&config)?;
+        }
+        Cmd::Add { config } => {
+            image::add_to_disk_from_path(&config)?;
         }
         Cmd::Size { launcher, pref, min, out } => {
             let mut bytes = std::fs::read(&launcher)

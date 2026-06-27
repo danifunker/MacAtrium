@@ -295,6 +295,124 @@ fn bake_sound(rb: &RbCli, cfg: &BuildConfig, stage: &Path, wav: &Path, name: &st
     Ok(())
 }
 
+/// Stage: bake artwork for every record in `work` and merge the resulting
+/// `image`/`shot`/`icon` catalog paths back into `work`. Sources, in precedence:
+/// an explicit `art_dir` > Macintosh Garden art (`<stage>/mg-art`, staged by the
+/// `mg` pass) > a LaunchBox download. No-op unless an art source is configured.
+/// Shared by [`run`] (fresh build) and [`add_to_disk`] so both bake art the same.
+fn bake_art(cfg: &BuildConfig, rb: &RbCli, stage: &Path, work: &Path) -> Result<()> {
+    if !(cfg.art_dir.is_some() || cfg.download_art || cfg.mg_archive.is_some()) {
+        return Ok(());
+    }
+    let mg_art_dir = stage.join("mg-art");
+    let depth = pict::Depth::parse(&cfg.art_depth)?;
+    rb.mkdir_p(&cfg.out, &cfg.images_dir)?;
+
+    // Downloaded art, id -> local file (from the enrich manifest): Box-Front
+    // ("art") and the gameplay Screenshot ("shot").
+    let mut downloaded: std::collections::HashMap<String, PathBuf> = std::collections::HashMap::new();
+    let mut downloaded_shot: std::collections::HashMap<String, PathBuf> = std::collections::HashMap::new();
+    if cfg.download_art {
+        let manifest = stage.join("art-manifest.jsonl");
+        let dl_dir = stage.join("art-dl");
+        std::fs::create_dir_all(&dl_dir)?;
+        for line in std::fs::read_to_string(&manifest).unwrap_or_default().lines() {
+            let v: Value = match serde_json::from_str(line) { Ok(v) => v, Err(_) => continue };
+            let Some(id) = v.get("id").and_then(Value::as_str) else { continue };
+            if let Some(url) = v.get("art").and_then(Value::as_str) {
+                let ext = url.rsplit('.').next().filter(|e| e.len() <= 4).unwrap_or("img");
+                let dst = dl_dir.join(format!("{id}.{ext}"));
+                if enrich::download(url, &dst).is_ok() {
+                    downloaded.insert(id.to_string(), dst);
+                }
+            }
+            if let Some(url) = v.get("shot").and_then(Value::as_str) {
+                let ext = url.rsplit('.').next().filter(|e| e.len() <= 4).unwrap_or("img");
+                let dst = dl_dir.join(format!("{id}.shot.{ext}"));
+                if enrich::download(url, &dst).is_ok() {
+                    downloaded_shot.insert(id.to_string(), dst);
+                }
+            }
+        }
+    }
+
+    // One depth (single `<id>.pict`) or several variants (`<id>.<d>.pict`).
+    let multi = !cfg.art_depths.is_empty();
+    let depths: Vec<pict::Depth> = if multi {
+        cfg.art_depths.iter().map(|s| pict::Depth::parse(s)).collect::<Result<_>>()?
+    } else {
+        vec![depth]
+    };
+    let images_rel = cfg
+        .images_dir
+        .strip_prefix("/MacAtrium/")
+        .unwrap_or(&cfg.images_dir)
+        .trim_end_matches('/');
+
+    let mut overlay = String::new();
+    let mut n = 0;
+    let mut n_shot = 0;
+    let mut n_icon = 0;
+    for (id, app) in dataset_records(work)? {
+        // Box-Front (catalog `image`) and Screenshot (catalog `shot`); a local
+        // art_dir wins, else the downloaded file. art_dir screenshots are named
+        // `<id>.shot.<ext>`. Baked files use `fid` (HFS 31-char safe), not `id`.
+        let fid = fs_id(&id);
+        // Source precedence: explicit art_dir (user override) > MacGarden art >
+        // LaunchBox download. (MG art is era-accurate Mac art; docs/MacintoshGardenArchive.md.)
+        let mg_art = cfg.mg_archive.as_ref().map(|_| mg_art_dir.as_path());
+        let box_src = cfg.art_dir.as_ref().and_then(|adir| find_art(adir, &id))
+            .or_else(|| mg_art.and_then(|adir| find_art(adir, &id)))
+            .or_else(|| downloaded.get(&id).cloned());
+        let shot_name = format!("{id}.shot");
+        let shot_vol = format!("{fid}.shot");
+        let shot_src = cfg.art_dir.as_ref().and_then(|adir| find_art(adir, &shot_name))
+            .or_else(|| mg_art.and_then(|adir| find_art(adir, &shot_name)))
+            .or_else(|| downloaded_shot.get(&id).cloned());
+
+        let mut fields = String::new();
+        let mut has_box = false;
+        if let Some(src) = &box_src {
+            if let Some(rel) = bake_variants(rb, cfg, stage, images_rel, &fid, src, &depths, multi)? {
+                fields.push_str(&format!(",\"image\":{rel:?}"));
+                n += 1;
+                has_box = true;
+            }
+        }
+        if let Some(src) = &shot_src {
+            if let Some(rel) = bake_variants(rb, cfg, stage, images_rel, &shot_vol, src, &depths, multi)? {
+                fields.push_str(&format!(",\"shot\":{rel:?}"));
+                n_shot += 1;
+            }
+        }
+        // App's own Finder icon (ICN#/icl8) for the list-row gutter — baked
+        // for every item with an app. When the item has no box art, reuse it
+        // as the big art-pane fallback (the old behaviour, now for all rows).
+        if let Some(app) = app.as_deref().filter(|a| !a.is_empty()) {
+            if let Some(icon_rel) = bake_icon(rb, cfg, stage, images_rel, &fid, app)? {
+                fields.push_str(&format!(",\"icon\":{icon_rel:?}"));
+                n_icon += 1;
+                if !has_box {
+                    fields.push_str(&format!(",\"image\":{icon_rel:?}"));
+                }
+            }
+        }
+        if !fields.is_empty() {
+            overlay.push_str(&format!("{{\"id\":{id:?}{fields}}}\n"));
+        }
+    }
+    let depth_label = if multi { cfg.art_depths.join("/") } else { cfg.art_depth.clone() };
+    eprintln!(
+        "[art]    {n} box-art + {n_shot} screenshot + {n_icon} app-icon item(s) at {depth_label}-bit"
+    );
+    if n + n_shot + n_icon > 0 {
+        let ovf = stage.join("art-overlay.jsonl");
+        std::fs::write(&ovf, overlay)?;
+        merge::run(work, &ovf, work, false)?;
+    }
+    Ok(())
+}
+
 /// CLI convenience (a *view* helper): load a [`BuildConfig`] from a JSON file and
 /// run it. The GUI builds the `BuildConfig` directly and calls [`run`].
 pub fn run_from_path(config: &Path) -> Result<()> {
@@ -477,115 +595,9 @@ pub fn run(cfg: &BuildConfig) -> Result<()> {
         merge::run(&work, &compat, &work, false)?;
     }
 
-    // 6. art: gather sources (local art_dir wins; else download Box-Front from
-    // LaunchBox), convert -> PICT, inject, set the catalog image field.
-    if cfg.art_dir.is_some() || cfg.download_art || cfg.mg_archive.is_some() {
-        let depth = pict::Depth::parse(&cfg.art_depth)?;
-        rb.mkdir_p(&cfg.out, &cfg.images_dir)?;
-
-        // Downloaded art, id -> local file (from the enrich manifest): Box-Front
-        // ("art") and the gameplay Screenshot ("shot").
-        let mut downloaded: std::collections::HashMap<String, PathBuf> = std::collections::HashMap::new();
-        let mut downloaded_shot: std::collections::HashMap<String, PathBuf> = std::collections::HashMap::new();
-        if cfg.download_art {
-            let manifest = stage.join("art-manifest.jsonl");
-            let dl_dir = stage.join("art-dl");
-            std::fs::create_dir_all(&dl_dir)?;
-            for line in std::fs::read_to_string(&manifest).unwrap_or_default().lines() {
-                let v: Value = match serde_json::from_str(line) { Ok(v) => v, Err(_) => continue };
-                let Some(id) = v.get("id").and_then(Value::as_str) else { continue };
-                if let Some(url) = v.get("art").and_then(Value::as_str) {
-                    let ext = url.rsplit('.').next().filter(|e| e.len() <= 4).unwrap_or("img");
-                    let dst = dl_dir.join(format!("{id}.{ext}"));
-                    if enrich::download(url, &dst).is_ok() {
-                        downloaded.insert(id.to_string(), dst);
-                    }
-                }
-                if let Some(url) = v.get("shot").and_then(Value::as_str) {
-                    let ext = url.rsplit('.').next().filter(|e| e.len() <= 4).unwrap_or("img");
-                    let dst = dl_dir.join(format!("{id}.shot.{ext}"));
-                    if enrich::download(url, &dst).is_ok() {
-                        downloaded_shot.insert(id.to_string(), dst);
-                    }
-                }
-            }
-        }
-
-        // One depth (single `<id>.pict`) or several variants (`<id>.<d>.pict`).
-        let multi = !cfg.art_depths.is_empty();
-        let depths: Vec<pict::Depth> = if multi {
-            cfg.art_depths.iter().map(|s| pict::Depth::parse(s)).collect::<Result<_>>()?
-        } else {
-            vec![depth]
-        };
-        let images_rel = cfg
-            .images_dir
-            .strip_prefix("/MacAtrium/")
-            .unwrap_or(&cfg.images_dir)
-            .trim_end_matches('/');
-
-        let mut overlay = String::new();
-        let mut n = 0;
-        let mut n_shot = 0;
-        let mut n_icon = 0;
-        for (id, app) in dataset_records(&work)? {
-            // Box-Front (catalog `image`) and Screenshot (catalog `shot`); a local
-            // art_dir wins, else the downloaded file. art_dir screenshots are named
-            // `<id>.shot.<ext>`. Baked files use `fid` (HFS 31-char safe), not `id`.
-            let fid = fs_id(&id);
-            // Source precedence: explicit art_dir (user override) > MacGarden art >
-            // LaunchBox download. (MG art is era-accurate Mac art; docs/MacintoshGardenArchive.md.)
-            let mg_art = cfg.mg_archive.as_ref().map(|_| mg_art_dir.as_path());
-            let box_src = cfg.art_dir.as_ref().and_then(|adir| find_art(adir, &id))
-                .or_else(|| mg_art.and_then(|adir| find_art(adir, &id)))
-                .or_else(|| downloaded.get(&id).cloned());
-            let shot_name = format!("{id}.shot");
-            let shot_vol = format!("{fid}.shot");
-            let shot_src = cfg.art_dir.as_ref().and_then(|adir| find_art(adir, &shot_name))
-                .or_else(|| mg_art.and_then(|adir| find_art(adir, &shot_name)))
-                .or_else(|| downloaded_shot.get(&id).cloned());
-
-            let mut fields = String::new();
-            let mut has_box = false;
-            if let Some(src) = &box_src {
-                if let Some(rel) = bake_variants(&rb, &cfg, &stage, images_rel, &fid, src, &depths, multi)? {
-                    fields.push_str(&format!(",\"image\":{rel:?}"));
-                    n += 1;
-                    has_box = true;
-                }
-            }
-            if let Some(src) = &shot_src {
-                if let Some(rel) = bake_variants(&rb, &cfg, &stage, images_rel, &shot_vol, src, &depths, multi)? {
-                    fields.push_str(&format!(",\"shot\":{rel:?}"));
-                    n_shot += 1;
-                }
-            }
-            // App's own Finder icon (ICN#/icl8) for the list-row gutter — baked
-            // for every item with an app. When the item has no box art, reuse it
-            // as the big art-pane fallback (the old behaviour, now for all rows).
-            if let Some(app) = app.as_deref().filter(|a| !a.is_empty()) {
-                if let Some(icon_rel) = bake_icon(&rb, &cfg, &stage, images_rel, &fid, app)? {
-                    fields.push_str(&format!(",\"icon\":{icon_rel:?}"));
-                    n_icon += 1;
-                    if !has_box {
-                        fields.push_str(&format!(",\"image\":{icon_rel:?}"));
-                    }
-                }
-            }
-            if !fields.is_empty() {
-                overlay.push_str(&format!("{{\"id\":{id:?}{fields}}}\n"));
-            }
-        }
-        let depth_label = if multi { cfg.art_depths.join("/") } else { cfg.art_depth.clone() };
-        eprintln!(
-            "[5/7] art          {n} box-art + {n_shot} screenshot + {n_icon} app-icon item(s) at {depth_label}-bit"
-        );
-        if n + n_shot + n_icon > 0 {
-            let ovf = stage.join("art-overlay.jsonl");
-            std::fs::write(&ovf, overlay)?;
-            merge::run(&work, &ovf, &work, false)?;
-        }
-    }
+    // 6. art: bake box-art + screenshot + app icons for every record in `work`,
+    // inject them, and merge the image/shot/icon paths back. (Shared with `add`.)
+    bake_art(cfg, &rb, &stage, &work)?;
 
     // 7. catalog: list ONLY titles whose app is actually on the volume (a
     // phantom entry would -43 on launch), then generate + inject.
@@ -644,4 +656,179 @@ pub fn run(cfg: &BuildConfig) -> Result<()> {
         report.categories.len()
     );
     Ok(())
+}
+
+/// Write only the library records whose id is in `ids` (dataset order preserved,
+/// comments dropped) to `dst` — the delta dataset an [`add_to_disk`] run harvests
+/// and catalogs, so the existing on-disk titles are never reprocessed.
+fn subset_dataset(full: &Path, ids: &[String], dst: &Path) -> Result<()> {
+    use std::collections::HashSet;
+    let want: HashSet<&str> = ids.iter().map(String::as_str).collect();
+    let text = std::fs::read_to_string(full)
+        .with_context(|| format!("reading library {}", full.display()))?;
+    let mut out = String::new();
+    for line in text.lines() {
+        let t = line.trim();
+        if t.is_empty() || t.starts_with('#') || t.starts_with("//") {
+            continue;
+        }
+        if let Ok(v) = serde_json::from_str::<Value>(t) {
+            if v.get("id").and_then(Value::as_str).map(|id| want.contains(id)).unwrap_or(false) {
+                out.push_str(line);
+                out.push('\n');
+            }
+        }
+    }
+    std::fs::write(dst, out).with_context(|| format!("writing delta {}", dst.display()))?;
+    Ok(())
+}
+
+/// **Add titles to an already-built MacAtrium disk, in place.** Harvests the
+/// selected titles into the existing image, bakes their art, and *merges* their
+/// catalog records with the disk's current catalog — so the titles already on the
+/// disk keep their baked art (the merge is at the compiled-catalog level, not a
+/// regenerate-from-scratch). It does **not** copy a base system or reinstall the
+/// launcher: the disk already boots.
+///
+/// `cfg.out` is the existing disk (mutated in place); `cfg.selection` names the
+/// new titles; `cfg.base_os` / `art_depths` should match the disk's original
+/// Target so OS-scoping and art depths line up. Library/compatibility default to
+/// the bundled data. The union is capped at the device max ([`catalog::MAX_ITEMS`]).
+pub fn add_to_disk(cfg: &BuildConfig) -> Result<()> {
+    anyhow::ensure!(cfg.out.exists(), "target disk {} not found", cfg.out.display());
+    let sel = cfg
+        .selection
+        .as_ref()
+        .ok_or_else(|| anyhow::anyhow!("no selection: pick the titles to add"))?;
+
+    let settings = crate::settings::Settings::load_default();
+    let rb = RbCli::new(settings.rb_cli.as_deref().unwrap_or(&cfg.rb_cli));
+    let stage = cfg
+        .stage
+        .clone()
+        .unwrap_or_else(|| std::env::temp_dir().join("atrium-add-stage"));
+    std::fs::create_dir_all(&stage)?;
+
+    // Full library working copy (bundled unless overridden) → resolve the selection.
+    let lib = stage.join("library.jsonl");
+    std::fs::write(&lib, cfg.dataset_bytes()?)?;
+    let (ids, missing) = crate::selection::resolve(&lib, sel, cfg.base_os.as_deref())?;
+    if !missing.is_empty() {
+        eprintln!("[add] {} requested id(s) not in the library: {}", missing.len(), missing.join(", "));
+    }
+    anyhow::ensure!(!ids.is_empty(), "no titles selected to add");
+    let work = stage.join("delta.jsonl");
+    subset_dataset(&lib, &ids, &work)?;
+    eprintln!("[add] adding {} title(s) to {}", ids.len(), cfg.out.display());
+
+    // Grow the disk first if asked (only grows), so the new apps have room.
+    crate::preflight::apply_disk_size(&rb, cfg)?;
+
+    // Harvest the selected titles' apps into the disk + append harvested stubs to
+    // the delta (selection plan + any explicit harvest sources).
+    let donors = crate::donors::Registry::load_default();
+    let (plan, unresolved) = crate::selection::harvest_plan(
+        &lib, sel, cfg.base_os.as_deref(), &donors, settings.macpack_dir.as_deref(),
+    )?;
+    if !unresolved.is_empty() {
+        eprintln!("[add] {} selected app(s) skipped (no source/donor): {}", unresolved.len(), unresolved.join(", "));
+    }
+    eprintln!("[add] harvest {} donor group(s)", plan.len());
+    for (image, apps) in &plan {
+        harvest::run(&cfg.rb_cli, image, apps, None, &stage.join("apps"), Some(&cfg.out), &cfg.apps_root, Some(&work))?;
+    }
+    for h in &cfg.harvest {
+        harvest::run(&cfg.rb_cli, &h.image, &h.apps, h.scan.as_deref(), &stage.join("apps"), Some(&cfg.out), &cfg.apps_root, Some(&work))?;
+    }
+
+    // Enrich (MG → LaunchBox) + compatibility overlay + art — on the delta only.
+    if let Some(mga) = &cfg.mg_archive {
+        mg::run(&work, mga, &work, false, Some(&stage.join("mg-art")))?;
+    }
+    if let Some(md) = &cfg.metadata {
+        let art_manifest = cfg.download_art.then(|| stage.join("art-manifest.jsonl"));
+        enrich::run(&work, md, &work, &cfg.platform, false, art_manifest.as_deref(), cfg.detect_color, &cfg.curl)?;
+    }
+    {
+        let compat = stage.join("compatibility.jsonl");
+        std::fs::write(&compat, cfg.compatibility_bytes()?)?;
+        merge::run(&work, &compat, &work, false)?;
+    }
+    bake_art(cfg, &rb, &stage, &work)?;
+
+    // Catalog: compile ONLY the new titles that actually landed on the volume,
+    // then merge with the disk's existing catalog (existing records keep their art).
+    let present = stage.join("delta.present.jsonl");
+    let dropped = filter_present_apps(&rb, &cfg.out, &work, &present)?;
+    if !dropped.is_empty() {
+        const SHOW: usize = 8;
+        let more = dropped.len().saturating_sub(SHOW);
+        eprintln!(
+            "[add] {} selected title(s) not installed (skipped): {}{}",
+            dropped.len(),
+            dropped.iter().take(SHOW).cloned().collect::<Vec<_>>().join(", "),
+            if more > 0 { format!(", … (+{more} more)") } else { String::new() }
+        );
+    }
+    let (new_records, report) = catalog::compile(&std::fs::read_to_string(&present)?)?;
+    for w in &report.warnings {
+        eprintln!("[add] warning: {w}");
+    }
+
+    // Read the disk's current catalog (MacRoman) back into JSON records.
+    let cur_path = format!("{}/catalog.jsonl", cfg.metadata_dir.trim_end_matches('/'));
+    let cur_tmp = stage.join("catalog-current.jsonl");
+    let existing: Vec<Value> = match rb.get(&cfg.out, &cur_path, &cur_tmp, true) {
+        Ok(()) => catalog::parse_compiled(&std::fs::read(&cur_tmp)?),
+        Err(_) => {
+            eprintln!("[add] no existing catalog on disk — creating a fresh one");
+            Vec::new()
+        }
+    };
+
+    // Merge: keep existing order; a re-added id replaces its record, truly-new ids
+    // append. Then enforce the device item cap.
+    let mut merged: Vec<Value> = existing;
+    let mut index: std::collections::HashMap<String, usize> = merged
+        .iter()
+        .enumerate()
+        .filter_map(|(i, v)| v.get("id").and_then(Value::as_str).map(|s| (s.to_string(), i)))
+        .collect();
+    let (mut added, mut updated) = (0usize, 0usize);
+    for rec in new_records {
+        let Some(id) = rec.get("id").and_then(Value::as_str).map(str::to_string) else { continue };
+        match index.get(&id) {
+            Some(&i) => { merged[i] = rec; updated += 1; }
+            None => { index.insert(id, merged.len()); merged.push(rec); added += 1; }
+        }
+    }
+    anyhow::ensure!(
+        merged.len() <= catalog::MAX_ITEMS,
+        "merged catalog has {} items, over the device max {} — remove some titles or build a fresh disk",
+        merged.len(),
+        catalog::MAX_ITEMS
+    );
+
+    // Render the union (MacRoman, CR) and inject it (backs up the old catalog).
+    let bytes = catalog::render_values(&merged, false, false)?;
+    let cat = stage.join("catalog.jsonl");
+    std::fs::write(&cat, &bytes)?;
+    catalog::inject(&cfg.rb_cli, &cfg.out, &cat, &cfg.metadata_dir, Some(&stage))?;
+
+    eprintln!(
+        "\nadded to {}: {added} new + {updated} updated title(s); catalog now {} item(s)",
+        cfg.out.display(),
+        merged.len()
+    );
+    Ok(())
+}
+
+/// CLI convenience: load a [`BuildConfig`] (with `out` = an existing MacAtrium
+/// disk and `selection` = the titles to add) from JSON and run [`add_to_disk`].
+pub fn add_to_disk_from_path(config: &Path) -> Result<()> {
+    let cfg: BuildConfig = serde_json::from_str(
+        &std::fs::read_to_string(config).with_context(|| format!("reading {}", config.display()))?,
+    )
+    .with_context(|| format!("parsing config {}", config.display()))?;
+    add_to_disk(&cfg)
 }
