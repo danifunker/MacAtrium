@@ -38,6 +38,11 @@ enum Cmd {
         /// Emit CRLF line endings instead of bare CR.
         #[arg(long)]
         crlf: bool,
+        /// Also emit the PAGED catalog tree here (docs/21): index.jsonl +
+        /// cats/<slug>.jsonl + hotkeys.jsonl, slim records, categories split at
+        /// MAX_CAT_ITEMS. The legacy --out file is still written.
+        #[arg(long)]
+        paged_out: Option<PathBuf>,
         /// Also inject the catalog into this target image's metadata dir,
         /// backing up any existing catalog first (rb-cli get).
         #[arg(long)]
@@ -445,33 +450,49 @@ fn main() -> Result<()> {
             out,
             lf,
             crlf,
+            paged_out,
             into,
             backup_dir,
             metadata_dir,
             rb_cli,
         } => {
-            let report = catalog::run(&src, &out, lf, crlf)?;
-            eprintln!(
-                "catalog: {} items, {} categories, {} bytes -> {}",
-                report.items,
-                report.categories.len(),
-                report.bytes,
-                out.display()
-            );
-            for (name, n) in &report.categories {
-                eprintln!("  {:<24} {}", name, n);
-            }
-            if report.lossy_chars > 0 {
+            // Paged tree first (handles any library size, docs/21).
+            if let Some(dir) = &paged_out {
+                let pr = catalog::run_paged(&src, dir, lf, crlf)?;
                 eprintln!(
-                    "  warning: {} character(s) had no MacRoman equivalent (emitted '?')",
-                    report.lossy_chars
+                    "paged: {} item(s) → {} categor(y/ies) in {} page(s), {} hotkey(s) -> {}",
+                    pr.items, pr.categories, pr.pages, pr.hotkeys, dir.display()
+                );
+                eprintln!(
+                    "  largest page: \"{}\" ({} items; cap {})",
+                    pr.biggest_page.0, pr.biggest_page.1, atrium::catalog::MAX_CAT_ITEMS
                 );
             }
-            for w in &report.warnings {
-                eprintln!("  warning: {w}");
-            }
-            if let Some(image) = into {
-                catalog::inject(&rb_cli, &image, &out, &metadata_dir, backup_dir.as_deref())?;
+            // Legacy single-file catalog (≤256). With --paged-out on a large
+            // library this can't be produced — warn rather than fail the run.
+            match catalog::run(&src, &out, lf, crlf) {
+                Ok(report) => {
+                    eprintln!(
+                        "catalog: {} items, {} categories, {} bytes -> {}",
+                        report.items, report.categories.len(), report.bytes, out.display()
+                    );
+                    for (name, n) in &report.categories {
+                        eprintln!("  {:<24} {}", name, n);
+                    }
+                    if report.lossy_chars > 0 {
+                        eprintln!("  warning: {} character(s) had no MacRoman equivalent (emitted '?')", report.lossy_chars);
+                    }
+                    for w in &report.warnings {
+                        eprintln!("  warning: {w}");
+                    }
+                    if let Some(image) = into {
+                        catalog::inject(&rb_cli, &image, &out, &metadata_dir, backup_dir.as_deref())?;
+                    }
+                }
+                Err(e) if paged_out.is_some() => {
+                    eprintln!("legacy single-file catalog skipped: {e}");
+                }
+                Err(e) => return Err(e),
             }
         }
         Cmd::Enrich { src, metadata, out, platform, overwrite, art_manifest, detect_color, curl } => {

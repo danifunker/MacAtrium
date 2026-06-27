@@ -127,23 +127,7 @@ fn filter_present_apps(rb: &RbCli, image: &Path, src: &Path, dst: &Path) -> Resu
     Ok(dropped)
 }
 
-/// A filesystem-safe base name for an item's baked art/icon files. Classic HFS
-/// caps filenames at 31 chars and our longest suffix is `.shot.24.pict` (13), so
-/// the base must be <= 18; a longer id is truncated to 12 chars + a short hash
-/// for uniqueness. The catalog `id` itself is untouched — only on-volume art
-/// filenames (and the `image`/`shot`/`icon` paths pointing at them) use this.
-fn fs_id(id: &str) -> String {
-    const MAX: usize = 17;
-    if id.len() <= MAX {
-        return id.to_string();
-    }
-    let mut h: u32 = 0x811c_9dc5; // FNV-1a
-    for b in id.bytes() {
-        h ^= b as u32;
-        h = h.wrapping_mul(0x0100_0193);
-    }
-    format!("{}-{:04x}", &id[..MAX - 5], h & 0xffff)
-}
+use crate::config::fs_id;
 
 fn find_art(dir: &Path, id: &str) -> Option<PathBuf> {
     for ext in ["png", "jpg", "jpeg", "PNG", "JPG"] {
@@ -253,23 +237,6 @@ fn bake_variants(
     }))
 }
 
-#[cfg(test)]
-mod tests {
-    use super::fs_id;
-
-    #[test]
-    fn fs_id_keeps_short_ids_and_shrinks_long_ones() {
-        assert_eq!(fs_id("dark-castle"), "dark-castle"); // short -> unchanged
-        let long = "armor-alley-level-editor-2-0"; // 28 chars
-        let got = fs_id(long);
-        assert!(got.len() <= 17, "fs_id too long: {got} ({})", got.len());
-        // longest baked suffix is ".shot.24.pict" (13) -> must fit 31-char HFS.
-        assert!(got.len() + ".shot.24.pict".len() <= 31);
-        // deterministic + distinct for different long ids
-        assert_eq!(fs_id(long), got);
-        assert_ne!(fs_id("a-very-long-game-name-one"), fs_id("a-very-long-game-name-two"));
-    }
-}
 
 /// Bake one WAV chime into a sound file (`<sounds_dir>/<name>`) on the volume:
 /// an empty data fork plus a resource fork holding a `snd ` resource. Warns when

@@ -212,6 +212,26 @@ pub const COLOR_APP_MEM_KB: (u32, u32) = (1024, 768);
 /// navigates (cover load/dispose churn) and launches a game inside this partition.
 pub const COMPACT_APP_MEM_KB: (u32, u32) = (512, 384);
 
+/// A filesystem-safe base name for an item's baked art/icon files (the catalog
+/// `art` base). Classic HFS caps filenames at 31 chars and the longest art suffix
+/// is `.shot.24.pict` (13), so the base must be ≤ 18; a longer id is truncated to
+/// 12 chars + a short hash for uniqueness. The catalog `id` itself is untouched —
+/// only on-volume art filenames (and the `art` base pointing at them) use this.
+/// Shared by the build's art pass and the catalog generator so both agree, and so
+/// the launcher can resolve `images/<art>` from the stored base.
+pub fn fs_id(id: &str) -> String {
+    const MAX: usize = 17;
+    if id.len() <= MAX {
+        return id.to_string();
+    }
+    let mut h: u32 = 0x811c_9dc5; // FNV-1a
+    for b in id.bytes() {
+        h ^= b as u32;
+        h = h.wrapping_mul(0x0100_0193);
+    }
+    format!("{}-{:04x}", &id[..MAX - 5], h & 0xffff)
+}
+
 /// Parse a `"WxH"` art-size string (e.g. `"1024x768"`) into `(w, h)`. Accepts a
 /// lower- or upper-case `x` separator; returns `None` on any malformed/zero input.
 pub fn parse_wh(s: &str) -> Option<(u32, u32)> {
@@ -292,6 +312,18 @@ impl BuildConfig {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn fs_id_keeps_short_ids_and_shrinks_long_ones() {
+        assert_eq!(fs_id("dark-castle"), "dark-castle"); // short -> unchanged
+        let long = "armor-alley-level-editor-2-0"; // 28 chars
+        let got = fs_id(long);
+        assert!(got.len() <= 17, "fs_id too long: {got} ({})", got.len());
+        // longest baked suffix is ".shot.24.pict" (13) -> must fit 31-char HFS.
+        assert!(got.len() + ".shot.24.pict".len() <= 31);
+        assert_eq!(fs_id(long), got); // deterministic
+        assert_ne!(fs_id("a-very-long-game-name-one"), fs_id("a-very-long-game-name-two"));
+    }
 
     #[test]
     fn app_mem_kb_round_trips_and_clamps() {
