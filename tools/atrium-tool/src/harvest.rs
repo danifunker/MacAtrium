@@ -344,19 +344,27 @@ fn merge_stubs(existing: &str, harvested: &[Harvested]) -> (String, usize, usize
     (out, appended, skipped)
 }
 
+/// JSON-encode a string. Rust's `{:?}` is almost-JSON but escapes control
+/// chars as `\u{7f}` (braces), which is invalid JSON — serde does it right.
+fn jstr(s: &str) -> String {
+    serde_json::to_string(s).unwrap_or_else(|_| "\"\"".to_string())
+}
+
 /// Serialize a harvested app as a `data/library.jsonl` stub line.
 fn stub_line(h: &Harvested) -> String {
     let mut s = format!(
-        "{{\"id\":{:?},\"name\":{:?},\"kind\":{:?}",
-        h.id, h.name, h.kind
+        "{{\"id\":{},\"name\":{},\"kind\":{}",
+        jstr(&h.id),
+        jstr(&h.name),
+        jstr(&h.kind)
     );
     if let Some(y) = h.year {
         s.push_str(&format!(",\"year\":{y}"));
     }
     if let Some(g) = &h.genre {
-        s.push_str(&format!(",\"genre\":[{g:?}]"));
+        s.push_str(&format!(",\"genre\":[{}]", jstr(g)));
     }
-    s.push_str(&format!(",\"app\":{:?}}}", h.app_path));
+    s.push_str(&format!(",\"app\":{}}}", jstr(&h.app_path)));
     s
 }
 
