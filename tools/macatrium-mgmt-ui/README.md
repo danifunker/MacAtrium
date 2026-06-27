@@ -36,10 +36,12 @@ paths — just a Target, some titles, and an output.
    **Load Existing MacAtrium Disk** extracts a built disk's catalog for editing
    (`rb-cli get` on `/MacAtrium/metadata/catalog.jsonl`).
 4. **Database** — explore the **Macintosh Garden** archive (~21k titles)
-   cross-referenced against MacPack (`atrium::mgdb`): a filterable table — type,
+   cross-referenced against MacPack (`atrium::mgdb`): a filterable list — type,
    architecture, OS, category, year, colour — that flags which titles are
-   **missing from MacPack** (the "what are we missing" view). **Detect colour**
-   fills Colour/B&W offline from screenshots. Needs the MG-Archive set.
+   **missing from MacPack** (●, the "what are we missing" view). Click a title to
+   open a detail panel (developer, supported OS, category, description, a link to
+   its MG page) with a **screenshot carousel**. **Detect colour** fills Colour/B&W
+   offline from screenshots. Needs the MG-Archive set.
 5. **Attain** — register the **MacPack** folder (the donor disks a build harvests
    from) and run the **Macintosh Garden downloader** to cache the selected titles'
    software (`atrium::fetch`, gated on a valid MG-Archive).
