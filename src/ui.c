@@ -484,16 +484,31 @@ static void draw_carousel(Ui *u)
         short sideSz  = L.sideSz, sideGap = L.sideGap, half = L.half;
         int   nside   = L.nside, k;
 
-        /* side tiles outer -> inner (centre drawn last, on top) */
-        for (k = nside; k >= 1; k--) {
-            short off = (short)(half + sideGap + sideSz / 2 + (k - 1) * (sideSz + sideGap));
-            int   li = center - k, ri = center + k;
-            if (li >= 0)
-                draw_tile(u, cat->idx[li], &m->cat->items[cat->idx[li]],
-                          (short)(cx - off), iconCy, sideSz);
-            if (ri < cat->count)
-                draw_tile(u, cat->idx[ri], &m->cat->items[cat->idx[ri]],
-                          (short)(cx + off), iconCy, sideSz);
+        /* side tiles, WRAPPING so the carousel always looks full and continuous:
+         * the slots before the first item show the category's LAST items (and
+         * vice versa), so the default view reads as a carousel you can scroll
+         * either way. A `seen` guard stops a small category (fewer items than
+         * slots) from drawing the same item twice. Inner slots fill first. */
+        {
+            char seen[MAX_CAT_ITEMS];
+            int  cnt = cat->count;
+            memset(seen, 0, sizeof seen);
+            if (center >= 0 && center < cnt) seen[center] = 1;
+            for (k = 1; k <= nside; k++) {
+                short off = (short)(half + sideGap + sideSz / 2 + (k - 1) * (sideSz + sideGap));
+                int   li  = ((center - k) % cnt + cnt) % cnt;
+                int   ri  = (center + k) % cnt;
+                if (!seen[li]) {
+                    seen[li] = 1;
+                    draw_tile(u, cat->idx[li], &m->cat->items[cat->idx[li]],
+                              (short)(cx - off), iconCy, sideSz);
+                }
+                if (!seen[ri]) {
+                    seen[ri] = 1;
+                    draw_tile(u, cat->idx[ri], &m->cat->items[cat->idx[ri]],
+                              (short)(cx + off), iconCy, sideSz);
+                }
+            }
         }
         /* centre tile: ALWAYS the app's own icon at the current screen depth — it
          * never swaps to the box art. The hero cover lives only in the detail pane
@@ -508,19 +523,20 @@ static void draw_carousel(Ui *u)
                     (short)(cx + half + 3), (short)(iconCy + half + 3));
             render_frame(r, &f);
         }
-        /* ◀▶ navigation arrows flanking the carousel (dim at the ends) */
+        /* ◀▶ navigation arrows flanking the carousel. Both stay active because the
+         * carousel wraps (there's always somewhere to scroll); dim only a 1-item
+         * category, where there's nothing to move to. */
         {
             short tw;
+            short ink = cat->count > 1 ? INK_NORMAL : INK_DIM;
             render_frame(r, &L.leftArrow);
             tw = render_text_width(r, "<");
             render_text(r, (short)(L.leftArrow.left + (ARROW_W - tw) / 2),
-                        (short)(iconCy + 5), "<",
-                        center > 0 ? INK_NORMAL : INK_DIM);
+                        (short)(iconCy + 5), "<", ink);
             render_frame(r, &L.rightArrow);
             tw = render_text_width(r, ">");
             render_text(r, (short)(L.rightArrow.left + (ARROW_W - tw) / 2),
-                        (short)(iconCy + 5), ">",
-                        center < cat->count - 1 ? INK_NORMAL : INK_DIM);
+                        (short)(iconCy + 5), ">", ink);
         }
         /* Launch button directly below the selected icon */
         {

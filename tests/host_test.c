@@ -226,15 +226,21 @@ static void test_model_nav(void)
     catalog_parse(SAMPLE, (long)strlen(SAMPLE), &c);
     model_build(&m, &c);
 
-    m.curCat = 0; m.curItem = 0;
-    CHECK(model_move_item(&m, 1) == 1 && m.curItem == 1, "nav down");
-    CHECK(model_move_item(&m, -5) == 1 && m.curItem == 0, "nav up clamps to 0");
-    CHECK(model_move_item(&m, 100) == 1 && m.curItem == 2, "nav down clamps to last");
-    CHECK(model_move_item(&m, 100) == 0, "nav at end is no-op");
+    m.curCat = 0; m.curItem = 0;   /* cat 0 = "All", 3 items */
+    CHECK(model_move_item(&m, 1) == 1 && m.curItem == 1, "nav right");
+    CHECK(model_move_item(&m, -1) == 1 && m.curItem == 0, "nav left");
+    CHECK(model_move_item(&m, -1) == 1 && m.curItem == 2, "nav left WRAPS to last");
+    CHECK(model_move_item(&m, 1) == 1 && m.curItem == 0, "nav right WRAPS to first");
+    CHECK(model_move_item(&m, 3) == 0, "a full-loop delta is a no-op");
 
+    /* per-category position memory: leaving + returning restores the cursor */
+    m.curCat = 0; m.curItem = 2;
     int before = m.curCat;
     CHECK(model_move_cat(&m, 1) == 1 && m.curCat == before + 1, "cat right");
-    CHECK(m.curItem == 0, "cat switch resets selection");
+    CHECK(m.curItem == 0, "a fresh category starts at its saved position (0)");
+    m.curItem = 1;
+    CHECK(model_move_cat(&m, -1) == 1 && m.curCat == before, "cat left back");
+    CHECK(m.curItem == 2, "returning to a category restores its saved cursor");
 }
 
 static void test_model_type_ahead(void)
