@@ -31,22 +31,40 @@ int catindex_parse(const char *buf, long len, CatRef *refs, int cap);
 
 typedef struct {
     char name[ITEM_CAT_LEN];
-    int  idx[MAX_ITEMS];          /* indices into Catalog.items */
-    int  count;
+    char slug[ITEM_CAT_LEN];      /* paged: cats/<slug>.jsonl ("" in legacy mode) */
+    int  idx[MAX_ITEMS];          /* indices into Catalog.items (current page in paged mode) */
+    int  count;                   /* items in this category (from the index in paged mode) */
     int  listOrdered;             /* 1 = keep dataset order, don't sort */
 } ModelCat;
 
-typedef struct {
-    Catalog  *cat;
+struct Model;
+/* Paged mode: main.c's loader for category `catIdx` — reads cats/<slug>.jsonl into
+ * a Catalog and installs it via model_set_page(). Returns 1 on success. The model
+ * (pure C) only calls through this pointer, so host tests pass a stub. */
+typedef int (*PageLoader)(struct Model *m, int catIdx);
+
+typedef struct Model {
+    Catalog  *cat;               /* current page (paged) OR the whole catalog (legacy) */
     ModelCat  cats[MODEL_MAX_CATS];
-    int       ncats;              /* includes "All" at index 0 */
+    int       ncats;             /* paged: # categories from the index; legacy: +"All" at 0 */
     int       curCat;            /* current category */
     int       curItem;          /* selection within current category */
     int       topRow;           /* first visible row (scroll offset) */
+    int       loadedCat;         /* paged: which curCat the page holds (-1 = none) */
+    PageLoader loader;           /* paged: page loader (NULL = legacy, all items resident) */
 } Model;
 
-/* Build categories + "All" from the catalog and apply the ordering rule. */
+/* Legacy: build categories + "All" from a whole-catalog (all items resident). */
 void model_build(Model *m, Catalog *cat);
+
+/* Paged (docs/21): set up the category list from the resident index (no items yet).
+ * `loader` is the page loader; the first page is loaded by the caller after. */
+void model_index_init(Model *m, const CatRef *refs, int nrefs, PageLoader loader);
+
+/* Paged: install a freshly-loaded page as the current category's items (the loader
+ * calls this). Sets m->cat, fills the current category's idx[] (identity), updates
+ * its count, marks it loaded, and clamps the selection. */
+void model_set_page(Model *m, Catalog *page);
 
 /* Current category / item (item may be NULL if the category is empty). */
 ModelCat       *model_cur_cat(Model *m);

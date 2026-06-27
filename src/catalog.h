@@ -9,6 +9,10 @@
 #define MACATRIUM_CATALOG_H
 
 #define MAX_ITEMS       256
+/* Paged catalog (docs/21): the most items in one category PAGE. The generator
+ * splits larger categories into sub-pages, so the launcher holds at most this
+ * many CatItems at once — the RAM bound that fits a 4 MB Mac Plus. */
+#define MAX_CAT_ITEMS   128
 #define MAX_ITEM_CATS   8
 #define ITEM_ID_LEN     48
 #define ITEM_NAME_LEN   64

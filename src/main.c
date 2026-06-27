@@ -218,6 +218,87 @@ static int load_catalog(void)
     return gCat.nitems > 0;
 }
 
+/* ---- paged catalog (docs/21) -------------------------------------------------
+ * A large library can't fit the 256-item single-file catalog (let alone a 4 MB
+ * Mac Plus's RAM), so it ships as metadata/index.jsonl (the category list) plus
+ * one cats/<slug>.jsonl page per category. Only the current page is resident;
+ * navigating a category loads its page on demand (model's PageLoader). */
+static CatRef gRefs[MODEL_MAX_CATS];
+static int    gNrefs = 0;
+
+/* Read metadata/index.jsonl into gRefs[]; 1 if a paged catalog is present. */
+static int load_index(void)
+{
+    FSSpec spec;
+    char  *buf;
+    long   len;
+    gNrefs = 0;
+    if (macfs_make_spec("metadata/index.jsonl", &spec) != noErr) return 0;
+    if (macfs_read_all(&spec, &buf, &len) != noErr) return 0;
+    gNrefs = catindex_parse(buf, len, gRefs, MODEL_MAX_CATS);
+    DisposePtr(buf);
+    return gNrefs > 0;
+}
+
+/* A brief "Loading <name>..." notice while a category page reads + parses (the
+ * page render overwrites it as soon as the load finishes). */
+static void show_loading(const char *name)
+{
+    Rect  b  = gWin->portRect;
+    short cx = (short)((b.left + b.right) / 2);
+    short cy = (short)((b.top + b.bottom) / 2);
+    char  msg[80];
+    Rect  box;
+    short w;
+
+    strcpy(msg, "Loading ");
+    strncat(msg, name, sizeof msg - strlen(msg) - 5);
+    strcat(msg, "...");
+
+    SetRect(&box, (short)(cx - 170), (short)(cy - 24), (short)(cx + 170), (short)(cy + 24));
+    render_begin(&gRender, gWin);
+    render_fill(&gRender, &box, FILL_PANEL);
+    render_frame(&gRender, &box);
+    render_text_size(&gRender, 12);
+    w = render_text_width(&gRender, msg);
+    render_text(&gRender, (short)(cx - w / 2), (short)(cy + 4), msg, INK_NORMAL);
+    render_end(&gRender, gWin);
+}
+
+/* The model's PageLoader: read cats/<slug>.jsonl for category `catIdx` into gCat
+ * (the one resident page) and install it via model_set_page. gCat.items is
+ * allocated once at MAX_CAT_ITEMS and reused for every page. */
+static int load_page(Model *m, int catIdx)
+{
+    FSSpec      spec;
+    char       *buf;
+    long        len;
+    char        path[80];
+    const char *slug = m->cats[catIdx].slug;
+
+    show_loading(m->cats[catIdx].name);
+
+    if (!gCat.items) {
+        gCat.items = (CatItem *)NewPtr((Size)MAX_CAT_ITEMS * sizeof(CatItem));
+        gCat.cap   = gCat.items ? MAX_CAT_ITEMS : 0;
+    }
+    gCat.nitems = 0;
+    gCat.dropped = 0;
+    if (!gCat.items) { model_set_page(m, &gCat); return 0; }
+
+    strcpy(path, "metadata/cats/");
+    strncat(path, slug, sizeof path - strlen(path) - 7);
+    strcat(path, ".jsonl");
+
+    if (macfs_make_spec(path, &spec) == noErr &&
+        macfs_read_all(&spec, &buf, &len) == noErr) {
+        gCat.nitems = catalog_parse_into(buf, len, gCat.items, gCat.cap, &gCat.dropped);
+        DisposePtr(buf);
+    }
+    model_set_page(m, &gCat);
+    return 1;
+}
+
 /* Append a signed long as decimal to a C string. */
 static void append_long(char *dst, long v)
 {
@@ -506,8 +587,17 @@ int main(void)
     if (gPrefs.haveTheme) render_set_theme(&gRender, gPrefs.theme);
     if (gPrefs.haveVol && sound_available()) sound_apply_vol(gPrefs.vol);  /* no boot beep */
 
-    loaded = load_catalog();
-    model_build(&gModel, &gCat);     /* empty catalog -> just "All" with 0 items */
+    if (load_index()) {
+        /* Paged catalog (docs/21): set the category list from the index, install
+         * the page loader, and pull in the default category's first page. */
+        model_index_init(&gModel, gRefs, gNrefs, load_page);
+        load_page(&gModel, 0);
+        loaded = 1;
+    } else {
+        /* Legacy single-file catalog (all items resident). */
+        loaded = load_catalog();
+        model_build(&gModel, &gCat);   /* empty catalog -> just "All" with 0 items */
+    }
     if (gPrefs.haveSel) model_select(&gModel, gPrefs.category, gPrefs.item);
 
     ui_init(&gUi, &gEnv, &gRender, &gModel, gWin, loaded ? 0 : 1);
