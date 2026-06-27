@@ -325,6 +325,56 @@ enum Cmd {
     /// bundled defaults overlaid with any user targets from ~/.macatrium.json.
     Targets,
 
+    /// Explore the Macintosh Garden archive, cross-referenced against MacPack —
+    /// to find what we're missing. Filters by type/architecture/OS/year/category
+    /// (+ colour via the offline cache); `--missing` shows only titles NOT in
+    /// the bundled library. With no filters, prints a summary breakdown.
+    MgList {
+        /// MG data store. Defaults to $MACATRIUM_MG_ARCHIVE, else ~/macgarden-archive.
+        #[arg(long = "mg-archive", env = "MACATRIUM_MG_ARCHIVE")]
+        archive: Option<PathBuf>,
+        /// Restrict to games or apps.
+        #[arg(long, value_parser = ["game", "app"])]
+        kind: Option<String>,
+        /// Architecture substring, e.g. "68k" or "PPC".
+        #[arg(long)]
+        arch: Option<String>,
+        /// A supported-OS label that must be present, e.g. "Mac OS 7".
+        #[arg(long)]
+        system: Option<String>,
+        #[arg(long)]
+        min_year: Option<i64>,
+        #[arg(long)]
+        max_year: Option<i64>,
+        /// Category/genre substring, e.g. "Adventure" or "Utilities".
+        #[arg(long)]
+        category: Option<String>,
+        /// Only titles NOT in MacPack (the library) — the "what are we missing" view.
+        #[arg(long, conflicts_with = "have")]
+        missing: bool,
+        /// Only titles already in MacPack.
+        #[arg(long)]
+        have: bool,
+        /// Colour only (`--color`) or B&W only (`--bw`); uses the colour cache.
+        #[arg(long, conflicts_with = "bw")]
+        color: bool,
+        #[arg(long)]
+        bw: bool,
+        /// Title substring search.
+        #[arg(long)]
+        search: Option<String>,
+        /// Detect colour (offline, from screenshots) for the filtered set first,
+        /// caching the results — so `--color`/`--bw` have data to filter on.
+        #[arg(long)]
+        detect_color: bool,
+        /// Max rows to print (default 40; the summary count is always shown).
+        #[arg(long, default_value = "40")]
+        limit: usize,
+        /// Print only the count + breakdown, no rows.
+        #[arg(long)]
+        count: bool,
+    },
+
     /// View or update the user settings (~/.macatrium.json): machine-local source
     /// locations + tool paths. With no flags, prints the current settings.
     Config {
@@ -376,6 +426,15 @@ enum LibraryCmd {
         #[arg(long)]
         compat: PathBuf,
     },
+}
+
+/// Truncate a display string to `n` chars (… if cut), for table columns.
+fn trunc(s: &str, n: usize) -> String {
+    if s.chars().count() <= n {
+        s.to_string()
+    } else {
+        format!("{}…", s.chars().take(n - 1).collect::<String>())
+    }
 }
 
 fn main() -> Result<()> {
@@ -606,6 +665,101 @@ fn main() -> Result<()> {
                 if !t.label.is_empty() {
                     eprintln!("      {}", t.label);
                 }
+            }
+        }
+        Cmd::MgList {
+            archive, kind, arch, system, min_year, max_year, category,
+            missing, have, color, bw, search, detect_color, limit, count,
+        } => {
+            use atrium::mgdb::{self, Filter, Kind};
+            let archive = mg::resolve_archive(archive);
+            eprintln!("mg-list: data store {}", archive.display());
+            let mut entries = mgdb::load(
+                &archive,
+                atrium::config::EMBEDDED_LIBRARY,
+                atrium::config::EMBEDDED_COMPAT,
+            )?;
+            eprintln!("loaded {} MG record(s)", entries.len());
+
+            let filter = Filter {
+                kind: kind.as_deref().map(|k| if k == "app" { Kind::App } else { Kind::Game }),
+                arch,
+                system,
+                min_year,
+                max_year,
+                category,
+                color: if color { Some(true) } else if bw { Some(false) } else { None },
+                mouse: None,
+                in_macpack: if missing { Some(false) } else if have { Some(true) } else { None },
+                search,
+            };
+
+            // Offline colour detect, scoped to the set matching every OTHER filter,
+            // so `--color`/`--bw` have data without scanning all ~21k screenshots.
+            if detect_color {
+                let mut base = filter.clone();
+                base.color = None;
+                let subset: Vec<mgdb::Entry> = entries.iter().filter(|e| base.matches(e)).cloned().collect();
+                let mut cache = mgdb::load_color_cache(&archive);
+                eprintln!("detecting colour for up to {} matched title(s) with screenshots…", subset.len());
+                let n = mgdb::detect_color(&archive, &subset, &mut cache, |d, t| {
+                    if d > 0 && d % 50 == 0 { eprintln!("  …{d}/{t}"); }
+                });
+                mgdb::save_color_cache(&archive, &cache)?;
+                eprintln!("detected colour for {n} new title(s)");
+                for e in &mut entries {
+                    if e.color.is_none() {
+                        e.color = cache.get(&e.nid).copied();
+                    }
+                }
+            }
+
+            let matches: Vec<&mgdb::Entry> = entries.iter().filter(|e| filter.matches(e)).collect();
+            let total = matches.len();
+            let games = matches.iter().filter(|e| e.kind == Kind::Game).count();
+            let k68 = matches.iter().filter(|e| e.is_68k()).count();
+            let in_mp = matches.iter().filter(|e| e.in_macpack).count();
+            eprintln!(
+                "\n{total} match(es): {games} game(s) + {} app(s); {k68} run on 68k; {in_mp} already in MacPack, {} missing",
+                total - games,
+                total - in_mp
+            );
+            let mut catc: std::collections::BTreeMap<String, usize> = Default::default();
+            for e in &matches {
+                for c in &e.categories {
+                    *catc.entry(c.clone()).or_default() += 1;
+                }
+            }
+            let mut cats: Vec<(String, usize)> = catc.into_iter().collect();
+            cats.sort_by(|a, b| b.1.cmp(&a.1).then(a.0.cmp(&b.0)));
+            if !cats.is_empty() {
+                eprintln!("top categories:");
+                for (c, n) in cats.iter().take(15) {
+                    eprintln!("  {n:5}  {c}");
+                }
+            }
+
+            if !count {
+                eprintln!("\nshowing {} of {total}:", total.min(limit));
+                for e in matches.iter().take(limit) {
+                    let os = match (e.min_os(), e.max_os()) {
+                        (Some(a), Some(b)) if a != b => format!("{a} – {b}"),
+                        (Some(a), _) => a.to_string(),
+                        _ => "?".into(),
+                    };
+                    let col = match e.color { Some(true) => "colour", Some(false) => "B&W", None => "?" };
+                    let mark = if e.in_macpack { " " } else { "*" }; // * = missing from MacPack
+                    eprintln!(
+                        "{mark} {:<38} {:>4}  {:<8} {:<20} {:<6}  {}",
+                        trunc(&e.title, 38),
+                        e.year.map(|y| y.to_string()).unwrap_or_default(),
+                        trunc(&e.arch.join("/"), 8),
+                        trunc(&os, 20),
+                        col,
+                        trunc(&e.categories.join(", "), 30),
+                    );
+                }
+                eprintln!("(* = missing from MacPack)");
             }
         }
         Cmd::Config { macpack_dir, mg_archive, rb_cli, cache_dir } => {
