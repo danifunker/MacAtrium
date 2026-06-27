@@ -490,54 +490,6 @@ impl Taxonomy {
 }
 
 
-/// One **slim** on-device record (docs/21 §3): the row fields the launcher holds
-/// in RAM, minus the three art paths (derived from `art`) and the category array
-/// (implicit in which file it's in). `art` is the [`fs_id`](crate::config::fs_id)
-/// base the launcher resolves `images/<art>(.shot|.icon)` from.
-#[derive(Serialize)]
-struct SlimItem {
-    id: String,
-    name: String,
-    app: String,
-    #[serde(skip_serializing_if = "String::is_empty")]
-    art: String,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    year: Option<i64>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    vendor: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    genre: Option<String>,
-    #[serde(rename = "type", skip_serializing_if = "Option::is_none")]
-    type_: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    creator: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    hotkey: Option<String>,
-    #[serde(rename = "maxDepth", skip_serializing_if = "Option::is_none")]
-    max_depth: Option<i64>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    desc: Option<String>,
-}
-
-impl SlimItem {
-    fn from_out(it: &OutItem) -> SlimItem {
-        SlimItem {
-            id: it.id.clone(),
-            name: it.name.clone(),
-            app: it.app.clone(),
-            art: crate::config::fs_id(&it.id),
-            year: it.year,
-            vendor: it.vendor.clone(),
-            genre: it.genre.clone(),
-            type_: it.type_.clone(),
-            creator: it.creator.clone(),
-            hotkey: it.hotkey.clone(),
-            max_depth: it.max_depth,
-            desc: it.desc.clone(),
-        }
-    }
-}
-
 /// Recommendation-style categories keep dataset order (mirror of the device
 /// `model_is_list_ordered`); every other category sorts alphabetically.
 fn is_list_ordered(name: &str) -> bool {
@@ -692,11 +644,24 @@ pub fn run_paged(
                 format!("{name} ({})", page_no + 1)
             };
             let slug = unique_slug(&page_name, &mut used);
-            let slim: Vec<Value> = chunk
+            // v1: full on-device records (CatItem unchanged), but with the
+            // item's `categories` set to its DB membership (so the launcher's
+            // tag display matches navigation), capped at the device max. The
+            // per-item struct-slim (deriving art paths from an `art` base) is a
+            // separate v2 — it would ripple through the Toolbox UI (docs/21 §6).
+            let recs: Vec<Value> = chunk
                 .iter()
-                .map(|&i| serde_json::to_value(SlimItem::from_out(&items[i])))
-                .collect::<std::result::Result<_, _>>()?;
-            let bytes = render_values(&slim, crlf, lf)?;
+                .map(|&i| -> Result<Value> {
+                    let mut v = serde_json::to_value(&items[i])?;
+                    if let Value::Object(m) = &mut v {
+                        let mut c = cats_of(i);
+                        c.truncate(MAX_ITEM_CATS);
+                        m.insert("categories".into(), serde_json::to_value(c)?);
+                    }
+                    Ok(v)
+                })
+                .collect::<Result<_>>()?;
+            let bytes = render_values(&recs, crlf, lf)?;
             std::fs::write(cats_dir.join(format!("{slug}.jsonl")), &bytes)
                 .with_context(|| format!("writing page {slug}"))?;
             let entry: Map<String, Value> = [
@@ -959,13 +924,16 @@ mod tests {
         assert!(names.contains(&"Action".to_string()));
         assert!(names.contains(&"Action (2)".to_string()));
 
-        // the first Action page file exists with slim records (no `categories`/`image`).
+        // the first Action page file exists with full on-device records (v1).
         let page = macroman::decode(&std::fs::read(dir.join("cats/action.jsonl")).unwrap());
         let first = page.split(['\r', '\n']).find(|l| !l.trim().is_empty()).unwrap();
         let rec: Value = serde_json::from_str(first).unwrap();
-        assert!(rec.get("art").is_some(), "slim record has an art base");
-        assert!(rec.get("categories").is_none(), "slim record drops categories");
-        assert!(rec.get("image").is_none(), "slim record drops art paths");
+        assert_eq!(rec.get("id").and_then(Value::as_str).map(|s| s.starts_with('g')), Some(true));
+        // categories are the item's membership (the file's own category present).
+        let rc: Vec<&str> = rec.get("categories").and_then(Value::as_array).unwrap()
+            .iter().filter_map(Value::as_str).collect();
+        assert!(rc.contains(&"Action & Arcade") || rc.contains(&"Action"),
+            "record carries its category membership: {rc:?}");
         let _ = std::fs::remove_dir_all(&dir);
     }
 
