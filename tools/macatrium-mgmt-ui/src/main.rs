@@ -923,19 +923,15 @@ impl App {
         }
     }
 
-    fn tab_build(&mut self, ui: &mut egui::Ui, ctx: &egui::Context, busy: bool) {
-        // First view: default to the first Target so a fresh Build is ready.
+    /// The Target picker combo + a one-line summary of its pinned settings.
+    /// Shared by Build and Add-to-disk. Applies the first Target on first view so
+    /// a fresh screen is ready, and re-applies on selection.
+    fn target_combo(&mut self, ui: &mut egui::Ui) {
         if self.target_name.is_empty() {
             if let Some(first) = self.target_reg.names().into_iter().next() {
                 self.apply_target(&first);
             }
         }
-        ui.label(
-            egui::RichText::new("Pick a Target (the Mac you're building for), choose the titles, and Build a fresh bootable disk.")
-                .small().weak(),
-        );
-        ui.add_space(6.0);
-
         ui.horizontal(|ui| {
             ui.label("Target:");
             let names = self.target_reg.names();
@@ -963,6 +959,15 @@ impl App {
             let mem = t.app_mem_kb.map(|[p, m]| format!("{p}/{m} KB")).unwrap_or_else(|| "default".into());
             ui.label(egui::RichText::new(format!("    base OS {} · art {} · launcher RAM {}", t.base_os, depths, mem)).small().weak());
         }
+    }
+
+    fn tab_build(&mut self, ui: &mut egui::Ui, ctx: &egui::Context, busy: bool) {
+        ui.label(
+            egui::RichText::new("Pick a Target (the Mac you're building for), choose the titles, and Build a fresh bootable disk.")
+                .small().weak(),
+        );
+        ui.add_space(6.0);
+        self.target_combo(ui);
 
         ui.add_space(6.0);
         path_row(ui, "Output disk (.hda):", &mut self.out_image, Pick::Save);
@@ -1113,13 +1118,44 @@ impl App {
         });
     }
 
-    fn tab_add_to_disk(&mut self, ui: &mut egui::Ui, _ctx: &egui::Context, _busy: bool) {
+    /// Add the selected titles to an existing MacAtrium disk via the shared
+    /// `image::add_to_disk` controller (harvest-into + compiled-catalog merge).
+    fn run_add_to_disk(&mut self, ctx: &egui::Context) {
+        if self.add_disk_path.trim().is_empty() {
+            self.status = "Pick the MacAtrium disk to add to first.".into();
+            return;
+        }
+        if self.selected_count() == 0 {
+            self.status = "Select at least one title to add.".into();
+            return;
+        }
+        self.sync_picker(); // ensure the Selection reflects the ticked titles
+        let mut cfg = self.to_config();
+        cfg.out = PathBuf::from(self.add_disk_path.trim());
+        let disk = self.add_disk_path.clone();
+        let n = self.selected_count();
+        self.spawn_job(ctx, &format!("Adding {n} title(s) to the disk"), move || {
+            match image::add_to_disk(&cfg) {
+                Ok(()) => Done { status: format!("Added {n} title(s) -> {disk}"), dataset: None, reload: false },
+                Err(e) => Done { status: format!("Add failed: {e}"), dataset: None, reload: false },
+            }
+        });
+    }
+
+    fn tab_add_to_disk(&mut self, ui: &mut egui::Ui, ctx: &egui::Context, busy: bool) {
         ui.label(
-            egui::RichText::new("Extend an already-built MacAtrium disk with more titles, without rebuilding from scratch.")
+            egui::RichText::new("Extend an already-built MacAtrium disk with more titles, without rebuilding from scratch. The titles already on the disk keep their artwork.")
                 .small().weak(),
         );
         ui.add_space(6.0);
         path_row(ui, "MacAtrium disk (.hda):", &mut self.add_disk_path, Pick::File);
+        ui.add_space(6.0);
+        // Match the disk's original Target so OS-scoping + art depths line up.
+        self.target_combo(ui);
+        ui.label(
+            egui::RichText::new("Pick the Target the disk was built with, so the new titles get matching art depths.")
+                .small().weak(),
+        );
         ui.add_space(6.0);
         ui.group(|ui| {
             ui.strong("Titles to add");
@@ -1127,14 +1163,12 @@ impl App {
             self.title_picker(ui);
         });
         ui.add_space(8.0);
-        ui.add_enabled(false, egui::Button::new("Add to disk")).on_hover_text(
-            "Injects the selected titles' forks into the existing disk and regenerates its \
-             catalog. The inject backend (harvest --into + catalog regen) is the next build step.",
-        );
-        ui.label(
-            egui::RichText::new("Inject backend coming next — pick the disk + titles now; the wiring lands in the following commit.")
-                .small().weak(),
-        );
+        if ui
+            .add_enabled(!busy, egui::Button::new(egui::RichText::new("Add to disk").strong()))
+            .clicked()
+        {
+            self.run_add_to_disk(ctx);
+        }
     }
 
     fn tab_library(&mut self, ui: &mut egui::Ui, ctx: &egui::Context, busy: bool) {

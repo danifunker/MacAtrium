@@ -26,6 +26,17 @@ fn encode_char(c: char) -> Option<u8> {
     HIGH.iter().position(|&h| h == c).map(|i| 0x80 + i as u8)
 }
 
+/// Transcode MacRoman bytes back to a UTF-8 string: ASCII (< 0x80) passes
+/// through, the high half maps via [`HIGH`]. The inverse of [`encode`] for every
+/// representable character — used to read an on-volume catalog (MacRoman) back
+/// into UTF-8 JSON so it can be merged (`atrium add`).
+pub fn decode(bytes: &[u8]) -> String {
+    bytes
+        .iter()
+        .map(|&b| if b < 0x80 { b as char } else { HIGH[(b - 0x80) as usize] })
+        .collect()
+}
+
 /// Transcode a UTF-8 string to MacRoman bytes. Returns the bytes plus the count
 /// of characters that had no MacRoman equivalent (emitted as '?').
 pub fn encode(s: &str) -> (Vec<u8>, usize) {
@@ -68,5 +79,16 @@ mod tests {
         let (b, lossy) = encode("漢"); // CJK — not in MacRoman
         assert_eq!(b, b"?");
         assert_eq!(lossy, 1);
+    }
+
+    #[test]
+    fn decode_inverts_encode() {
+        for s in ["Dark Castle", "Déjà Vu", "Café ™ ©", "ƒolder"] {
+            let (bytes, lossy) = encode(s);
+            assert_eq!(lossy, 0, "{s:?} should be representable");
+            assert_eq!(decode(&bytes), s, "round-trip {s:?}");
+        }
+        // raw high bytes decode to their MacRoman glyphs (0x8E = é, 0xAA = ™).
+        assert_eq!(decode(&[b'D', 0x8E]), "Dé");
     }
 }

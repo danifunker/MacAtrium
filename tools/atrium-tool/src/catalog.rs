@@ -11,12 +11,15 @@ use crate::macroman;
 use crate::rbcli::RbCli;
 use anyhow::{bail, Context, Result};
 use serde::{Deserialize, Serialize};
+use serde_json::Value;
 use std::collections::BTreeMap;
 use std::path::Path;
 
 // On-device parser limits (src/catalog.h, src/model.h). We validate against
 // these so a generated catalog never silently overflows the 68k reader.
-const MAX_ITEMS: usize = 256;
+/// Hard cap on catalog items the 68k reader accepts. A merge (`atrium add`) must
+/// keep the union within this.
+pub const MAX_ITEMS: usize = 256;
 const MAX_ITEM_CATS: usize = 8;
 const ITEM_ID_LEN: usize = 47;
 const ITEM_NAME_LEN: usize = 63;
@@ -371,6 +374,51 @@ fn render(items: &[OutItem], crlf: bool, lf: bool) -> Result<(Vec<u8>, usize)> {
     Ok((bytes, lossy))
 }
 
+/// Compile a UTF-8 source dataset into the on-Mac catalog records as JSON
+/// `Value`s (the same field set [`render`] emits), without encoding to MacRoman.
+/// Used by `atrium add` to facet just the *new* titles, then merge them with the
+/// existing on-volume catalog records before a single re-render.
+pub fn compile(src_text: &str) -> Result<(Vec<Value>, Report)> {
+    let (items, report) = build(src_text)?;
+    let values = items
+        .iter()
+        .map(serde_json::to_value)
+        .collect::<std::result::Result<Vec<Value>, _>>()?;
+    Ok((values, report))
+}
+
+/// Render already-compiled catalog records (one JSON object per element, e.g.
+/// from [`compile`] or [`parse_compiled`]) to the on-device byte format
+/// (MacRoman, `sep`-delimited). Lets a merged catalog be re-emitted without
+/// re-deriving any facets, so existing records keep their baked art paths.
+pub fn render_values(items: &[Value], crlf: bool, lf: bool) -> Result<Vec<u8>> {
+    let sep = if lf { "\n" } else if crlf { "\r\n" } else { "\r" };
+    let mut utf8 = String::new();
+    for it in items {
+        utf8.push_str(&serde_json::to_string(it)?);
+        utf8.push_str(sep);
+    }
+    Ok(macroman::encode(&utf8).0)
+}
+
+/// Parse a compiled on-volume catalog's bytes (MacRoman, CR/LF/CRLF separated)
+/// back into JSON records, in order. Blank/comment lines and any record that
+/// won't parse are skipped (an odd line shouldn't sink a whole merge).
+pub fn parse_compiled(bytes: &[u8]) -> Vec<Value> {
+    let text = macroman::decode(bytes);
+    let mut out = Vec::new();
+    for line in text.split(['\r', '\n']) {
+        let t = line.trim();
+        if t.is_empty() || t.starts_with('#') || t.starts_with("//") {
+            continue;
+        }
+        if let Ok(v) = serde_json::from_str::<Value>(t) {
+            out.push(v);
+        }
+    }
+    out
+}
+
 /// Run the `catalog` subcommand.
 pub fn run(src: &Path, out: &Path, lf: bool, crlf: bool) -> Result<Report> {
     let src_text = std::fs::read_to_string(src)
@@ -551,6 +599,26 @@ mod tests {
         )
         .unwrap();
         assert_eq!(items.len(), 1);
+    }
+
+    #[test]
+    fn compile_render_parse_round_trip() {
+        // compile a source record -> Values, render to MacRoman bytes, parse back.
+        let (vals, report) = compile(
+            r#"{"id":"dc","name":"Café Dark Castle","app":"Apps/DC/DC","year":1986,"color":false,"genre":["Action"]}"#,
+        )
+        .unwrap();
+        assert_eq!(report.items, 1);
+        assert_eq!(vals[0]["id"], "dc");
+        assert_eq!(vals[0]["genre"], "Action"); // joined display string
+        assert!(vals[0]["categories"].as_array().unwrap().iter().any(|c| c == "B&W"));
+
+        let bytes = render_values(&vals, false, false).unwrap();
+        assert!(bytes.ends_with(b"\r") && !bytes.contains(&b'\n'));
+        let back = parse_compiled(&bytes);
+        assert_eq!(back.len(), 1);
+        assert_eq!(back[0]["id"], "dc");
+        assert_eq!(back[0]["name"], "Café Dark Castle"); // MacRoman round-trips
     }
 
     #[test]
