@@ -284,6 +284,26 @@ static void test_model_select(void)
     CHECK(model_select(&m, 0, 0) == 0, "select null no-op");
 }
 
+static void test_catindex(void)
+{
+    /* The paged catalog index (docs/21): one {name,slug,count,ordered} per line. */
+    const char *idx =
+        "{\"name\":\"Recommended\",\"slug\":\"recommended\",\"count\":18,\"ordered\":true}\n"
+        "{\"name\":\"Action & Arcade\",\"slug\":\"action-arcade\",\"count\":128,\"ordered\":false}\n"
+        "\n"
+        "{\"name\":\"Action & Arcade (2)\",\"slug\":\"action-arcade-2\",\"count\":72,\"ordered\":false}\n";
+    CatRef refs[MODEL_MAX_CATS];
+    int n = catindex_parse(idx, (long)strlen(idx), refs, MODEL_MAX_CATS);
+    CHECK(n == 3, "catindex parses 3 pages (blank line skipped)");
+    CHECK(strcmp(refs[0].name, "Recommended") == 0, "catindex name");
+    CHECK(strcmp(refs[0].slug, "recommended") == 0, "catindex slug");
+    CHECK(refs[0].count == 18, "catindex count");
+    CHECK(refs[0].listOrdered == 1, "catindex Recommended is ordered");
+    CHECK(refs[1].count == 128 && refs[1].listOrdered == 0, "catindex Action page 1");
+    CHECK(strcmp(refs[2].slug, "action-arcade-2") == 0, "catindex sub-page slug");
+    CHECK(catindex_parse(idx, (long)strlen(idx), refs, 1) == 1, "catindex honours cap");
+}
+
 int main(void)
 {
     test_json_scalars();
@@ -294,6 +314,7 @@ int main(void)
     test_catalog_line_endings();
     test_catalog_drops_bad();
     test_catalog_optional_fields();
+    test_catindex();
     test_model_categories();
     test_model_sort();
     test_model_list_ordered();
