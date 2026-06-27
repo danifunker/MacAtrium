@@ -10,5 +10,11 @@
     "label": "System 7.1",
     "finder_replace": false,
     "startup_items": "/System Folder/Startup Items"
+  },
+  "7.5.5": {
+    "hda": "/home/dani/MacOS_SampleDisks/MacLC_7-5-5.hda",
+    "label": "System 7.5.5 (Quadra-class)",
+    "finder_replace": false,
+    "startup_items": "/System Folder/Startup Items"
   }
 }
