@@ -27,6 +27,7 @@ Every push builds + tests; releases publish on `main` / tag pushes.
 | `enrich` | **done** | Fill the dataset (year/vendor/genre + art URLs) from the LaunchBox Games Database |
 | `mg` | **done** | Fill the dataset from the local **Macintosh Garden** archive (68K-only): year/vendor/genre/desc + `source` attribution + offline colour detect, and stage box-front/screenshot art |
 | `fetch` | **done** | Download a 68K title's software from the Macintosh Garden mirror, extract via rb-cli (StuffIt/CompactPro/MAR/BinHex/MacBinary), inject the forks into an image under `Apps/` |
+| `mg-list` | **done** | Explore the MG archive (~21k titles) cross-referenced against MacPack — filter by type/architecture/OS/year/category (+ offline colour), `--missing` for the "what are we missing" view |
 | `merge` | **done** | Apply a manual overrides overlay (colour/mouse, corrections, unmatched titles) over the dataset |
 | `set` | **done** | CLI upsert of one override record (the colour/mouse "checkbox" + corrections) |
 | `pict` | **done** | PNG/JPEG → PICT at 1/4/8/16-bit (docs/06 Images) |
@@ -317,6 +318,32 @@ regenerate-from-scratch). The union is capped at the device's 256-item limit, an
 the disk is grown first only if `disk_size_mb` is set. This is what the GUI's
 **Add to disk** screen drives; an **OS-migration** is the same idea via `image`
 (import a built disk's titles, scrub the ones the new OS can't run, rebuild).
+
+### `atrium mg-list`
+
+Explore the **Macintosh Garden** archive (`metadata/{games,apps}.ndjson`, ~21k
+titles) cross-referenced against **MacPack** (the bundled library) — to see what
+we're missing. Each title is flagged in-MacPack or not by matching its name the
+same way `mg`/`enrich` do.
+
+```sh
+# 68k games NOT in MacPack, summarised by category:
+atrium mg-list --kind game --arch 68k --missing --count
+# narrow it: missing 68k Adventure games, 1985-1993, first 40 rows:
+atrium mg-list --kind game --arch 68k --missing --category Adventure \
+  --min-year 1985 --max-year 1993
+```
+
+Filters (all AND): `--kind game|app`, `--arch` (substring, e.g. `68k`/`PPC`),
+`--system` (a supported-OS label, e.g. `"Mac OS 7"`), `--min-year`/`--max-year`,
+`--category` (substring), `--search` (title), `--missing` / `--have`,
+`--color`/`--bw`. Prints a category breakdown plus rows (`*` = missing from
+MacPack); `--count` shows just the summary, `--limit N` caps rows.
+
+**Colour/B&W and mouse aren't in MG's data.** `--detect-color` fills colour
+offline from a scraped screenshot (the `mg` trick), **scoped to the filtered set**
+so it's fast, caching results in `<archive>/metadata/color-cache.jsonl`; mouse is
+only known for curated titles. This is the engine behind the GUI's **Database** tab.
 
 ### `atrium size`
 
