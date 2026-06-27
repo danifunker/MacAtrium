@@ -1,21 +1,26 @@
 # Resume — MacAtrium Management UI, job-based rebuild
 
-## STATUS 2026-06-26 — the rebuild is BUILT (shell + most jobs). What's left:
+## STATUS 2026-06-26 — the rebuild is COMPLETE. Only visual verification is left:
 
-- **Add-to-disk inject backend** — the screen (disk picker + title picker) is
-  scaffolded but the "Add to disk" button is disabled. Implement the inject:
-  `selection::harvest_plan` → `harvest::run(.., into: Some(disk), append_to: stub)`
-  for the MacPack donors → regenerate the on-disk catalog (`catalog::run` +
-  `catalog::inject`). Best done as a new `atrium image`-side controller fn
-  (e.g. `image::add_to_disk(&AddConfig)`) so the CLI gets it too (MVC/DRY).
-- **Genre/tag filters + box-art thumbnails** in the title picker (`egui_extras`
-  image loaders); `LibRow` dropped `genre`/`vendor` — re-add when the filter lands.
-- **OS-migration mode** — load a built disk, retarget to a newer OS, scrub
-  incompatible titles via `maxOS`.
-- **Verify the GUI visually** (Snow / on a display) — the headless box can't.
+- ✅ **Add-to-disk inject backend** — `image::add_to_disk` (CLI `atrium add` + GUI):
+  harvest selected titles into an existing .hda, bake their art, merge their
+  catalog records with the disk's current catalog (existing titles keep their art)
+  at the compiled-catalog level. catalog.rs gained `compile`/`render_values`/
+  `parse_compiled`; macroman gained `decode`; `bake_art` factored out of `run`.
+- ✅ **Genre/tag filters + box-art thumbnails** — a shared `filter_bar` /
+  `filtered_indices` (search+kind+genre) backs both the picker and Library;
+  `mg::ArtIndex` resolves name→on-disk box-art, rendered via `egui_extras` (lazy
+  worker, per-id cache, MG-Archive-gated). `LibRow` carries genres + minOS/maxOS.
+- ✅ **OS-migration mode** — Build's "Migrate / clone from an existing disk":
+  Import titles from a disk + Scrub incompatible with the Target's OS
+  (`selection::os_in_range`), then Build on the new-OS Target. Reuses `image::run`.
+- ⏳ **#4 — verify the GUI visually** (Snow / on a display) — the headless box
+  CAN'T. Run `cargo run --release -p macatrium-mgmt-ui`, click through every
+  screen, and do a real Build + Add-to-disk + Migrate end-to-end, booting the
+  result in Snow. This is the ONE remaining task.
 
-Everything below is the original plan; steps 0–4 are DONE, 5–6 partial. Commits:
-`tooling: build Targets…`, `mgmt-ui: rebuild around jobs…`, `deps: upgrade…`.
+Deps current (egui 0.35, rfd 0.17, quick-xml 0.40); zero deprecation warnings.
+80 (atrium) + 5 (GUI) tests pass. Everything below is the original plan, all done.
 
 ---
 
