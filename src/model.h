@@ -13,6 +13,22 @@
 
 #define MODEL_MAX_CATS (64 + 1)   /* +1 for the synthesized "All" */
 
+/* Paged catalog (docs/21): one entry of the resident category index
+ * (metadata/index.jsonl) — a category PAGE the launcher loads on demand. The
+ * items themselves are NOT held here; main.c loads cats/<slug>.jsonl into a
+ * Catalog when this category becomes current. */
+typedef struct {
+    char name[ITEM_CAT_LEN];
+    char slug[ITEM_CAT_LEN];      /* cats/<slug>.jsonl */
+    int  count;                   /* titles in this page (from the index) */
+    int  listOrdered;             /* keep dataset order (Recommended/Featured) */
+} CatRef;
+
+/* Parse the paged catalog index (metadata/index.jsonl): one flat JSON object per
+ * line {name, slug, count, ordered} into refs[cap]. Returns the number parsed.
+ * Pure C (json.c), allocation-free, host-testable. */
+int catindex_parse(const char *buf, long len, CatRef *refs, int cap);
+
 typedef struct {
     char name[ITEM_CAT_LEN];
     int  idx[MAX_ITEMS];          /* indices into Catalog.items */

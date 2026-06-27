@@ -2,8 +2,62 @@
  * model.c — see model.h.
  */
 #include "model.h"
+#include "json.h"
 
 #include <string.h>
+
+/* Walk one CR/LF/CRLF-terminated line in buf[0..len); return its length (bytes
+ * before the terminator) and advance *i past it. (Mirrors catalog.c's walker so
+ * the index parses identically to the pages.) */
+static long catindex_next_line(const char *buf, long len, long *i)
+{
+    long start = *i;
+    while (*i < len && buf[*i] != '\n' && buf[*i] != '\r') (*i)++;
+    long lineLen = *i - start;
+    if (*i < len && buf[*i] == '\r') {
+        (*i)++;
+        if (*i < len && buf[*i] == '\n') (*i)++;
+    } else if (*i < len && buf[*i] == '\n') {
+        (*i)++;
+    }
+    return lineLen;
+}
+
+int catindex_parse(const char *buf, long len, CatRef *refs, int cap)
+{
+    long i = 0;
+    int  n = 0;
+    while (i < len && n < cap) {
+        long start = i;
+        long lineLen = catindex_next_line(buf, len, &i);
+        if (lineLen <= 0) continue;
+
+        JsonObject obj;
+        if (json_parse_object(buf + start, lineLen, &obj) <= 0) continue;
+
+        const JsonField *f = json_get(&obj, "name");
+        if (!f || f->type != JT_STR || f->str[0] == '\0') continue;
+
+        CatRef *r = &refs[n];
+        memset(r, 0, sizeof *r);
+        strncpy(r->name, f->str, ITEM_CAT_LEN - 1);
+        r->name[ITEM_CAT_LEN - 1] = '\0';
+
+        f = json_get(&obj, "slug");
+        if (f && f->type == JT_STR) {
+            strncpy(r->slug, f->str, ITEM_CAT_LEN - 1);
+            r->slug[ITEM_CAT_LEN - 1] = '\0';
+        }
+        f = json_get(&obj, "count");
+        if (f && f->type == JT_NUM) r->count = (int)f->num;
+
+        f = json_get(&obj, "ordered");
+        r->listOrdered = (f && f->type == JT_BOOL) ? f->boolean
+                                                   : model_is_list_ordered(r->name);
+        n++;
+    }
+    return n;
+}
 
 /* case-insensitive ASCII compare (bytes > 127 compared raw — fine for MacRoman
  * ordering within the MVP). */
