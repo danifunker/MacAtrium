@@ -57,6 +57,7 @@ enum Tab {
     Build,
     AddToDisk,
     Library,
+    Database,
     Attain,
     Settings,
 }
@@ -120,6 +121,23 @@ struct App {
     art_requested: bool,
     thumbs: bool, // show box-art thumbnails in the picker
     thumb_cache: HashMap<String, Option<String>>, // id -> file:// URI (or None)
+    // Database tab: the MG archive cross-referenced against MacPack (lazy worker).
+    db: Option<Vec<atrium::mgdb::Entry>>,
+    db_rx: Option<std::sync::mpsc::Receiver<Result<Vec<atrium::mgdb::Entry>, String>>>,
+    db_requested: bool,
+    db_archs: Vec<String>,
+    db_systems: Vec<String>,
+    db_cats: Vec<String>,
+    db_detect_rx: Option<std::sync::mpsc::Receiver<atrium::mgdb::ColorCache>>,
+    db_kind: String,     // "" | "game" | "app"
+    db_arch: String,     // "" = any
+    db_system: String,   // "" = any
+    db_category: String, // "" = any
+    db_min_year: String,
+    db_max_year: String,
+    db_color: u8,     // 0 any · 1 colour · 2 B&W
+    db_missing: bool, // only titles not in MacPack
+    db_search: String,
     // ---- shared paths / dataset editing ----
     rb_cli: String,
     metadata: String,   // LaunchBox Metadata.xml
@@ -227,6 +245,22 @@ impl Default for App {
             art_requested: false,
             thumbs: false,
             thumb_cache: HashMap::new(),
+            db: None,
+            db_rx: None,
+            db_requested: false,
+            db_archs: Vec::new(),
+            db_systems: Vec::new(),
+            db_cats: Vec::new(),
+            db_detect_rx: None,
+            db_kind: String::new(),
+            db_arch: "68k".into(), // the relevant default for a 68k appliance
+            db_system: String::new(),
+            db_category: String::new(),
+            db_min_year: String::new(),
+            db_max_year: String::new(),
+            db_color: 0,
+            db_missing: true, // default to the "what are we missing" view
+            db_search: String::new(),
             rb_cli,
             metadata: String::new(),
             mg_archive,
@@ -302,6 +336,11 @@ fn path_row(ui: &mut egui::Ui, label: &str, value: &mut String, kind: Pick) {
 fn opt_path(s: &str) -> Option<PathBuf> {
     let t = s.trim();
     (!t.is_empty()).then(|| PathBuf::from(t))
+}
+
+fn opt_str(s: &str) -> Option<String> {
+    let t = s.trim();
+    (!t.is_empty()).then(|| t.to_string())
 }
 
 /// Find an rb-cli binary without asking: `~/.local/bin/rb-cli` first (where this
@@ -643,6 +682,37 @@ impl App {
                     );
                 }
                 Err(e) => self.status = format!("Import failed: {e}"),
+            }
+        }
+        // Adopt a finished MG database load (the Database tab).
+        if let Some(res) = self.db_rx.as_ref().and_then(|rx| rx.try_recv().ok()) {
+            self.db_rx = None;
+            match res {
+                Ok(entries) => {
+                    self.db_archs = atrium::mgdb::architectures(&entries);
+                    self.db_systems = atrium::mgdb::systems(&entries);
+                    self.db_cats = atrium::mgdb::categories(&entries);
+                    self.status = format!("Loaded {} Macintosh Garden record(s).", entries.len());
+                    self.db = Some(entries);
+                }
+                Err(e) => self.status = format!("MG load failed: {e}"),
+            }
+        }
+        // Adopt finished colour detection (fill colour where it was unknown).
+        if let Some(cache) = self.db_detect_rx.as_ref().and_then(|rx| rx.try_recv().ok()) {
+            self.db_detect_rx = None;
+            self.busy.clear();
+            if let Some(db) = &mut self.db {
+                let mut n = 0;
+                for e in db.iter_mut() {
+                    if e.color.is_none() {
+                        if let Some(&c) = cache.get(&e.nid) {
+                            e.color = Some(c);
+                            n += 1;
+                        }
+                    }
+                }
+                self.status = format!("Detected colour for {n} title(s).");
             }
         }
     }
@@ -1483,6 +1553,210 @@ impl App {
         });
     }
 
+    /// Kick off (once) loading the MG archive cross-referenced against MacPack,
+    /// on a worker thread (~21k records). Self-gates; needs a valid MG-Archive.
+    fn ensure_db(&mut self, ctx: &egui::Context) {
+        if self.db.is_some() || self.db_requested {
+            return;
+        }
+        let archive = self.mg_archive.trim().to_string();
+        if archive.is_empty() || !PathBuf::from(&archive).exists() {
+            return;
+        }
+        self.db_requested = true;
+        let (tx, rx) = std::sync::mpsc::channel();
+        let ctx2 = ctx.clone();
+        std::thread::spawn(move || {
+            let res = atrium::mgdb::load(
+                PathBuf::from(&archive).as_path(),
+                atrium::config::EMBEDDED_LIBRARY,
+                atrium::config::EMBEDDED_COMPAT,
+            )
+            .map_err(|e| e.to_string());
+            let _ = tx.send(res);
+            ctx2.request_repaint();
+        });
+        self.db_rx = Some(rx);
+        self.status = "Loading the Macintosh Garden archive…".into();
+    }
+
+    fn db_filter(&self) -> atrium::mgdb::Filter {
+        use atrium::mgdb::{Filter, Kind};
+        Filter {
+            kind: match self.db_kind.as_str() {
+                "game" => Some(Kind::Game),
+                "app" => Some(Kind::App),
+                _ => None,
+            },
+            arch: opt_str(&self.db_arch),
+            system: opt_str(&self.db_system),
+            min_year: self.db_min_year.trim().parse().ok(),
+            max_year: self.db_max_year.trim().parse().ok(),
+            category: opt_str(&self.db_category),
+            color: match self.db_color {
+                1 => Some(true),
+                2 => Some(false),
+                _ => None,
+            },
+            mouse: None,
+            in_macpack: if self.db_missing { Some(false) } else { None },
+            search: opt_str(&self.db_search),
+        }
+    }
+
+    /// Detect colour (offline, from screenshots) for the currently-filtered set on
+    /// a worker thread, then fill it into the table.
+    fn run_db_detect(&mut self, ctx: &egui::Context) {
+        let Some(db) = &self.db else { return };
+        let mut base = self.db_filter();
+        base.color = None; // detect over everything matching the OTHER filters
+        let subset: Vec<atrium::mgdb::Entry> = db.iter().filter(|e| base.matches(e)).cloned().collect();
+        let n = subset.len();
+        if n == 0 {
+            self.status = "No titles in the current filter to detect.".into();
+            return;
+        }
+        let archive = self.mg_archive.trim().to_string();
+        let (tx, rx) = std::sync::mpsc::channel();
+        let ctx2 = ctx.clone();
+        std::thread::spawn(move || {
+            let a = PathBuf::from(&archive);
+            let mut cache = atrium::mgdb::load_color_cache(&a);
+            atrium::mgdb::detect_color(&a, &subset, &mut cache, |_, _| {});
+            let _ = atrium::mgdb::save_color_cache(&a, &cache);
+            let _ = tx.send(cache);
+            ctx2.request_repaint();
+        });
+        self.db_detect_rx = Some(rx);
+        self.busy = format!("Detecting colour for {n} title(s)");
+    }
+
+    /// The Database filter bar (kind/arch/system/category combos + year range +
+    /// colour + missing toggle + search), driven by the cached distinct lists.
+    fn db_filter_bar(&mut self, ui: &mut egui::Ui) {
+        ui.horizontal_wrapped(|ui| {
+            let combo = |ui: &mut egui::Ui, salt: &str, label: &str, cur: &mut String, opts: &[String]| {
+                ui.label(label);
+                let text = if cur.is_empty() { "(any)".to_string() } else { cur.clone() };
+                egui::ComboBox::from_id_salt(salt).selected_text(text).show_ui(ui, |ui| {
+                    ui.selectable_value(cur, String::new(), "(any)");
+                    for o in opts {
+                        ui.selectable_value(cur, o.clone(), o.as_str());
+                    }
+                });
+            };
+            ui.label("Type:");
+            egui::ComboBox::from_id_salt("db_kind")
+                .selected_text(match self.db_kind.as_str() { "game" => "Games", "app" => "Apps", _ => "(all)" })
+                .show_ui(ui, |ui| {
+                    ui.selectable_value(&mut self.db_kind, String::new(), "(all)");
+                    ui.selectable_value(&mut self.db_kind, "game".into(), "Games");
+                    ui.selectable_value(&mut self.db_kind, "app".into(), "Apps");
+                });
+            let (archs, systems, cats) = (self.db_archs.clone(), self.db_systems.clone(), self.db_cats.clone());
+            combo(ui, "db_arch", "Arch:", &mut self.db_arch, &archs);
+            combo(ui, "db_system", "OS:", &mut self.db_system, &systems);
+            combo(ui, "db_category", "Category:", &mut self.db_category, &cats);
+        });
+        ui.horizontal_wrapped(|ui| {
+            ui.label("Year:");
+            ui.add(egui::TextEdit::singleline(&mut self.db_min_year).desired_width(48.0).hint_text("min"));
+            ui.label("–");
+            ui.add(egui::TextEdit::singleline(&mut self.db_max_year).desired_width(48.0).hint_text("max"));
+            ui.separator();
+            ui.label("Colour:");
+            ui.radio_value(&mut self.db_color, 0u8, "any");
+            ui.radio_value(&mut self.db_color, 1u8, "colour");
+            ui.radio_value(&mut self.db_color, 2u8, "B&W");
+            ui.separator();
+            ui.checkbox(&mut self.db_missing, "missing from MacPack only");
+            ui.separator();
+            ui.label("Search:");
+            ui.add(egui::TextEdit::singleline(&mut self.db_search).desired_width(160.0).hint_text("title…"));
+        });
+    }
+
+    fn tab_database(&mut self, ui: &mut egui::Ui, ctx: &egui::Context, busy: bool) {
+        ui.label(
+            egui::RichText::new("Explore the Macintosh Garden archive cross-referenced against MacPack — to see what we're missing. Colour/B&W isn't in MG's data; Detect colour fills it offline from screenshots (cached).")
+                .small().weak(),
+        );
+        ui.add_space(4.0);
+        self.ensure_db(ctx);
+        if self.db.is_none() {
+            ui.add_space(8.0);
+            if self.db_requested {
+                ui.horizontal(|ui| { ui.spinner(); ui.label("Loading ~21k records…"); });
+            } else {
+                ui.label(egui::RichText::new("Set a valid MG-Archive folder in ⚙ Settings to explore it.").weak());
+            }
+            return;
+        }
+
+        self.db_filter_bar(ui);
+
+        // Filter (immutable borrow ends in this block) → indices + counts.
+        let filter = self.db_filter();
+        let (idxs, missing) = {
+            let db = self.db.as_ref().unwrap();
+            let idxs: Vec<usize> = db.iter().enumerate().filter(|(_, e)| filter.matches(e)).map(|(i, _)| i).collect();
+            let missing = idxs.iter().filter(|&&i| !db[i].in_macpack).count();
+            (idxs, missing)
+        };
+        let total = idxs.len();
+
+        ui.add_space(4.0);
+        ui.horizontal(|ui| {
+            ui.strong(format!("{total} match"));
+            ui.label(egui::RichText::new(format!("· {missing} missing from MacPack")).weak());
+            ui.separator();
+            if ui.add_enabled(!busy, egui::Button::new("Detect colour (filtered)"))
+                .on_hover_text("Fill Colour/B&W for the filtered titles offline from their screenshots (cached).")
+                .clicked()
+            {
+                self.run_db_detect(ctx);
+            }
+        });
+        ui.separator();
+        ui.horizontal(|ui| {
+            ui.add_sized([24.0, 16.0], egui::Label::new(egui::RichText::new("").strong()));
+            ui.add_sized([300.0, 16.0], egui::Label::new(egui::RichText::new("Title").strong()));
+            ui.add_sized([42.0, 16.0], egui::Label::new(egui::RichText::new("Year").strong()));
+            ui.add_sized([80.0, 16.0], egui::Label::new(egui::RichText::new("Arch").strong()));
+            ui.add_sized([150.0, 16.0], egui::Label::new(egui::RichText::new("OS").strong()));
+            ui.add_sized([56.0, 16.0], egui::Label::new(egui::RichText::new("Colour").strong()));
+            ui.add(egui::Label::new(egui::RichText::new("Category").strong()));
+        });
+
+        let db = self.db.as_ref().unwrap();
+        let row_h = ui.text_style_height(&egui::TextStyle::Body) + 6.0;
+        egui::ScrollArea::vertical()
+            .id_salt("db_table")
+            .auto_shrink([false, false])
+            .show_rows(ui, row_h, idxs.len(), |ui, range| {
+                for vis in range {
+                    let e = &db[idxs[vis]];
+                    let os = match (e.min_os(), e.max_os()) {
+                        (Some(a), Some(b)) if a != b => format!("{a} – {b}"),
+                        (Some(a), _) => a.to_string(),
+                        _ => "?".into(),
+                    };
+                    let col = match e.color { Some(true) => "colour", Some(false) => "B&W", None => "?" };
+                    ui.horizontal(|ui| {
+                        // a dot marks titles missing from MacPack
+                        let mark = if e.in_macpack { "" } else { "●" };
+                        ui.add_sized([24.0, 16.0], egui::Label::new(egui::RichText::new(mark).weak()));
+                        ui.add_sized([300.0, 16.0], egui::Label::new(&e.title).truncate());
+                        ui.add_sized([42.0, 16.0], egui::Label::new(e.year.map(|y| y.to_string()).unwrap_or_default()));
+                        ui.add_sized([80.0, 16.0], egui::Label::new(e.arch.join("/")).truncate());
+                        ui.add_sized([150.0, 16.0], egui::Label::new(os).truncate());
+                        ui.add_sized([56.0, 16.0], egui::Label::new(col));
+                        ui.add(egui::Label::new(egui::RichText::new(e.categories.join(", ")).weak()).truncate());
+                    });
+                }
+            });
+    }
+
     fn tab_attain(&mut self, ui: &mut egui::Ui, ctx: &egui::Context, busy: bool) {
         ui.label(
             egui::RichText::new("Acquire the source software MacAtrium builds from. These locations are saved to ~/.macatrium.json.")
@@ -1699,6 +1973,7 @@ impl eframe::App for App {
             ui.selectable_value(&mut self.tab, Tab::Build, "Build");
             ui.selectable_value(&mut self.tab, Tab::AddToDisk, "Add to disk");
             ui.selectable_value(&mut self.tab, Tab::Library, "Library");
+            ui.selectable_value(&mut self.tab, Tab::Database, "Database");
             ui.selectable_value(&mut self.tab, Tab::Attain, "Attain");
             ui.selectable_value(&mut self.tab, Tab::Settings, "⚙ Settings");
         });
@@ -1722,6 +1997,7 @@ impl eframe::App for App {
                     Tab::Build => self.tab_build(ui, &ctx, busy),
                     Tab::AddToDisk => self.tab_add_to_disk(ui, &ctx, busy),
                     Tab::Library => self.tab_library(ui, &ctx, busy),
+                    Tab::Database => self.tab_database(ui, &ctx, busy),
                     Tab::Attain => self.tab_attain(ui, &ctx, busy),
                     Tab::Settings => self.tab_settings(ui, &ctx, busy),
                 });

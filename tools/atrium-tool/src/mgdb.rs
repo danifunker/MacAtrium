@@ -371,17 +371,29 @@ impl Filter {
     }
 }
 
-/// Distinct category names across the table (sorted) — for a filter combo.
-pub fn categories(entries: &[Entry]) -> Vec<String> {
+fn distinct<'a>(it: impl Iterator<Item = &'a String>) -> Vec<String> {
     let mut set: HashSet<&str> = HashSet::new();
-    for e in entries {
-        for c in &e.categories {
-            set.insert(c);
-        }
+    for s in it {
+        set.insert(s);
     }
     let mut v: Vec<String> = set.into_iter().map(str::to_string).collect();
     v.sort();
     v
+}
+
+/// Distinct category names across the table (sorted) — for a filter combo.
+pub fn categories(entries: &[Entry]) -> Vec<String> {
+    distinct(entries.iter().flat_map(|e| e.categories.iter()))
+}
+
+/// Distinct architecture labels across the table (sorted) — for a filter combo.
+pub fn architectures(entries: &[Entry]) -> Vec<String> {
+    distinct(entries.iter().flat_map(|e| e.arch.iter()))
+}
+
+/// Distinct supported-OS labels across the table (sorted) — for a filter combo.
+pub fn systems(entries: &[Entry]) -> Vec<String> {
+    distinct(entries.iter().flat_map(|e| e.systems.iter()))
 }
 
 #[cfg(test)]
