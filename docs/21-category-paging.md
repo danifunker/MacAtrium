@@ -1,6 +1,33 @@
 # 21 — Category Paging (lift the 256-title cap)
 
-**Status:** design agreed 2026-06-26; Phase 1 (host generator) in progress.
+**Status:** design agreed 2026-06-26; **Phase 1 (host generator + category DB)
+DONE** 2026-06-27 — verified on the full 1489-title library (15 categories, 25
+pages ≤128). Launcher phases (2–6) pending.
+
+## 0. Update — explicit category DB (supersedes deriving from genre)
+
+Verifying Phase 1 on real data killed the "derive categories from genre" plan:
+**315 games have no genre**, and many "genres" are folder/app artifacts
+(`01 Sys 6`, `System`, `Network`). So navigation categories now live in an
+**explicit, editable database** — multi-membership, hand/GUI-curatable — seeded
+from a taxonomy rather than re-derived each build:
+
+- **`data/taxonomy.json`** — the canonical ~15 categories + display order
+  (Recommended first/default), a genre→bucket + kind seed map, a curated
+  Recommended/`adds` seed, and a `catch_all_game` so no game is unreachable.
+- **`data/categories.jsonl`** — the DB (`{id, categories[]}`), the **source of
+  truth** for membership. Editable by hand and (next) in the GUI Library tab.
+- **`atrium library categorize`** seeds/refreshes the DB from the library +
+  compatibility facets + taxonomy, **preserving existing entries** on re-run.
+- `catalog::run_paged` takes the DB + taxonomy: membership from the DB, pages
+  ordered by the taxonomy. Both are embedded (bundled) like library/compatibility.
+
+The ~15 categories: Recommended · Action & Arcade · Adventure · Puzzle ·
+Strategy & Sim · Role-Playing · Interactive Fiction · Card & Casino · Sports ·
+Educational · Black & White · No Mouse Required · Games (catch-all) ·
+Applications · Utilities. (§3's `cats/<slug>.jsonl` + slim record stand; only the
+*source* of a title's categories changed — DB, not derived.)
+
 **Goal:** let a MacAtrium disk hold far more than 256 titles and span every
 category, while keeping the 68k launcher's RAM use **low and bounded on a
 4 MB Mac Plus** — by loading **one category page at a time** from disk instead
@@ -158,10 +185,12 @@ file (a flag flips the default).
 
 ## 9. Implementation phases
 
-1. **Host: paged generator** (`atrium catalog`/`image`). Emit `index.jsonl` +
-   `cats/<slug>.jsonl` + `hotkeys.jsonl`, slim records, category split at
-   `MAX_CAT_ITEMS`, HFS-safe slugs. Keep emitting legacy `catalog.jsonl` too.
-   Unit-tested off-target. **Verifiable here with no Mac.** ← *kick-off*
+1. ✅ **Host: paged generator + category DB** (`atrium catalog --paged-out`,
+   `atrium library categorize`). Emits `index.jsonl` + `cats/<slug>.jsonl` +
+   `hotkeys.jsonl`, slim records, split at `MAX_CAT_ITEMS`, HFS-safe slugs;
+   membership from `data/categories.jsonl` ordered by `data/taxonomy.json`. Legacy
+   `catalog.jsonl` still emitted ≤256. Unit-tested; verified on the full library.
+   **Next host bit: a GUI category editor (Library tab) over `categories.jsonl`.**
 2. **Launcher: index + paged model.** `catindex.c` (load `index.jsonl`), rework
    `model.{c,h}` to {index, current page}; `load_catalog` → `load_index` +
    `load_page(slug)`. Off-target model unit tests.
