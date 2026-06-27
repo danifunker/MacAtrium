@@ -15,13 +15,13 @@
   "Macintosh II — System 7.1 (Millions)": {
     "base_os": "7.1",
     "art_depths": ["1", "8", "24"],
-    "app_mem_kb": [1536, 1024],
-    "label": "24-bit 'millions of colours' art (+ 8-bit and 1-bit fallbacks). For a Mac II with a 24-bit display card; the launcher picks the variant matching the screen depth."
+    "app_mem_kb": [3584, 3072],
+    "label": "24-bit 'millions of colours' art (+ 8-bit and 1-bit fallbacks). For a Mac II with a 24-bit display card; the launcher picks the variant matching the screen depth. Roomy 3 MB partition: a 24-bit cover at 720 px is a ~1.4 MB resident PICT, so reloading it on a category change needs the headroom (vs the colour build, which shrinks art instead — see [[color-art-memory-budget]]). 24-bit path is computed, not emulator-verified (Snow renders 8-bit)."
   },
   "Quadra 800 — System 7.5.5 (Millions, full)": {
     "base_os": "7.5.5",
     "art_depths": ["1", "8", "24"],
-    "app_mem_kb": [2048, 1536],
-    "label": "Top-end: System 7.5.5 on a 68040 Quadra 800 with 24-bit art and a roomy partition. Verify in QEMU's q800 machine (Snow tops out at Mac II)."
+    "app_mem_kb": [3584, 3072],
+    "label": "Top-end: System 7.5.5 on a 68040 Quadra 800 with 24-bit art and a 3 MB partition (the ~1.4 MB 24-bit covers need it). Verify in QEMU's q800 machine (Snow tops out at Mac II, 8-bit)."
   }
 }
