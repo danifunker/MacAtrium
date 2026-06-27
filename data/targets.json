@@ -10,5 +10,17 @@
     "art_depths": ["1", "8"],
     "app_mem_kb": [1024, 768],
     "label": "256-colour build with a 1-bit art fallback. For a colour-capable 68k Mac."
+  },
+  "Macintosh II — System 7.1 (Millions)": {
+    "base_os": "7.1",
+    "art_depths": ["1", "8", "24"],
+    "app_mem_kb": [1536, 1024],
+    "label": "24-bit 'millions of colours' art (+ 8-bit and 1-bit fallbacks). For a Mac II with a 24-bit display card; the launcher picks the variant matching the screen depth."
+  },
+  "Quadra 800 — System 7.5.5 (Millions, full)": {
+    "base_os": "7.5.5",
+    "art_depths": ["1", "8", "24"],
+    "app_mem_kb": [2048, 1536],
+    "label": "Top-end: System 7.5.5 on a 68040 Quadra 800 with 24-bit art and a roomy partition. Verify in QEMU's q800 machine (Snow tops out at Mac II)."
   }
 }
