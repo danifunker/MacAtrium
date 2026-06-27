@@ -16,6 +16,7 @@ pub mod library;
 pub mod macroman;
 pub mod merge;
 pub mod mg;
+pub mod mgdb;
 pub mod pict;
 pub mod preflight;
 pub mod rbcli;
