@@ -562,26 +562,28 @@ pub fn run(cfg: &BuildConfig) -> Result<()> {
         merge::run(&work, &compat, &work, false)?;
     }
 
-    // 6. art: bake box-art + screenshot + app icons for every record in `work`,
-    // inject them, and merge the image/shot/icon paths back. (Shared with `add`.)
-    bake_art(cfg, &rb, &stage, &work)?;
-
-    // 7. catalog: list ONLY titles whose app is actually on the volume (a
-    // phantom entry would -43 on launch), then generate + inject.
+    // 6. Filter to titles actually installed on the volume FIRST — a phantom
+    // entry would -43 on launch, and (crucially) a small selection from the
+    // ~1500-title library shouldn't bake the whole library's art. Art + catalog
+    // both work off this filtered set.
     let present = stage.join("dataset.present.jsonl");
     let dropped = filter_present_apps(&rb, &cfg.out, &work, &present)?;
     if !dropped.is_empty() {
-        // The library is now comprehensive (~1500 titles), so a small build drops
-        // almost all of them — list only a sample instead of flooding the log.
         const SHOW: usize = 8;
         let more = dropped.len().saturating_sub(SHOW);
         eprintln!(
-            "[6/7] catalog      dropped {} not-installed title(s): {}{}",
+            "[5/7] present      dropped {} not-installed title(s): {}{}",
             dropped.len(),
             dropped.iter().take(SHOW).cloned().collect::<Vec<_>>().join(", "),
             if more > 0 { format!(", … (+{more} more)") } else { String::new() }
         );
     }
+
+    // 6b. art: bake box-art + screenshot + app icons for the INSTALLED titles,
+    // inject them, and merge the image/shot/icon paths back. (Shared with `add`.)
+    bake_art(cfg, &rb, &stage, &present)?;
+
+    // 7. catalog: generate + inject from the present (already-filtered) set.
     eprintln!("[6/7] catalog      generate + inject (paged, docs/21)");
     // Paged catalog — handles any library size; the launcher prefers it. Uses the
     // bundled taxonomy + category DB (a build is portable; no extra paths).
