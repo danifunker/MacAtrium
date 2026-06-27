@@ -1,8 +1,12 @@
 # 21 — Category Paging (lift the 256-title cap)
 
-**Status:** design agreed 2026-06-26; **Phase 1 (host generator + category DB)
-DONE** 2026-06-27 — verified on the full 1489-title library (15 categories, 25
-pages ≤128). Launcher phases (2–6) pending.
+**Status:** design agreed 2026-06-26; **WORKING + Snow-verified 2026-06-27.** The
+68k launcher reads the paged catalog end-to-end: boots into Recommended, pages a
+category on the up/down arrow (loads `cats/<slug>.jsonl` from disk on demand),
+items navigate within the page. Verified on a B&W 6.0.8 build in the 512/384 KB
+Mac Plus partition. v1 keeps the full `CatItem` (struct-slim is a future v2).
+Remaining: `atrium add`/migration paged-awareness (§10), and scale tests (a real
+multi-page category, colour build).
 
 ## 0. Update — explicit category DB (supersedes deriving from genre)
 
