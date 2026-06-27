@@ -296,6 +296,8 @@ static int load_page(Model *m, int catIdx)
         DisposePtr(buf);
     }
     model_set_page(m, &gCat);
+    /* The page's items array was just refilled; drop caches that key off it. */
+    ui_page_changed(&gUi);
     return 1;
 }
 

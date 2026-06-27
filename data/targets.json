@@ -9,7 +9,8 @@
     "base_os": "7.1",
     "art_depths": ["1", "8"],
     "app_mem_kb": [1024, 768],
-    "label": "256-colour build with a 1-bit art fallback. For a colour-capable 68k Mac."
+    "max_art_size": "384x384",
+    "label": "256-colour build with a 1-bit art fallback. For a colour-capable 68k Mac. Art is bounded to 384 px: an 8-bit cover at 720 px is a ~318 KB PICT that, held resident in the 768 KB partition, collides stack-into-heap (Type 28) when the detail pane reloads it on category changes; 384 px (~90 KB) keeps the inline pane crisp and the heap safe."
   },
   "Macintosh II — System 7.1 (Millions)": {
     "base_os": "7.1",
