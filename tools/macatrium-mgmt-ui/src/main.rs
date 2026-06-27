@@ -42,7 +42,12 @@ fn main() -> eframe::Result<()> {
     eframe::run_native(
         "MacAtrium Manager",
         opts,
-        Box::new(|_cc| Ok(Box::<App>::default())),
+        Box::new(|cc| {
+            // Register the file:// + image loaders so the title picker can show
+            // box-art thumbnails from the MG archive / a local art folder.
+            egui_extras::install_image_loaders(&cc.egui_ctx);
+            Ok(Box::<App>::default())
+        }),
     )
 }
 
@@ -65,11 +70,12 @@ struct LibRow {
     name: String,
     kind: String,
     year: String,
-    color: bool,    // true = Colour, false = B&W
-    mouse: bool,    // true = Mouse Required
-    hotkey: String, // single-char launch hotkey (gamepad button map), "" = none
-    selected: bool, // included by the title picker
-    dirty: bool,    // facet touched since last save
+    genres: Vec<String>, // multi-valued tags (slice-and-dice filter)
+    color: bool,         // true = Colour, false = B&W
+    mouse: bool,         // true = Mouse Required
+    hotkey: String,      // single-char launch hotkey (gamepad button map), "" = none
+    selected: bool,      // included by the title picker
+    dirty: bool,         // facet touched since last save
 }
 
 /// One harvest source for `atrium image`: a donor disk image plus the app
@@ -102,8 +108,16 @@ struct App {
     library: Vec<LibRow>,
     library_loaded: bool,
     lib_search: String,
-    lib_kind: String, // "" = all kinds
-    build_pick: bool, // Build: false = All compatible, true = Pick titles
+    lib_kind: String,  // "" = all kinds
+    lib_genre: String, // "" = all genres
+    build_pick: bool,  // Build: false = All compatible, true = Pick titles
+    // box-art thumbnails: a Macintosh Garden art index (built lazily on a worker
+    // when MG-Archive is set) + a per-id resolved thumbnail-URI cache.
+    art_index: Option<atrium::mg::ArtIndex>,
+    art_rx: Option<std::sync::mpsc::Receiver<Option<atrium::mg::ArtIndex>>>,
+    art_requested: bool,
+    thumbs: bool, // show box-art thumbnails in the picker
+    thumb_cache: HashMap<String, Option<String>>, // id -> file:// URI (or None)
     // ---- shared paths / dataset editing ----
     rb_cli: String,
     metadata: String,   // LaunchBox Metadata.xml
@@ -201,7 +215,13 @@ impl Default for App {
             library_loaded: false,
             lib_search: String::new(),
             lib_kind: String::new(),
+            lib_genre: String::new(),
             build_pick: true,
+            art_index: None,
+            art_rx: None,
+            art_requested: false,
+            thumbs: false,
+            thumb_cache: HashMap::new(),
             rb_cli,
             metadata: String::new(),
             mg_archive,
@@ -340,11 +360,17 @@ fn parse_library(lib: &str, compat: &str) -> Vec<LibRow> {
             .or_else(|| m.get("hotkey").and_then(Value::as_str))
             .unwrap_or("")
             .to_string();
+        let genres: Vec<String> = m
+            .get("genre")
+            .and_then(Value::as_array)
+            .map(|a| a.iter().filter_map(Value::as_str).map(str::to_string).collect())
+            .unwrap_or_default();
         rows.push(LibRow {
             id,
             name: m.get("name").and_then(Value::as_str).unwrap_or("").to_string(),
             kind: m.get("kind").and_then(Value::as_str).unwrap_or("").to_string(),
             year: m.get("year").and_then(Value::as_i64).map(|y| y.to_string()).unwrap_or_default(),
+            genres,
             color: facet_bool("color", false),
             mouse: facet_bool("mouse", true),
             hotkey,
@@ -402,6 +428,95 @@ impl App {
         set.sort();
         set.dedup();
         set
+    }
+
+    /// Distinct genre tags present in the library (for the genre filter combo).
+    fn genres(&self) -> Vec<String> {
+        let mut set: Vec<String> = self.library.iter().flat_map(|r| r.genres.clone()).collect();
+        set.sort();
+        set.dedup();
+        set
+    }
+
+    /// Library row indices passing the current search + kind + genre filters.
+    fn filtered_indices(&self) -> Vec<usize> {
+        let q = self.lib_search.to_lowercase();
+        let kind = &self.lib_kind;
+        let genre = &self.lib_genre;
+        self.library
+            .iter()
+            .enumerate()
+            .filter(|(_, r)| {
+                (kind.is_empty() || &r.kind == kind)
+                    && (genre.is_empty() || r.genres.iter().any(|g| g == genre))
+                    && (q.is_empty() || r.name.to_lowercase().contains(&q) || r.id.contains(&q))
+            })
+            .map(|(i, _)| i)
+            .collect()
+    }
+
+    /// The search + kind + genre filter bar (shared by the picker and Library).
+    fn filter_bar(&mut self, ui: &mut egui::Ui, id_salt: &str) {
+        ui.horizontal(|ui| {
+            ui.label("Search:");
+            ui.add(egui::TextEdit::singleline(&mut self.lib_search).desired_width(200.0).hint_text("name…"));
+            ui.label("Kind:");
+            let kinds = self.kinds();
+            let cur = if self.lib_kind.is_empty() { "(all)".to_string() } else { self.lib_kind.clone() };
+            egui::ComboBox::from_id_salt(format!("{id_salt}_kind"))
+                .selected_text(cur)
+                .show_ui(ui, |ui| {
+                    ui.selectable_value(&mut self.lib_kind, String::new(), "(all)");
+                    for k in &kinds {
+                        ui.selectable_value(&mut self.lib_kind, k.clone(), k.as_str());
+                    }
+                });
+            ui.label("Genre:");
+            let genres = self.genres();
+            let curg = if self.lib_genre.is_empty() { "(all)".to_string() } else { self.lib_genre.clone() };
+            egui::ComboBox::from_id_salt(format!("{id_salt}_genre"))
+                .selected_text(curg)
+                .show_ui(ui, |ui| {
+                    ui.selectable_value(&mut self.lib_genre, String::new(), "(all)");
+                    for g in &genres {
+                        ui.selectable_value(&mut self.lib_genre, g.clone(), g.as_str());
+                    }
+                });
+        });
+    }
+
+    /// Kick off (once) loading the Macintosh Garden art index on a worker thread,
+    /// when thumbnails are on and an MG-Archive is configured. Cheap to call every
+    /// frame — it self-gates.
+    fn ensure_art_index(&mut self, ctx: &egui::Context) {
+        if self.art_index.is_some() || self.art_requested || !self.thumbs {
+            return;
+        }
+        let archive = self.mg_archive.trim().to_string();
+        if archive.is_empty() || !PathBuf::from(&archive).exists() {
+            return;
+        }
+        self.art_requested = true;
+        let (tx, rx) = std::sync::mpsc::channel();
+        let ctx = ctx.clone();
+        std::thread::spawn(move || {
+            let idx = atrium::mg::ArtIndex::load(PathBuf::from(&archive).as_path()).ok();
+            let _ = tx.send(idx);
+            ctx.request_repaint();
+        });
+        self.art_rx = Some(rx);
+    }
+
+    /// The thumbnail file:// URI for a row, resolved (and cached) from the art
+    /// index (MG box-art) — `None` until the index is ready or if there's no art.
+    fn thumb_uri(&mut self, id: &str, name: &str) -> Option<String> {
+        if let Some(hit) = self.thumb_cache.get(id) {
+            return hit.clone();
+        }
+        let idx = self.art_index.as_ref()?;
+        let uri = idx.box_art(name).map(|p| format!("file://{}", p.display()));
+        self.thumb_cache.insert(id.to_string(), uri.clone());
+        uri
     }
 
     /// Sync the title-picker selection into the `Selection` fields the build reads.
@@ -483,6 +598,12 @@ impl App {
             } else {
                 self.status = done.status;
             }
+        }
+        // Adopt a finished Macintosh Garden art index (box-art thumbnails).
+        if let Some(idx) = self.art_rx.as_ref().and_then(|rx| rx.try_recv().ok()) {
+            self.art_index = idx;
+            self.art_rx = None;
+            self.thumb_cache.clear();
         }
     }
 
@@ -844,41 +965,15 @@ impl App {
 
     // ---- the job screens -----------------------------------------------------
 
-    /// The shared title picker: search + kind filter + a virtualised, tickable
-    /// list. Toggling a tick re-syncs the build `Selection`.
-    fn title_picker(&mut self, ui: &mut egui::Ui) {
+    /// The shared title picker: search + kind/genre filters + a virtualised,
+    /// tickable list with optional box-art thumbnails. Toggling a tick re-syncs
+    /// the build `Selection`.
+    fn title_picker(&mut self, ui: &mut egui::Ui, ctx: &egui::Context) {
         self.ensure_library();
-        ui.horizontal(|ui| {
-            ui.label("Search:");
-            ui.add(egui::TextEdit::singleline(&mut self.lib_search).desired_width(220.0).hint_text("name…"));
-            ui.label("Kind:");
-            let kinds = self.kinds();
-            let cur = if self.lib_kind.is_empty() { "(all)".to_string() } else { self.lib_kind.clone() };
-            egui::ComboBox::from_id_salt("pick_kind")
-                .selected_text(cur)
-                .show_ui(ui, |ui| {
-                    ui.selectable_value(&mut self.lib_kind, String::new(), "(all)");
-                    for k in &kinds {
-                        ui.selectable_value(&mut self.lib_kind, k.clone(), k.as_str());
-                    }
-                });
-            ui.separator();
-            ui.label(format!("{} selected", self.selected_count()));
-        });
+        self.ensure_art_index(ctx);
 
-        let q = self.lib_search.to_lowercase();
-        let kind = self.lib_kind.clone();
-        let filtered: Vec<usize> = self
-            .library
-            .iter()
-            .enumerate()
-            .filter(|(_, r)| {
-                (kind.is_empty() || r.kind == kind)
-                    && (q.is_empty() || r.name.to_lowercase().contains(&q) || r.id.contains(&q))
-            })
-            .map(|(i, _)| i)
-            .collect();
-
+        self.filter_bar(ui, "pick");
+        let filtered = self.filtered_indices();
         ui.horizontal(|ui| {
             if ui.small_button("Select all (filtered)").clicked() {
                 for &i in &filtered { self.library[i].selected = true; }
@@ -888,12 +983,17 @@ impl App {
                 for r in &mut self.library { r.selected = false; }
                 self.sync_picker();
             }
-            ui.label(egui::RichText::new(format!("{} shown", filtered.len())).small().weak());
+            ui.separator();
+            ui.checkbox(&mut self.thumbs, "thumbnails")
+                .on_hover_text("Show box-art thumbnails from the Macintosh Garden archive (set it in Settings).");
+            ui.separator();
+            ui.label(egui::RichText::new(format!("{} shown · {} selected", filtered.len(), self.selected_count())).small().weak());
         });
         ui.separator();
 
+        const THUMB: f32 = 40.0;
         let mut changed = false;
-        let row_h = ui.text_style_height(&egui::TextStyle::Body) + 6.0;
+        let row_h = if self.thumbs { THUMB + 6.0 } else { ui.text_style_height(&egui::TextStyle::Body) + 6.0 };
         egui::ScrollArea::vertical()
             .id_salt("title_picker")
             .auto_shrink([false, false])
@@ -901,10 +1001,28 @@ impl App {
             .show_rows(ui, row_h, filtered.len(), |ui, range| {
                 for vis in range {
                     let idx = filtered[vis];
+                    // Resolve the thumbnail first (borrows art_index/thumb_cache),
+                    // before taking a &mut to the row — avoids aliasing self.
+                    let uri = if self.thumbs {
+                        let (id, name) = {
+                            let r = &self.library[idx];
+                            (r.id.clone(), r.name.clone())
+                        };
+                        self.thumb_uri(&id, &name)
+                    } else {
+                        None
+                    };
                     let r = &mut self.library[idx];
                     ui.horizontal(|ui| {
                         if ui.checkbox(&mut r.selected, "").changed() {
                             changed = true;
+                        }
+                        if self.thumbs {
+                            if let Some(u) = uri {
+                                ui.add(egui::Image::from_uri(u).fit_to_exact_size(egui::vec2(THUMB, THUMB)));
+                            } else {
+                                ui.add_space(THUMB);
+                            }
                         }
                         let meta = [r.kind.as_str(), r.year.as_str()]
                             .into_iter()
@@ -980,7 +1098,7 @@ impl App {
                 if ui.radio_value(&mut self.build_pick, false, "All compatible").clicked() { self.sync_picker(); }
             });
             if self.build_pick {
-                self.title_picker(ui);
+                self.title_picker(ui, ctx);
             } else {
                 ui.label(egui::RichText::new("Every title compatible with the Target's OS will be included.").small().weak());
             }
@@ -1160,7 +1278,7 @@ impl App {
         ui.group(|ui| {
             ui.strong("Titles to add");
             self.build_pick = true;
-            self.title_picker(ui);
+            self.title_picker(ui, ctx);
         });
         ui.add_space(8.0);
         if ui
@@ -1195,34 +1313,8 @@ impl App {
             });
         });
 
-        ui.horizontal(|ui| {
-            ui.label("Search:");
-            ui.add(egui::TextEdit::singleline(&mut self.lib_search).desired_width(220.0).hint_text("name…"));
-            ui.label("Kind:");
-            let kinds = self.kinds();
-            let cur = if self.lib_kind.is_empty() { "(all)".to_string() } else { self.lib_kind.clone() };
-            egui::ComboBox::from_id_salt("lib_kind")
-                .selected_text(cur)
-                .show_ui(ui, |ui| {
-                    ui.selectable_value(&mut self.lib_kind, String::new(), "(all)");
-                    for k in &kinds {
-                        ui.selectable_value(&mut self.lib_kind, k.clone(), k.as_str());
-                    }
-                });
-        });
-
-        let q = self.lib_search.to_lowercase();
-        let kind = self.lib_kind.clone();
-        let filtered: Vec<usize> = self
-            .library
-            .iter()
-            .enumerate()
-            .filter(|(_, r)| {
-                (kind.is_empty() || r.kind == kind)
-                    && (q.is_empty() || r.name.to_lowercase().contains(&q) || r.id.contains(&q))
-            })
-            .map(|(i, _)| i)
-            .collect();
+        self.filter_bar(ui, "lib");
+        let filtered = self.filtered_indices();
 
         ui.separator();
         // header row
@@ -1595,8 +1687,8 @@ mod tests {
     fn picker_selection_syncs_to_list() {
         let mut a = App::default();
         a.library = vec![
-            LibRow { id: "x".into(), name: "X".into(), kind: "game".into(), year: String::new(), color: false, mouse: true, hotkey: String::new(), selected: true, dirty: false },
-            LibRow { id: "y".into(), name: "Y".into(), kind: "game".into(), year: String::new(), color: false, mouse: true, hotkey: String::new(), selected: false, dirty: false },
+            LibRow { id: "x".into(), name: "X".into(), kind: "game".into(), year: String::new(), genres: vec![], color: false, mouse: true, hotkey: String::new(), selected: true, dirty: false },
+            LibRow { id: "y".into(), name: "Y".into(), kind: "game".into(), year: String::new(), genres: vec![], color: false, mouse: true, hotkey: String::new(), selected: false, dirty: false },
         ];
         a.build_pick = true;
         a.sync_picker();

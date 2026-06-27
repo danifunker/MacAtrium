@@ -375,6 +375,61 @@ pub fn run(
     Ok(())
 }
 
+/// A name → on-disk box-art resolver built from the Macintosh Garden archive
+/// (`metadata/{games,apps}.ndjson`). Loaded once; [`ArtIndex::box_art`] matches a
+/// title by name (the same `candidate_keys` matching that `mg`/`enrich` use) and
+/// returns the best on-disk box-front image, falling back to a screenshot. Lets a
+/// view (the GUI title picker) show era-accurate thumbnails for archived titles.
+pub struct ArtIndex {
+    archive: std::path::PathBuf,
+    recs: Vec<MgRec>,
+    idx: HashMap<String, usize>,
+}
+
+impl ArtIndex {
+    /// Load + index the archive's 68K records. Returns an empty index (not an
+    /// error) when the ndjson files are absent — a view can degrade gracefully.
+    pub fn load(archive: &Path) -> Result<ArtIndex> {
+        let mut recs = load_ndjson(&archive.join("metadata/games.ndjson"), "game", "games")?;
+        recs.extend(load_ndjson(&archive.join("metadata/apps.ndjson"), "app", "apps")?);
+        let mut idx: HashMap<String, usize> = HashMap::new();
+        for (i, r) in recs.iter().enumerate() {
+            let s = r.score(archive);
+            for k in candidate_keys(&r.title) {
+                match idx.get(&k) {
+                    Some(&j) if recs[j].score(archive) >= s => {}
+                    _ => {
+                        idx.insert(k, i);
+                    }
+                }
+            }
+        }
+        Ok(ArtIndex { archive: archive.to_path_buf(), recs, idx })
+    }
+
+    /// The best on-disk box-art (or screenshot) image file for a title name, or
+    /// `None` if it isn't in the archive / has no image actually on disk.
+    pub fn box_art(&self, name: &str) -> Option<std::path::PathBuf> {
+        let ri = candidate_keys(name).into_iter().find_map(|k| self.idx.get(&k).copied())?;
+        let r = &self.recs[ri];
+        let dir = r.dir(&self.archive);
+        let on_disk = |f: &String| {
+            let p = dir.join(f);
+            p.is_file().then_some(p)
+        };
+        // Prefer a box/cover image present on disk; else the first screenshot.
+        r.screenshots.iter().filter(|f| is_box(f)).find_map(on_disk)
+            .or_else(|| r.screenshots.iter().find_map(on_disk))
+    }
+
+    pub fn len(&self) -> usize {
+        self.recs.len()
+    }
+    pub fn is_empty(&self) -> bool {
+        self.recs.is_empty()
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -405,5 +460,28 @@ mod tests {
         assert!(!arch_has_68k(&v));
         let v: Value = serde_json::from_str(r#"{"architecture":[]}"#).unwrap();
         assert!(!arch_has_68k(&v));
+    }
+
+    #[test]
+    fn art_index_resolves_box_art_by_name() {
+        // Build a tiny archive: metadata/games.ndjson + an on-disk box image.
+        let root = std::env::temp_dir().join(format!("atrium-artidx-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&root);
+        std::fs::create_dir_all(root.join("metadata")).unwrap();
+        let imgdir = root.join("games/42");
+        std::fs::create_dir_all(&imgdir).unwrap();
+        std::fs::write(imgdir.join("dc_box_front.png"), b"PNGDATA").unwrap();
+        std::fs::write(imgdir.join("dc_play.png"), b"PNGDATA").unwrap();
+        let rec = r#"{"nid":42,"data":{"game":{"architecture":["68k"],"title":"Dark Castle","screenshots":[{"filename":"dc_play.png"},{"filename":"dc_box_front.png"}]}}}"#;
+        std::fs::write(root.join("metadata/games.ndjson"), rec).unwrap();
+
+        let idx = ArtIndex::load(&root).unwrap();
+        assert_eq!(idx.len(), 1);
+        // Matches by name and prefers the box image over the gameplay shot.
+        let art = idx.box_art("Dark Castle").expect("resolves Dark Castle");
+        assert!(art.ends_with("dc_box_front.png"), "got {art:?}");
+        // Unknown title -> None.
+        assert!(idx.box_art("Some Other Game").is_none());
+        let _ = std::fs::remove_dir_all(&root);
     }
 }
