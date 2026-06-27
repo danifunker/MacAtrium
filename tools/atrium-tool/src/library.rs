@@ -294,6 +294,134 @@ pub fn split(library: &Path, compat: &Path) -> Result<SplitReport> {
     Ok(SplitReport { moved, compat_entries: compat_map.len() })
 }
 
+/// Seed report for [`categorize`].
+pub struct CategorizeReport {
+    pub titles: usize,
+    pub assigned: usize,
+    pub preserved: usize,
+    pub uncategorized: usize,
+    pub per_category: BTreeMap<String, usize>,
+}
+
+/// Seed/refresh the editable category DB (`data/categories.jsonl`, docs/21) from
+/// the library + compatibility facets + the taxonomy seed maps. A title already
+/// present in `out` is **preserved** (hand/GUI edits win); a new title is
+/// auto-assigned: genre→bucket(s) (`genre_map`), kind→Applications/Utilities
+/// (`kind_map`), `color=false`→Black & White, `mouse=false`→No Mouse Required,
+/// the curated `recommended`/`adds` seeds, and a `catch_all_game` so no game is
+/// unreachable. Re-runnable as the library grows.
+pub fn categorize(
+    library: &Path,
+    compat: &Path,
+    taxonomy: &Path,
+    out: &Path,
+) -> Result<CategorizeReport> {
+    use std::collections::HashSet;
+    let tax = crate::catalog::Taxonomy::load(taxonomy)?;
+    let facets = parse_jsonl_by_id(compat); // id -> {color, mouse, …}
+    let existing = parse_jsonl_by_id(out); // id -> {categories} (preserve)
+    let rec: HashSet<&str> = tax.recommended.iter().map(String::as_str).collect();
+
+    let lib_text =
+        std::fs::read_to_string(library).with_context(|| format!("reading {}", library.display()))?;
+    let mut rows: Vec<(String, Vec<String>)> = Vec::new();
+    let mut per_category: BTreeMap<String, usize> = BTreeMap::new();
+    let (mut assigned, mut preserved, mut uncategorized) = (0, 0, 0);
+
+    for line in lib_text.lines() {
+        let t = line.trim();
+        if t.is_empty() || t.starts_with('#') || t.starts_with("//") {
+            continue;
+        }
+        let Ok(Value::Object(rec_obj)) = serde_json::from_str::<Value>(t) else { continue };
+        let Some(id) = rec_obj.get("id").and_then(Value::as_str) else { continue };
+
+        // Preserve a hand/GUI-curated entry verbatim.
+        let cats: Vec<String> = if let Some(ex) = existing.get(id) {
+            preserved += 1;
+            ex.get("categories")
+                .and_then(Value::as_array)
+                .map(|a| a.iter().filter_map(Value::as_str).map(str::to_string).collect())
+                .unwrap_or_default()
+        } else {
+            let kind = rec_obj.get("kind").and_then(Value::as_str).unwrap_or("game");
+            let mut cats: Vec<String> = Vec::new();
+            let mut push = |c: &str| {
+                if !c.is_empty() && !cats.iter().any(|x| x == c) {
+                    cats.push(c.to_string());
+                }
+            };
+            if rec.contains(id) {
+                push("Recommended");
+            }
+            if let Some(adds) = tax.adds.get(id) {
+                for c in adds {
+                    push(c);
+                }
+            }
+            if let Some(kc) = tax.kind_map.get(kind) {
+                push(kc);
+            }
+            let mut had_game_bucket = false;
+            if let Some(gs) = rec_obj.get("genre").and_then(Value::as_array) {
+                for g in gs.iter().filter_map(Value::as_str) {
+                    if let Some(b) = tax.genre_map.get(g) {
+                        push(b);
+                        had_game_bucket = true;
+                    }
+                }
+            }
+            let facet = |k: &str| facets.get(id).and_then(|f| f.get(k)).and_then(Value::as_bool);
+            if facet("color") == Some(false) {
+                push("Black & White");
+            }
+            if facet("mouse") == Some(false) {
+                push("No Mouse Required");
+            }
+            // A game with no genre bucket (and not an app/utility) lands in the
+            // catch-all so it's still reachable until hand-sorted.
+            let is_game = !tax.kind_map.contains_key(kind);
+            if is_game && !had_game_bucket && !tax.catch_all_game.is_empty() {
+                push(&tax.catch_all_game);
+            }
+            cats
+        };
+
+        let mut cats = cats;
+        tax.order_cats(&mut cats);
+        if cats.is_empty() {
+            uncategorized += 1;
+        } else {
+            assigned += 1;
+            for c in &cats {
+                *per_category.entry(c.clone()).or_default() += 1;
+            }
+        }
+        rows.push((id.to_string(), cats));
+    }
+
+    let mut body = String::from(
+        "# data/categories.jsonl — the editable category DB (docs/21), keyed by id.\n\
+         # Seeded by `atrium library categorize`; hand/GUI edits are preserved on re-run.\n",
+    );
+    for (id, cats) in &rows {
+        if cats.is_empty() {
+            continue;
+        }
+        let m: Map<String, Value> = [
+            ("id".to_string(), Value::from(id.clone())),
+            ("categories".to_string(), Value::from(cats.clone())),
+        ]
+        .into_iter()
+        .collect();
+        body.push_str(&Value::Object(m).to_string());
+        body.push('\n');
+    }
+    std::fs::write(out, body).with_context(|| format!("writing {}", out.display()))?;
+
+    Ok(CategorizeReport { titles: rows.len(), assigned, preserved, uncategorized, per_category })
+}
+
 /// Serialize one title as a `library.jsonl` line (stable key order via the model).
 fn record_line(t: &Title) -> String {
     let mut m = Map::new();

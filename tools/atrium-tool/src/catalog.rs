@@ -443,6 +443,53 @@ pub fn run(src: &Path, out: &Path, lf: bool, crlf: bool) -> Result<Report> {
 
 // ---- paged catalog (docs/21) -------------------------------------------------
 
+/// The navigation **taxonomy** (`data/taxonomy.json`): the canonical category
+/// list + display order, plus the seed maps `library categorize` uses to bootstrap
+/// the editable category DB (`data/categories.jsonl`). Unknown JSON fields (the
+/// `_comment`) are ignored.
+#[derive(Deserialize, Clone, Default)]
+pub struct Taxonomy {
+    /// Categories in display order — the launcher pages them in this order;
+    /// `order[0]` (Recommended) is the default landing view.
+    pub order: Vec<String>,
+    #[serde(default)]
+    pub default: String,
+    /// Bucket for a game that lands in no genre category (so none are unreachable).
+    #[serde(default)]
+    pub catch_all_game: String,
+    /// `kind` → category (app → Applications, utility → Utilities).
+    #[serde(default)]
+    pub kind_map: BTreeMap<String, String>,
+    /// raw genre → category bucket (the seed; the DB then overrides).
+    #[serde(default)]
+    pub genre_map: BTreeMap<String, String>,
+    /// Curated Recommended seed (ids).
+    #[serde(default)]
+    pub recommended: Vec<String>,
+    /// Per-id extra category seeds beyond what genre/facets give.
+    #[serde(default)]
+    pub adds: BTreeMap<String, Vec<String>>,
+}
+
+impl Taxonomy {
+    pub fn load(path: &Path) -> Result<Taxonomy> {
+        let txt = std::fs::read_to_string(path)
+            .with_context(|| format!("reading taxonomy {}", path.display()))?;
+        serde_json::from_str(&txt).with_context(|| format!("parsing taxonomy {}", path.display()))
+    }
+    pub fn parse(bytes: &[u8]) -> Result<Taxonomy> {
+        serde_json::from_slice(bytes).context("parsing taxonomy")
+    }
+    /// Sort a title's categories into display (`order`) order; categories not in
+    /// `order` follow, alphabetically — so nothing is dropped.
+    pub fn order_cats(&self, cats: &mut Vec<String>) {
+        let rank = |c: &str| self.order.iter().position(|o| o == c).unwrap_or(usize::MAX);
+        cats.sort_by(|a, b| rank(a).cmp(&rank(b)).then_with(|| a.cmp(b)));
+        cats.dedup();
+    }
+}
+
+
 /// One **slim** on-device record (docs/21 §3): the row fields the launcher holds
 /// in RAM, minus the three art paths (derived from `art`) and the category array
 /// (implicit in which file it's in). `art` is the [`fs_id`](crate::config::fs_id)
@@ -543,22 +590,71 @@ pub struct PagedReport {
     pub warnings: Vec<String>,
 }
 
+/// Load the category DB (`data/categories.jsonl`, docs/21): id → its categories.
+fn load_category_db(path: &Path) -> Result<HashMap<String, Vec<String>>> {
+    let text = std::fs::read_to_string(path)
+        .with_context(|| format!("reading category DB {}", path.display()))?;
+    let mut db = HashMap::new();
+    for line in text.lines() {
+        let t = line.trim();
+        if t.is_empty() || t.starts_with('#') || t.starts_with("//") {
+            continue;
+        }
+        let Ok(v) = serde_json::from_str::<Value>(t) else { continue };
+        if let Some(id) = v.get("id").and_then(Value::as_str) {
+            let cats = v
+                .get("categories")
+                .and_then(Value::as_array)
+                .map(|a| a.iter().filter_map(Value::as_str).map(str::to_string).collect())
+                .unwrap_or_default();
+            db.insert(id.to_string(), cats);
+        }
+    }
+    Ok(db)
+}
+
 /// Generate the **paged** catalog tree (docs/21) under `out_dir`:
 /// `index.jsonl` (one line per category page) + `cats/<slug>.jsonl` (slim records)
-/// + `hotkeys.jsonl` (the few items with a launch hotkey). Categories are taken in
-/// first-encountered order; items sort alphabetically within a category (except
-/// recommendation-style ones); any category over [`MAX_CAT_ITEMS`] is split into
-/// numbered sub-pages. All files are MacRoman-encoded like the legacy catalog.
-pub fn run_paged(src: &Path, out_dir: &Path, lf: bool, crlf: bool) -> Result<PagedReport> {
+/// + `hotkeys.jsonl` (the few items with a launch hotkey).
+///
+/// Category **membership** comes from the editable DB at `categories` when given
+/// (else each item's derived `categories`); category **order** follows `taxonomy`
+/// when given (else first-encountered). Items sort alphabetically within a
+/// category except recommendation-style ones (which keep DB order); any category
+/// over [`MAX_CAT_ITEMS`] splits into numbered sub-pages. All files are
+/// MacRoman-encoded like the legacy catalog.
+pub fn run_paged(
+    src: &Path,
+    out_dir: &Path,
+    categories: Option<&Path>,
+    taxonomy: Option<&Path>,
+    lf: bool,
+    crlf: bool,
+) -> Result<PagedReport> {
     let src_text = std::fs::read_to_string(src)
         .with_context(|| format!("reading source dataset {}", src.display()))?;
     let (items, base) = build(&src_text)?;
+    let db = match categories {
+        Some(p) => Some(load_category_db(p)?),
+        None => None,
+    };
+    let tax = match taxonomy {
+        Some(p) => Some(Taxonomy::load(p)?),
+        None => None,
+    };
+    // an item's categories: the DB (if given), else its derived set.
+    let cats_of = |i: usize| -> Vec<String> {
+        match &db {
+            Some(db) => db.get(&items[i].id).cloned().unwrap_or_default(),
+            None => items[i].categories.clone(),
+        }
+    };
 
-    // category name → item indices, in first-encountered order.
+    // category name → item indices, in first-encountered order...
     let mut pos: HashMap<String, usize> = HashMap::new();
     let mut cats: Vec<(String, Vec<usize>)> = Vec::new();
-    for (i, it) in items.iter().enumerate() {
-        for c in &it.categories {
+    for i in 0..items.len() {
+        for c in cats_of(i) {
             let at = *pos.entry(c.clone()).or_insert_with(|| {
                 cats.push((c.clone(), Vec::new()));
                 cats.len() - 1
@@ -566,7 +662,13 @@ pub fn run_paged(src: &Path, out_dir: &Path, lf: bool, crlf: bool) -> Result<Pag
             cats[at].1.push(i);
         }
     }
-    // order within each category (alpha unless list-ordered).
+    // ...then re-order the categories themselves by the taxonomy (present ones in
+    // `order`, any extras alphabetically after).
+    if let Some(tax) = &tax {
+        let rank = |c: &str| tax.order.iter().position(|o| o == c).unwrap_or(usize::MAX);
+        cats.sort_by(|a, b| rank(&a.0).cmp(&rank(&b.0)).then_with(|| a.0.cmp(&b.0)));
+    }
+    // order within each category (alpha unless list-ordered, e.g. Recommended).
     for (name, idxs) in &mut cats {
         if !is_list_ordered(name) {
             idxs.sort_by(|&a, &b| items[a].name.to_lowercase().cmp(&items[b].name.to_lowercase()));
@@ -841,7 +943,7 @@ mod tests {
         std::fs::create_dir_all(&dir).unwrap();
         std::fs::write(&s, &src).unwrap();
 
-        let r = run_paged(&s, &dir, false, false).unwrap();
+        let r = run_paged(&s, &dir, None, None, false, false).unwrap();
         assert_eq!(r.items, 200);
         // every page is within the cap
         assert!(r.biggest_page.1 <= MAX_CAT_ITEMS, "page over cap: {:?}", r.biggest_page);
@@ -868,6 +970,36 @@ mod tests {
     }
 
     #[test]
+    fn paged_uses_category_db_in_taxonomy_order() {
+        let dir = std::env::temp_dir().join(format!("atrium-paged-db-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        // two titles; the DB (not their genre) decides membership.
+        let src = "{\"id\":\"a\",\"name\":\"Aaa\",\"app\":\"Apps/A/A\",\"genre\":[\"Arcade\"]}\n\
+                   {\"id\":\"b\",\"name\":\"Bbb\",\"app\":\"Apps/B/B\"}\n";
+        let s = dir.join("src.jsonl");
+        std::fs::write(&s, src).unwrap();
+        std::fs::write(dir.join("categories.jsonl"),
+            "{\"id\":\"a\",\"categories\":[\"Action & Arcade\",\"Recommended\"]}\n\
+             {\"id\":\"b\",\"categories\":[\"Recommended\"]}\n").unwrap();
+        std::fs::write(dir.join("taxonomy.json"),
+            "{\"order\":[\"Recommended\",\"Action & Arcade\"]}").unwrap();
+
+        let r = run_paged(&s, &dir, Some(&dir.join("categories.jsonl")), Some(&dir.join("taxonomy.json")), false, false).unwrap();
+        assert_eq!(r.categories, 2);
+        // index follows taxonomy order: Recommended first, then Action & Arcade.
+        let idx = macroman::decode(&std::fs::read(dir.join("index.jsonl")).unwrap());
+        let names: Vec<String> = idx.split(['\r', '\n']).filter(|l| !l.trim().is_empty())
+            .filter_map(|l| serde_json::from_str::<Value>(l).ok())
+            .filter_map(|v| v.get("name").and_then(Value::as_str).map(str::to_string)).collect();
+        assert_eq!(names, vec!["Recommended", "Action & Arcade"]);
+        // Recommended holds both; Action & Arcade only "a".
+        let aa = macroman::decode(&std::fs::read(dir.join("cats/action-arcade.jsonl")).unwrap());
+        assert!(aa.contains("\"id\":\"a\"") && !aa.contains("\"id\":\"b\""));
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
     fn paged_hotkeys_only_for_hotkeyed_items() {
         let src = "{\"id\":\"a\",\"name\":\"A\",\"app\":\"Apps/A/A\",\"hotkey\":\"a\"}\n\
                    {\"id\":\"b\",\"name\":\"B\",\"app\":\"Apps/B/B\"}\n";
@@ -876,7 +1008,7 @@ mod tests {
         std::fs::create_dir_all(&dir).unwrap();
         let s = dir.join("src.jsonl");
         std::fs::write(&s, src).unwrap();
-        let r = run_paged(&s, &dir, false, false).unwrap();
+        let r = run_paged(&s, &dir, None, None, false, false).unwrap();
         assert_eq!(r.hotkeys, 1);
         let hk = macroman::decode(&std::fs::read(dir.join("hotkeys.jsonl")).unwrap());
         let v: Value = serde_json::from_str(hk.split(['\r', '\n']).find(|l| !l.trim().is_empty()).unwrap()).unwrap();

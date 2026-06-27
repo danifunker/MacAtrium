@@ -1,0 +1,61 @@
+{
+  "_comment": "Canonical navigation categories for the paged catalog (docs/21). `order` is the display order (Recommended first / default). `genre_map` seeds data/categories.jsonl from the library's raw genres; `kind_map` from the kind; facet categories (Black & White, No Mouse Required) come from compatibility color/mouse. `recommended` + `adds` are hand-curated seeds. The DB (data/categories.jsonl) is the editable source of truth — edit there (or in the GUI), not here, to move a title between categories.",
+  "order": [
+    "Recommended",
+    "Action & Arcade",
+    "Adventure",
+    "Puzzle",
+    "Strategy & Sim",
+    "Role-Playing",
+    "Interactive Fiction",
+    "Card & Casino",
+    "Sports",
+    "Educational",
+    "Black & White",
+    "No Mouse Required",
+    "Games",
+    "Applications",
+    "Utilities"
+  ],
+  "default": "Recommended",
+  "catch_all_game": "Games",
+  "kind_map": { "app": "Applications", "utility": "Utilities" },
+  "genre_map": {
+    "Arcade": "Action & Arcade",
+    "Action": "Action & Arcade",
+    "Racing": "Action & Arcade",
+    "FPS": "Action & Arcade",
+    "Pinball": "Action & Arcade",
+    "Flight Simulation": "Action & Arcade",
+    "Adventure": "Adventure",
+    "World Builder": "Adventure",
+    "Puzzle": "Puzzle",
+    "Trivia": "Puzzle",
+    "Game of Life": "Puzzle",
+    "Strategy": "Strategy & Sim",
+    "Simulation": "Strategy & Sim",
+    "Board Game": "Strategy & Sim",
+    "RPG": "Role-Playing",
+    "Role-Playing": "Role-Playing",
+    "Interactive Fiction": "Interactive Fiction",
+    "Infocom+": "Interactive Fiction",
+    "Card & Casino": "Card & Casino",
+    "Sports": "Sports",
+    "Educational": "Educational",
+    "Early Childhood": "Educational",
+    "Creative": "Educational",
+    "Science & Math": "Educational"
+  },
+  "recommended": [
+    "prince-of-persia", "dark-castle-1-2", "beyond-dark-castle-1-0", "lemmings-1-1",
+    "shufflepuck-cafe", "glider-3-1-2", "spectre", "bolo-0-99-2", "crystal-quest",
+    "tetris-1-2", "simcity-1-11", "risk", "kid-pix", "oregon-trail-1-0",
+    "number-munchers-1-2", "carmen-sandiego-1-0", "reader-rabbit-2", "cosmic-osmo-1-6"
+  ],
+  "adds": {
+    "kid-pix": ["Educational"],
+    "prince-of-persia": ["No Mouse Required"],
+    "dark-castle-1-2": ["Action & Arcade"],
+    "beyond-dark-castle-1-0": ["Action & Arcade"]
+  }
+}

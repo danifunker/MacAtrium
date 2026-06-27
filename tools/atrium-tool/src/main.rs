@@ -43,6 +43,13 @@ enum Cmd {
         /// MAX_CAT_ITEMS. The legacy --out file is still written.
         #[arg(long)]
         paged_out: Option<PathBuf>,
+        /// Category DB for `--paged-out` membership (docs/21). Default
+        /// data/categories.jsonl.
+        #[arg(long, default_value = "data/categories.jsonl")]
+        categories: PathBuf,
+        /// Taxonomy for `--paged-out` category order. Default data/taxonomy.json.
+        #[arg(long, default_value = "data/taxonomy.json")]
+        taxonomy: PathBuf,
         /// Also inject the catalog into this target image's metadata dir,
         /// backing up any existing catalog first (rb-cli get).
         #[arg(long)]
@@ -431,6 +438,21 @@ enum LibraryCmd {
         #[arg(long)]
         compat: PathBuf,
     },
+
+    /// Seed/refresh the editable category DB (data/categories.jsonl, docs/21):
+    /// assign each title to the navigation categories (multi-membership) from the
+    /// taxonomy seed maps + facets. Hand/GUI edits already in the DB are preserved.
+    Categorize {
+        #[arg(long, default_value = "data/library.jsonl")]
+        library: PathBuf,
+        #[arg(long, default_value = "data/compatibility.jsonl")]
+        compat: PathBuf,
+        #[arg(long, default_value = "data/taxonomy.json")]
+        taxonomy: PathBuf,
+        /// The category DB to write/refresh.
+        #[arg(long, default_value = "data/categories.jsonl")]
+        out: PathBuf,
+    },
 }
 
 /// Truncate a display string to `n` chars (… if cut), for table columns.
@@ -451,6 +473,8 @@ fn main() -> Result<()> {
             lf,
             crlf,
             paged_out,
+            categories,
+            taxonomy,
             into,
             backup_dir,
             metadata_dir,
@@ -458,7 +482,7 @@ fn main() -> Result<()> {
         } => {
             // Paged tree first (handles any library size, docs/21).
             if let Some(dir) = &paged_out {
-                let pr = catalog::run_paged(&src, dir, lf, crlf)?;
+                let pr = catalog::run_paged(&src, dir, Some(&categories), Some(&taxonomy), lf, crlf)?;
                 eprintln!(
                     "paged: {} item(s) → {} categor(y/ies) in {} page(s), {} hotkey(s) -> {}",
                     pr.items, pr.categories, pr.pages, pr.hotkeys, dir.display()
@@ -671,6 +695,19 @@ fn main() -> Result<()> {
                     r.compat_entries,
                     compat.display()
                 );
+            }
+            LibraryCmd::Categorize { library, compat, taxonomy, out } => {
+                let r = atrium::library::categorize(&library, &compat, &taxonomy, &out)?;
+                eprintln!(
+                    "categorize: {} title(s) — {} assigned, {} preserved, {} uncategorized -> {}",
+                    r.titles, r.assigned, r.preserved, r.uncategorized, out.display()
+                );
+                eprintln!("by category:");
+                for cat in atrium::catalog::Taxonomy::load(&taxonomy).map(|t| t.order).unwrap_or_default() {
+                    if let Some(n) = r.per_category.get(&cat) {
+                        eprintln!("  {n:5}  {cat}");
+                    }
+                }
             }
         },
         Cmd::Targets => {
