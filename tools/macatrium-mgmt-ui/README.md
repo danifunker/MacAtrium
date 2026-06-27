@@ -11,7 +11,7 @@ cd tools/macatrium-mgmt-ui
 cargo run --release      # opens a window (needs a display — not the headless dev box)
 ```
 
-## Workflow — five jobs
+## Workflow — six jobs
 
 A top tab bar picks the **job**; a status/progress line sits at the bottom. Each
 action calls the same `atrium` function the CLI does, and long operations run on a
@@ -35,10 +35,15 @@ paths — just a Target, some titles, and an output.
    compatibility overlay (`atrium::merge::set` → `data/compatibility.jsonl`).
    **Load Existing MacAtrium Disk** extracts a built disk's catalog for editing
    (`rb-cli get` on `/MacAtrium/metadata/catalog.jsonl`).
-4. **Attain** — register the **MacPack** folder (the donor disks a build harvests
+4. **Database** — explore the **Macintosh Garden** archive (~21k titles)
+   cross-referenced against MacPack (`atrium::mgdb`): a filterable table — type,
+   architecture, OS, category, year, colour — that flags which titles are
+   **missing from MacPack** (the "what are we missing" view). **Detect colour**
+   fills Colour/B&W offline from screenshots. Needs the MG-Archive set.
+5. **Attain** — register the **MacPack** folder (the donor disks a build harvests
    from) and run the **Macintosh Garden downloader** to cache the selected titles'
    software (`atrium::fetch`, gated on a valid MG-Archive).
-5. **⚙ Settings** — MacPack / MG-Archive / cache / `rb-cli` paths, saved to
+6. **⚙ Settings** — MacPack / MG-Archive / cache / `rb-cli` paths, saved to
    `~/.macatrium.json`; a **Targets** editor (add/update/remove your own profiles
    over the bundled defaults); and a read-only Templates list. A **first-run
    wizard** auto-detects `rb-cli` and prompts for the source folders.
