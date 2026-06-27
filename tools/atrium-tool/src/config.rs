@@ -54,7 +54,15 @@ pub fn d_curl() -> String { "curl".into() }
 pub const DEFAULT_ART_BOUND: (u32, u32) = (720, 720);
 pub fn d_sounds_dir() -> String { "/MacAtrium/sounds".into() }
 
-/// Hard ceiling for a built image: classic HFS tops out at 2 GB in practice.
+/// Hard ceiling for a built (bootable) image: 2 GB.
+///
+/// HFS's *structural* wall is higher — 65535 allocation blocks × 64 KB ≈ 4095 MiB
+/// (rb-cli's `expand` will build that; 4096 MiB overshoots by one block) — and the
+/// 2 GB→4 GB volume ceiling moved with System 7.5, so a Quadra/7.5.5 could in
+/// principle host a larger volume. But whether 7.5.5 *boots* from a >2 GB startup
+/// volume is unverified (no q800 boot harness yet), and 6.0.8/7.1 are true 2 GB
+/// systems. Until a >2 GB boot volume is proven on the Quadra, every build stays
+/// ≤ 2 GB. A future per-target override (gated on 7.5+) could lift this.
 pub const MAX_DISK_MB: u64 = 2048;
 
 /// One harvest source: a donor disk image plus the app paths to pull from it.
@@ -119,7 +127,7 @@ pub struct BuildConfig {
     #[serde(default)]
     pub dataset: Option<PathBuf>,
     /// Final image size in MB; the image is grown/kept to fit. Capped at
-    /// `MAX_DISK_MB` (HFS 2 GB). None = leave the base image's size as-is.
+    /// `MAX_DISK_MB` (2 GB). None = leave the base image's size as-is.
     #[serde(default)]
     pub disk_size_mb: Option<u64>,
     /// Which dataset apps to include. None falls back to the `harvest` block.
