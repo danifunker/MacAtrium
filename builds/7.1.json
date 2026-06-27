@@ -30,5 +30,6 @@
   "rb_cli": "/home/dani/repos/rusty-backup/target/release/rb-cli",
   "startup_items": "/System Folder/Startup Items",
   "finder_replace": false,
-  "mg_archive": "/home/dani/macgarden-archive"
+  "mg_archive": "/home/dani/macgarden-archive",
+  "max_art_size": "384x384"
 }

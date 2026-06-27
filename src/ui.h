@@ -76,6 +76,11 @@ UiCommand ui_click(Ui *u, Point pt);   /* mouse: hit-test a window-local click *
 int       ui_idle(Ui *u);
 void      ui_set_status(Ui *u, const char *msg);
 
+/* Drop the per-item art caches (detail cover + tile icons) after a category
+ * page loads — the paged catalog reuses its items array, so the caches would
+ * otherwise show the previous page's art. Call right after model_set_page. */
+void      ui_page_changed(Ui *u);
+
 /* The current item's app path (for main to launch); NULL if none. */
 const char *ui_current_app(Ui *u);
 const char *ui_current_name(Ui *u);

@@ -227,6 +227,20 @@ static void dispose_row_icons(Ui *u)
         if (u->rowIcon[i]) { art_dispose(u->rowIcon[i]); u->rowIcon[i] = 0; }
 }
 
+/* Invalidate the per-item art caches after a category page loads. The paged
+ * catalog reuses one items array for every category (main.c), so both caches
+ * alias the *previous* page's items by reused storage: `artFor` is a CatItem*
+ * (now pointing at a different title at the same address) and `rowIcon[]` is
+ * keyed by the reused slot index. Without this, a new selection that lands on a
+ * slot the old page also used keeps the previous item's cover / tile icon.
+ * Called by main's PageLoader right after model_set_page. */
+void ui_page_changed(Ui *u)
+{
+    if (u->listArt) { art_dispose(u->listArt); u->listArt = 0; }
+    u->artFor = 0;
+    dispose_row_icons(u);
+}
+
 #define ART_PANE_W 176          /* right-hand art pane width when wide enough */
 #define ART_MIN_W  560          /* show the art pane only at this width or more */
 
