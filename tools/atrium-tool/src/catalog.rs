@@ -11,15 +11,21 @@ use crate::macroman;
 use crate::rbcli::RbCli;
 use anyhow::{bail, Context, Result};
 use serde::{Deserialize, Serialize};
-use serde_json::Value;
-use std::collections::BTreeMap;
+use serde_json::{Map, Value};
+use std::collections::{BTreeMap, HashMap, HashSet};
 use std::path::Path;
 
 // On-device parser limits (src/catalog.h, src/model.h). We validate against
 // these so a generated catalog never silently overflows the 68k reader.
-/// Hard cap on catalog items the 68k reader accepts. A merge (`atrium add`) must
-/// keep the union within this.
+/// Hard cap on catalog items the 68k reader accepts (legacy single-file catalog).
+/// A merge (`atrium add`) must keep the union within this.
 pub const MAX_ITEMS: usize = 256;
+
+/// Paged catalog (docs/21): the most items in a single category **page**. The
+/// generator splits any larger category into numbered sub-pages, so the launcher
+/// never holds more than this many slim records at once — the bound that keeps a
+/// 4 MB Mac Plus within its partition. Sized for the smallest (B&W) target.
+pub const MAX_CAT_ITEMS: usize = 128;
 const MAX_ITEM_CATS: usize = 8;
 const ITEM_ID_LEN: usize = 47;
 const ITEM_NAME_LEN: usize = 63;
@@ -332,12 +338,9 @@ fn build(src_text: &str) -> Result<(Vec<OutItem>, Report)> {
         });
     }
 
-    if out.len() > MAX_ITEMS {
-        bail!(
-            "{} items exceeds device max {MAX_ITEMS}; split the catalog",
-            out.len()
-        );
-    }
+    // Note: the legacy MAX_ITEMS (256) ceiling is enforced by `run`, not here —
+    // the paged generator (`run_paged`) deliberately exceeds it across pages and
+    // bounds each page by MAX_CAT_ITEMS instead (docs/21).
     if cat_counts.len() > MAX_CATS {
         warnings.push(format!(
             "{} distinct categories exceeds device max {MAX_CATS}",
@@ -424,11 +427,222 @@ pub fn run(src: &Path, out: &Path, lf: bool, crlf: bool) -> Result<Report> {
     let src_text = std::fs::read_to_string(src)
         .with_context(|| format!("reading source dataset {}", src.display()))?;
     let (items, mut report) = build(&src_text)?;
+    if items.len() > MAX_ITEMS {
+        bail!(
+            "{} items exceeds the {MAX_ITEMS}-item device max for a single-file catalog \
+             — use the paged catalog (`--paged-out`, docs/21) for larger libraries",
+            items.len()
+        );
+    }
     let (bytes, lossy) = render(&items, crlf, lf)?;
     report.lossy_chars = lossy;
     report.bytes = bytes.len();
     std::fs::write(out, &bytes).with_context(|| format!("writing {}", out.display()))?;
     Ok(report)
+}
+
+// ---- paged catalog (docs/21) -------------------------------------------------
+
+/// One **slim** on-device record (docs/21 §3): the row fields the launcher holds
+/// in RAM, minus the three art paths (derived from `art`) and the category array
+/// (implicit in which file it's in). `art` is the [`fs_id`](crate::config::fs_id)
+/// base the launcher resolves `images/<art>(.shot|.icon)` from.
+#[derive(Serialize)]
+struct SlimItem {
+    id: String,
+    name: String,
+    app: String,
+    #[serde(skip_serializing_if = "String::is_empty")]
+    art: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    year: Option<i64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    vendor: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    genre: Option<String>,
+    #[serde(rename = "type", skip_serializing_if = "Option::is_none")]
+    type_: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    creator: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    hotkey: Option<String>,
+    #[serde(rename = "maxDepth", skip_serializing_if = "Option::is_none")]
+    max_depth: Option<i64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    desc: Option<String>,
+}
+
+impl SlimItem {
+    fn from_out(it: &OutItem) -> SlimItem {
+        SlimItem {
+            id: it.id.clone(),
+            name: it.name.clone(),
+            app: it.app.clone(),
+            art: crate::config::fs_id(&it.id),
+            year: it.year,
+            vendor: it.vendor.clone(),
+            genre: it.genre.clone(),
+            type_: it.type_.clone(),
+            creator: it.creator.clone(),
+            hotkey: it.hotkey.clone(),
+            max_depth: it.max_depth,
+            desc: it.desc.clone(),
+        }
+    }
+}
+
+/// Recommendation-style categories keep dataset order (mirror of the device
+/// `model_is_list_ordered`); every other category sorts alphabetically.
+fn is_list_ordered(name: &str) -> bool {
+    name.eq_ignore_ascii_case("Recommended") || name.eq_ignore_ascii_case("Staff Picks")
+}
+
+/// A filesystem-safe, MacRoman-safe slug for a category name → `cats/<slug>.jsonl`.
+/// Lowercased ASCII alphanumerics, runs of anything else collapse to one `-`,
+/// capped so `<slug>.jsonl` fits HFS's 31-char limit.
+fn slugify(name: &str) -> String {
+    let mut s = String::new();
+    for c in name.chars() {
+        if c.is_ascii_alphanumeric() {
+            s.push(c.to_ascii_lowercase());
+        } else if !s.ends_with('-') && !s.is_empty() {
+            s.push('-');
+        }
+    }
+    let mut s = s.trim_matches('-').to_string();
+    if s.len() > 24 {
+        s.truncate(24);
+        s = s.trim_end_matches('-').to_string();
+    }
+    if s.is_empty() { "cat".to_string() } else { s }
+}
+
+fn unique_slug(name: &str, used: &mut HashSet<String>) -> String {
+    let base = slugify(name);
+    if used.insert(base.clone()) {
+        return base;
+    }
+    for n in 2.. {
+        let cand = format!("{base}-{n}");
+        if used.insert(cand.clone()) {
+            return cand;
+        }
+    }
+    unreachable!()
+}
+
+/// Outcome of a paged generation, for reporting/testing.
+pub struct PagedReport {
+    pub categories: usize,
+    pub pages: usize,
+    pub items: usize,
+    pub hotkeys: usize,
+    /// The largest single page produced — a sanity check that the split kept
+    /// every page within [`MAX_CAT_ITEMS`].
+    pub biggest_page: (String, usize),
+    pub warnings: Vec<String>,
+}
+
+/// Generate the **paged** catalog tree (docs/21) under `out_dir`:
+/// `index.jsonl` (one line per category page) + `cats/<slug>.jsonl` (slim records)
+/// + `hotkeys.jsonl` (the few items with a launch hotkey). Categories are taken in
+/// first-encountered order; items sort alphabetically within a category (except
+/// recommendation-style ones); any category over [`MAX_CAT_ITEMS`] is split into
+/// numbered sub-pages. All files are MacRoman-encoded like the legacy catalog.
+pub fn run_paged(src: &Path, out_dir: &Path, lf: bool, crlf: bool) -> Result<PagedReport> {
+    let src_text = std::fs::read_to_string(src)
+        .with_context(|| format!("reading source dataset {}", src.display()))?;
+    let (items, base) = build(&src_text)?;
+
+    // category name → item indices, in first-encountered order.
+    let mut pos: HashMap<String, usize> = HashMap::new();
+    let mut cats: Vec<(String, Vec<usize>)> = Vec::new();
+    for (i, it) in items.iter().enumerate() {
+        for c in &it.categories {
+            let at = *pos.entry(c.clone()).or_insert_with(|| {
+                cats.push((c.clone(), Vec::new()));
+                cats.len() - 1
+            });
+            cats[at].1.push(i);
+        }
+    }
+    // order within each category (alpha unless list-ordered).
+    for (name, idxs) in &mut cats {
+        if !is_list_ordered(name) {
+            idxs.sort_by(|&a, &b| items[a].name.to_lowercase().cmp(&items[b].name.to_lowercase()));
+        }
+    }
+
+    let cats_dir = out_dir.join("cats");
+    std::fs::create_dir_all(&cats_dir)
+        .with_context(|| format!("creating {}", cats_dir.display()))?;
+
+    let mut index: Vec<Value> = Vec::new();
+    let mut used: HashSet<String> = HashSet::new();
+    let mut pages = 0usize;
+    let mut biggest = (String::new(), 0usize);
+    for (name, idxs) in &cats {
+        let ordered = is_list_ordered(name);
+        for (page_no, chunk) in idxs.chunks(MAX_CAT_ITEMS).enumerate() {
+            let page_name = if page_no == 0 {
+                name.clone()
+            } else {
+                format!("{name} ({})", page_no + 1)
+            };
+            let slug = unique_slug(&page_name, &mut used);
+            let slim: Vec<Value> = chunk
+                .iter()
+                .map(|&i| serde_json::to_value(SlimItem::from_out(&items[i])))
+                .collect::<std::result::Result<_, _>>()?;
+            let bytes = render_values(&slim, crlf, lf)?;
+            std::fs::write(cats_dir.join(format!("{slug}.jsonl")), &bytes)
+                .with_context(|| format!("writing page {slug}"))?;
+            let entry: Map<String, Value> = [
+                ("name".to_string(), Value::from(page_name.clone())),
+                ("slug".to_string(), Value::from(slug)),
+                ("count".to_string(), Value::from(chunk.len())),
+                ("ordered".to_string(), Value::from(ordered)),
+            ]
+            .into_iter()
+            .collect();
+            index.push(Value::Object(entry));
+            if chunk.len() > biggest.1 {
+                biggest = (page_name, chunk.len());
+            }
+            pages += 1;
+        }
+    }
+    std::fs::write(out_dir.join("index.jsonl"), render_values(&index, crlf, lf)?)
+        .with_context(|| format!("writing {}", out_dir.join("index.jsonl").display()))?;
+
+    // hotkeys: only items that carry one, so a hotkey launches without a page load.
+    let hotkeys: Vec<Value> = items
+        .iter()
+        .filter_map(|it| {
+            it.hotkey.as_ref().map(|k| {
+                let m: Map<String, Value> = [
+                    ("key".to_string(), Value::from(k.clone())),
+                    ("id".to_string(), Value::from(it.id.clone())),
+                    ("name".to_string(), Value::from(it.name.clone())),
+                    ("app".to_string(), Value::from(it.app.clone())),
+                ]
+                .into_iter()
+                .collect();
+                Value::Object(m)
+            })
+        })
+        .collect();
+    std::fs::write(out_dir.join("hotkeys.jsonl"), render_values(&hotkeys, crlf, lf)?)
+        .with_context(|| format!("writing {}", out_dir.join("hotkeys.jsonl").display()))?;
+
+    Ok(PagedReport {
+        categories: cats.len(),
+        pages,
+        items: items.len(),
+        hotkeys: hotkeys.len(),
+        biggest_page: biggest,
+        warnings: base.warnings,
+    })
 }
 
 /// Inject a generated catalog into an image's metadata dir, backing up any
@@ -599,6 +813,76 @@ mod tests {
         )
         .unwrap();
         assert_eq!(items.len(), 1);
+    }
+
+    #[test]
+    fn slugify_is_hfs_and_macroman_safe() {
+        assert_eq!(slugify("Action"), "action");
+        assert_eq!(slugify("B&W"), "b-w");
+        assert_eq!(slugify("Card & Casino"), "card-casino");
+        assert_eq!(slugify("Games (2)"), "games-2");
+        assert_eq!(slugify("Silicon Beach Software"), "silicon-beach-software");
+        // long names truncate so "<slug>.jsonl" fits HFS 31
+        assert!(slugify("A Really Very Long Category Name Indeed").len() <= 24);
+    }
+
+    #[test]
+    fn paged_splits_categories_and_writes_tree() {
+        // 200 games in "Action" -> two pages (128 + 72); the index + files reflect it.
+        let mut src = String::new();
+        for i in 0..200 {
+            src.push_str(&format!(
+                "{{\"id\":\"g{i}\",\"name\":\"Game {i:03}\",\"app\":\"Apps/G{i}/G{i}\",\"kind\":\"game\",\"genre\":[\"Action\"]}}\n"
+            ));
+        }
+        let dir = std::env::temp_dir().join(format!("atrium-paged-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        let s = dir.join("src.jsonl");
+        std::fs::create_dir_all(&dir).unwrap();
+        std::fs::write(&s, &src).unwrap();
+
+        let r = run_paged(&s, &dir, false, false).unwrap();
+        assert_eq!(r.items, 200);
+        // every page is within the cap
+        assert!(r.biggest_page.1 <= MAX_CAT_ITEMS, "page over cap: {:?}", r.biggest_page);
+
+        // the index lists the split "Action" + "Action (2)" pages (MacRoman/CR).
+        let index = macroman::decode(&std::fs::read(dir.join("index.jsonl")).unwrap());
+        let names: Vec<String> = index
+            .split(['\r', '\n'])
+            .filter(|l| !l.trim().is_empty())
+            .filter_map(|l| serde_json::from_str::<Value>(l).ok())
+            .filter_map(|v| v.get("name").and_then(Value::as_str).map(str::to_string))
+            .collect();
+        assert!(names.contains(&"Action".to_string()));
+        assert!(names.contains(&"Action (2)".to_string()));
+
+        // the first Action page file exists with slim records (no `categories`/`image`).
+        let page = macroman::decode(&std::fs::read(dir.join("cats/action.jsonl")).unwrap());
+        let first = page.split(['\r', '\n']).find(|l| !l.trim().is_empty()).unwrap();
+        let rec: Value = serde_json::from_str(first).unwrap();
+        assert!(rec.get("art").is_some(), "slim record has an art base");
+        assert!(rec.get("categories").is_none(), "slim record drops categories");
+        assert!(rec.get("image").is_none(), "slim record drops art paths");
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn paged_hotkeys_only_for_hotkeyed_items() {
+        let src = "{\"id\":\"a\",\"name\":\"A\",\"app\":\"Apps/A/A\",\"hotkey\":\"a\"}\n\
+                   {\"id\":\"b\",\"name\":\"B\",\"app\":\"Apps/B/B\"}\n";
+        let dir = std::env::temp_dir().join(format!("atrium-paged-hk-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        let s = dir.join("src.jsonl");
+        std::fs::write(&s, src).unwrap();
+        let r = run_paged(&s, &dir, false, false).unwrap();
+        assert_eq!(r.hotkeys, 1);
+        let hk = macroman::decode(&std::fs::read(dir.join("hotkeys.jsonl")).unwrap());
+        let v: Value = serde_json::from_str(hk.split(['\r', '\n']).find(|l| !l.trim().is_empty()).unwrap()).unwrap();
+        assert_eq!(v.get("key").and_then(Value::as_str), Some("a"));
+        assert_eq!(v.get("app").and_then(Value::as_str), Some("Apps/A/A"));
+        let _ = std::fs::remove_dir_all(&dir);
     }
 
     #[test]
