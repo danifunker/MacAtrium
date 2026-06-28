@@ -33,6 +33,14 @@ impl RbCli {
     }
 
     fn run(&self, args: &[&str]) -> Result<String> {
+        // DEBUG: if RBCLI_ARGV_LOG is set, append every invocation's argv (one
+        // line per call) so the rb-cli maintainer can audit rm/--force/collisions.
+        if let Ok(p) = std::env::var("RBCLI_ARGV_LOG") {
+            use std::io::Write;
+            if let Ok(mut f) = std::fs::OpenOptions::new().create(true).append(true).open(&p) {
+                let _ = writeln!(f, "{} {}", self.bin, args.join(" "));
+            }
+        }
         let out = Command::new(&self.bin)
             .args(args)
             .output()
