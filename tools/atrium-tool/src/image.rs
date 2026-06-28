@@ -404,7 +404,14 @@ pub fn run(cfg: &BuildConfig) -> Result<()> {
     // rather than baked into every (portable) build config.
     let settings = crate::settings::Settings::load_default();
 
-    let rb = RbCli::new(settings.rb_cli.as_deref().unwrap_or(&cfg.rb_cli));
+    // Resolve the rb-cli binary ONCE and thread it through every call site below
+    // (harvest/catalog take the path too) — and log which file + version actually
+    // runs. A bare "rb-cli" is resolved against $PATH at exec time, so logging it
+    // up front is what turns the stale-binary trap (a pre-fix rb-cli shadowing the
+    // configured path → silent corrupt catalog) into a one-glance check.
+    let rb_bin = crate::rbcli::resolve_bin(&cfg.rb_cli, settings.rb_cli.as_deref());
+    crate::rbcli::log_version(&rb_bin);
+    let rb = RbCli::new(&rb_bin);
     let stage = cfg
         .stage
         .clone()
@@ -496,7 +503,7 @@ pub fn run(cfg: &BuildConfig) -> Result<()> {
         eprintln!("[2/7] selection    harvest {} donor group(s)", plan.len());
         for (image, apps) in &plan {
             harvest::run(
-                &cfg.rb_cli,
+                &rb_bin,
                 image,
                 apps,
                 None,
@@ -511,7 +518,7 @@ pub fn run(cfg: &BuildConfig) -> Result<()> {
         eprintln!("[2/7] harvest      {} donor source(s)", cfg.harvest.len());
         for h in &cfg.harvest {
             harvest::run(
-                &cfg.rb_cli,
+                &rb_bin,
                 &h.image,
                 &h.apps,
                 h.scan.as_deref(),
@@ -597,12 +604,12 @@ pub fn run(cfg: &BuildConfig) -> Result<()> {
         "[6/7] catalog      {} item(s) in {} categor(y/ies) / {} page(s)",
         report.items, report.categories, report.pages
     );
-    catalog::inject_paged(&cfg.rb_cli, &cfg.out, &paged_dir, &cfg.metadata_dir)?;
+    catalog::inject_paged(&rb_bin, &cfg.out, &paged_dir, &cfg.metadata_dir)?;
     // Legacy single-file catalog too (back-compat for an old launcher; an over-256
     // library can't be a single file, so that case is paged-only).
     let cat = stage.join("catalog.jsonl");
     match catalog::run(&present, &cat, false, false) {
-        Ok(_) => catalog::inject(&cfg.rb_cli, &cfg.out, &cat, &cfg.metadata_dir, Some(&stage))?,
+        Ok(_) => catalog::inject(&rb_bin, &cfg.out, &cat, &cfg.metadata_dir, Some(&stage))?,
         Err(e) => eprintln!("[6/7] catalog      legacy single-file skipped: {e}"),
     }
 
@@ -689,7 +696,10 @@ pub fn add_to_disk(cfg: &BuildConfig) -> Result<()> {
         .ok_or_else(|| anyhow::anyhow!("no selection: pick the titles to add"))?;
 
     let settings = crate::settings::Settings::load_default();
-    let rb = RbCli::new(settings.rb_cli.as_deref().unwrap_or(&cfg.rb_cli));
+    // Resolve + log the rb-cli binary once; reuse it for harvest/catalog below.
+    let rb_bin = crate::rbcli::resolve_bin(&cfg.rb_cli, settings.rb_cli.as_deref());
+    crate::rbcli::log_version(&rb_bin);
+    let rb = RbCli::new(&rb_bin);
     let stage = cfg
         .stage
         .clone()
@@ -722,10 +732,10 @@ pub fn add_to_disk(cfg: &BuildConfig) -> Result<()> {
     }
     eprintln!("[add] harvest {} donor group(s)", plan.len());
     for (image, apps) in &plan {
-        harvest::run(&cfg.rb_cli, image, apps, None, &stage.join("apps"), Some(&cfg.out), &cfg.apps_root, Some(&work))?;
+        harvest::run(&rb_bin, image, apps, None, &stage.join("apps"), Some(&cfg.out), &cfg.apps_root, Some(&work))?;
     }
     for h in &cfg.harvest {
-        harvest::run(&cfg.rb_cli, &h.image, &h.apps, h.scan.as_deref(), &stage.join("apps"), Some(&cfg.out), &cfg.apps_root, Some(&work))?;
+        harvest::run(&rb_bin, &h.image, &h.apps, h.scan.as_deref(), &stage.join("apps"), Some(&cfg.out), &cfg.apps_root, Some(&work))?;
     }
 
     // Enrich (MG → LaunchBox) + compatibility overlay + art — on the delta only.
@@ -800,7 +810,7 @@ pub fn add_to_disk(cfg: &BuildConfig) -> Result<()> {
     let bytes = catalog::render_values(&merged, false, false)?;
     let cat = stage.join("catalog.jsonl");
     std::fs::write(&cat, &bytes)?;
-    catalog::inject(&cfg.rb_cli, &cfg.out, &cat, &cfg.metadata_dir, Some(&stage))?;
+    catalog::inject(&rb_bin, &cfg.out, &cat, &cfg.metadata_dir, Some(&stage))?;
 
     eprintln!(
         "\nadded to {}: {added} new + {updated} updated title(s); catalog now {} item(s)",
