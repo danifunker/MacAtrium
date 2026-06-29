@@ -115,7 +115,7 @@ void ui_init(Ui *u, Env *env, Render *r, Model *m, WindowPtr win, int safe)
     u->setSel = 0;
     u->ndepths = display_depths(u->depths, UI_MAX_DEPTHS);   /* all OS-supported depths */
     u->vol = sound_available() ? sound_get_vol() : -1;
-    u->artPref = 0;                                          /* Box Art by default */
+    u->artPref = 1;                            /* Screenshot is the primary cover (box art on P) */
     u->sndStartup = 0;                                       /* sounds off by default */
     u->sndShutdown = 0;
     u->ncdevs = 0; u->cdevSel = 0; u->cdevTop = 0;           /* control-panel list */
@@ -144,9 +144,10 @@ void ui_init(Ui *u, Env *env, Render *r, Model *m, WindowPtr win, int safe)
     }
 }
 
-/* The art base path to show for an item, honouring the Artwork setting: the
- * screenshot (`shot`) when the user picked it and one exists, else the box art
- * (`image`); each falls back to the other so a pane is never needlessly empty. */
+/* The art base path for an item's main cover. Screenshot (`shot`) is the primary
+ * cover by default (artPref==1); the Artwork setting can flip the main pane to
+ * box art (`image`). Each falls back to the other so a pane is never needlessly
+ * empty. Box art is always reachable full-screen via the P key regardless. */
 static const char *art_base(Ui *u, const CatItem *it)
 {
     if (u->artPref == 1) return it->shot[0] ? it->shot : it->image;
@@ -653,7 +654,7 @@ static void draw_carousel(Ui *u)
     {
         const char *hint = u->settingsFocus
             ? "Settings:   Return  open       v  back"
-            : "<- ->  game    ^ v  category    Return  play    I  info   P  art   Esc  menu";
+            : "<- ->  game    ^ v  category    Return  play    I  info   P  box art   Esc  menu";
         short x = (short)((W - render_text_width(r, hint)) / 2);
         if (x < MARGIN) x = MARGIN;
         render_text(r, x, (short)(H - 7), hint, INK_DIM);
@@ -1325,7 +1326,10 @@ UiCommand ui_key(Ui *u, char ch)
         case 'P':
             if (!u->safe) {
                 const CatItem *it = model_cur_item(u->m);
-                const char *base = it ? art_base(u, it) : 0;
+                /* Box art on demand: the main pane shows the screenshot, so P is
+                 * the way to see the box/cover art full-screen (falls back to the
+                 * screenshot when a title has no box art). */
+                const char *base = it ? (it->image[0] ? it->image : it->shot) : 0;
                 if (base && base[0]) {
                     u->previewPic = load_item_art(u, base);
                     u->mode = UI_MODE_PREVIEW;   /* draws "(no artwork)" if load failed */
