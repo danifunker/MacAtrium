@@ -14,6 +14,8 @@
 // KEY names: l f r q enter return esc up down left right space  (lowercase)
 // A click is scheduled with KEY = `click@X,Y` (absolute framebuffer pixels), e.g.
 //   --keys "2500000000:click@320,160;3000000000:click@600,300"
+// A press-and-hold (for auto-repeat) is KEY = `hold@X,Y,DUR` — button down DUR
+// cycles before release, e.g. holding a scroll arrow:  4000000:hold@621,223,40000000
 //
 // --pram FILE persists PRAM in FILE (created if absent). Requires the harness to
 // be built with snow_core's `mmap` feature; without it persist_pram cannot write
@@ -106,6 +108,18 @@ fn main() -> Result<()> {
                         schedule.entry(cyc).or_default().push(Act::MouseAbs(x, y));
                         schedule.entry(cyc + 1_000_000).or_default().push(Act::MouseBtn(true));
                         schedule.entry(cyc + 3_000_000).or_default().push(Act::MouseBtn(false));
+                    } else if let Some(coords) = k.strip_prefix("hold@") {
+                        // Press-and-hold at (x,y) for DUR cycles, then release. Drives
+                        // hold-to-scroll auto-repeat (a scroll-arrow held down) — the
+                        // Control Manager fires the control's action proc the whole time.
+                        //   hold@X,Y,DUR
+                        let mut it = coords.split(',');
+                        let x: u16 = it.next().expect("hold@X,Y,DUR").parse()?;
+                        let y: u16 = it.next().expect("hold@X,Y,DUR").parse()?;
+                        let dur: u64 = it.next().expect("hold@X,Y,DUR").parse()?;
+                        schedule.entry(cyc).or_default().push(Act::MouseAbs(x, y));
+                        schedule.entry(cyc + 1_000_000).or_default().push(Act::MouseBtn(true));
+                        schedule.entry(cyc + 1_000_000 + dur).or_default().push(Act::MouseBtn(false));
                     } else if let Some(base) = k.strip_prefix("cmd-opt-") {
                         // Cmd+Option chord: both modifiers down, key tap, both up.
                         let sc = scancode(base).unwrap_or_else(|| panic!("unknown key {base}"));

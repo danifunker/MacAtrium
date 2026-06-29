@@ -267,13 +267,15 @@ static int art_pane_w(int W)
 #define GEAR_X 8                /* settings affordance: left edge */
 #define GEAR_W 24               /* ...and reserved width (title starts after) */
 
-/* Mouse affordances on the browse screen (docs/07): the carousel ◀▶ arrows and
- * the Launch button below the selected icon. Sizes are fixed so hit-testing in
+/* Mouse affordances on the browse screen (docs/07). The Launch button and the
+ * ◀▶ pager are now real Control-Manager controls (drawn by ui_paint_controls);
+ * ARROW_W is kept only as the per-edge breathing room the side tiles leave so
+ * they never crowd the pager's end arrows. Sizes are fixed so hit-testing in
  * ui_click() needs no font metrics (which aren't reliable outside a draw pass). */
 #define ARROW_W  26
-#define ARROW_H  28
 #define LAUNCH_W 84
 #define LAUNCH_H 22
+#define CAR_PAGER_H 16          /* carousel horizontal scroll bar height (== SBW)  */
 #define CATBAND_HALF 80         /* clickable half-width of the centred "^ cat v" */
 
 /* The Settings affordance at the header's left — a little 3-slider icon. A frame
@@ -355,9 +357,9 @@ typedef struct {
     short clx;                       /* content left edge (cat list or 0)        */
     short carTop, carBot, detTop, detBot;
     int   hasItems, count, center;
-    short cx, iconCy, centSz, half, sideSz, sideGap;
+    short cx, iconCy, centSz, half, sideSz, sideGap, nameBase;
     int   nside;
-    Rect  gear, catBand, leftArrow, rightArrow, launchBtn;
+    Rect  gear, catBand, launchBtn, pager;   /* pager = horizontal scroll bar (band bottom) */
     short catMidX;                   /* split: click < = prev cat, >= = next cat */
 } CarLayout;
 
@@ -385,23 +387,32 @@ static void carousel_layout(Ui *u, CarLayout *L)
     SetRect(&L->catBand, (short)(W / 2 - CATBAND_HALF), 2,
             (short)(W / 2 + CATBAND_HALF), (short)(HEADER_H - 2));
 
-    SetRect(&L->leftArrow,  0, 0, 0, 0);
-    SetRect(&L->rightArrow, 0, 0, 0, 0);
-    SetRect(&L->launchBtn,  0, 0, 0, 0);
-    L->cx = L->iconCy = L->centSz = L->half = L->sideSz = 0;
+    SetRect(&L->launchBtn, 0, 0, 0, 0);
+    SetRect(&L->pager,     0, 0, 0, 0);
+    L->cx = L->iconCy = L->centSz = L->half = L->sideSz = L->nameBase = 0;
     L->sideGap = 8; L->nside = 0;
 
     if (L->hasItems) {
-        short cx     = (short)((L->clx + W) / 2);
-        short iconCy = (short)(L->carTop + (carH - 22) / 2);
-        short centSz = (short)(carH - 44);
-        short sideSz, half, top;
+        /* Budget the chrome below the tiles from the band bottom up: the ◀▶ pager
+         * (horizontal scroll bar) along the bottom edge, the centred item name above
+         * it, then the Launch button; the tiles centre in whatever's left. The pager
+         * + Launch are real controls (ui_paint_controls); only the name is drawn. */
+        short cx        = (short)((L->clx + W) / 2);
+        short pagerTop  = (short)(L->carBot - CAR_PAGER_H);
+        short nameBase  = (short)(pagerTop - 5);
+        short launchBot = (short)(nameBase - ROW_H);
+        short launchTop = (short)(launchBot - LAUNCH_H);
+        short tileBot   = (short)(launchTop - 6);
+        short tileTop   = (short)(L->carTop + 4);
+        short iconCy    = (short)((tileTop + tileBot) / 2);
+        short centSz    = (short)(tileBot - tileTop - 4);
+        short sideSz, half;
         int   nside;
         if (centSz > 76) centSz = 76;
         if (centSz < 40) centSz = 40;
         sideSz = (short)(centSz * 9 / 16);
         half   = (short)(centSz / 2);
-        /* leave room for an arrow button at each edge so tiles never sit under it */
+        /* leave room for the pager's end arrows so tiles never sit under them */
         nside  = ((W - L->clx) / 2 - half - MARGIN - ARROW_W) / (sideSz + L->sideGap);
         {   /* user cap: `carousel` is an odd icon count 3..25 -> 1..12 per side. The
              * fit formula above already scales nside down to the screen width, so the
@@ -415,14 +426,12 @@ static void carousel_layout(Ui *u, CarLayout *L)
 
         L->cx = cx; L->iconCy = iconCy; L->centSz = centSz;
         L->half = half; L->sideSz = sideSz; L->nside = nside;
+        L->nameBase = nameBase;
 
-        SetRect(&L->leftArrow,  (short)(L->clx + MARGIN), (short)(iconCy - ARROW_H / 2),
-                (short)(L->clx + MARGIN + ARROW_W), (short)(iconCy + ARROW_H / 2));
-        SetRect(&L->rightArrow, (short)(W - MARGIN - ARROW_W), (short)(iconCy - ARROW_H / 2),
-                (short)(W - MARGIN), (short)(iconCy + ARROW_H / 2));
-        top = (short)(iconCy + half + 6);
-        SetRect(&L->launchBtn, (short)(cx - LAUNCH_W / 2), top,
-                (short)(cx + LAUNCH_W / 2), (short)(top + LAUNCH_H));
+        SetRect(&L->launchBtn, (short)(cx - LAUNCH_W / 2), launchTop,
+                (short)(cx + LAUNCH_W / 2), launchBot);
+        SetRect(&L->pager, (short)(L->clx + MARGIN), pagerTop,
+                (short)(W - MARGIN), L->carBot);
     }
 }
 
@@ -588,32 +597,12 @@ static void draw_carousel(Ui *u)
             InsetRect(&f, 1, 1);
             render_frame(r, &f);
         }
-        /* ◀▶ navigation arrows flanking the carousel. Both stay active because the
-         * carousel wraps (there's always somewhere to scroll); dim only a 1-item
-         * category, where there's nothing to move to. */
-        {
-            short tw;
-            short ink = cat->count > 1 ? INK_NORMAL : INK_DIM;
-            render_frame(r, &L.leftArrow);
-            tw = render_text_width(r, "<");
-            render_text(r, (short)(L.leftArrow.left + (ARROW_W - tw) / 2),
-                        (short)(iconCy + 5), "<", ink);
-            render_frame(r, &L.rightArrow);
-            tw = render_text_width(r, ">");
-            render_text(r, (short)(L.rightArrow.left + (ARROW_W - tw) / 2),
-                        (short)(iconCy + 5), ">", ink);
-        }
-        /* Launch button directly below the selected icon */
-        {
-            short tw = render_text_width(r, "Launch");
-            render_fill(r, &L.launchBtn, FILL_SEL);
-            render_frame(r, &L.launchBtn);
-            render_text(r, (short)(L.launchBtn.left + (LAUNCH_W - tw) / 2),
-                        (short)(L.launchBtn.top + LAUNCH_H - 6), "Launch", INK_SELECTED);
-        }
+        /* The ◀▶ pager (a horizontal scroll bar) and the Launch button are real
+         * Control-Manager controls drawn by ui_paint_controls after the blit; only
+         * the centred item name is drawn here, just above the pager. */
         if (cur) {
             short nw = render_text_width(r, cur->name);
-            render_text(r, (short)(clx + (W - clx - nw) / 2), (short)(carBot - 6),
+            render_text(r, (short)(clx + (W - clx - nw) / 2), L.nameBase,
                         cur->name, INK_TITLE);
         }
     }
@@ -1709,23 +1698,20 @@ static void carousel_draw_art(Ui *u)
     render_end(u->r, u->win);
 }
 
-/* Click in the carousel: the "^ cat v" band changes category; the Launch button
- * launches; the ◀▶ arrows and a visible side tile move the selection. (The shared
- * gear is handled by ui_click before this.) */
+/* Click in the carousel: the "^ cat v" band changes category; a visible side tile
+ * moves the selection to it. The Launch button and the ◀▶ pager are real controls
+ * caught by FindControl in main.c before this runs; the shared gear is handled by
+ * ui_click before this. */
 static int carousel_click(Ui *u, Point pt, UiCommand *out)
 {
     CarLayout L;
+    (void)out;
     carousel_layout(u, &L);
     if (PtInRect(pt, &L.catBand)) {
         model_move_cat(u->m, pt.h < L.catMidX ? -1 : +1);
         return 1;
     }
     if (L.hasItems) {
-        if (PtInRect(pt, &L.launchBtn) && model_cur_item(u->m)) {
-            u->status[0] = '\0'; *out = UI_LAUNCH; return 1;
-        }
-        if (PtInRect(pt, &L.leftArrow))  { model_move_item(u->m, -1); return 1; }
-        if (PtInRect(pt, &L.rightArrow)) { model_move_item(u->m, +1); return 1; }
         {   int k;
             for (k = 1; k <= L.nside; k++) {
                 short off = (short)(L.half + L.sideGap + L.sideSz / 2 +
@@ -1763,8 +1749,9 @@ static const BrowseView *cur_view(Ui *u)
  * Per Apple's HIG + Inside Macintosh: real scroll bars (scrollBarProc) + push
  * buttons (pushButProc). They live in the window port and are (re)drawn AFTER the
  * off-screen GWorld is blitted (Decision A) — a fixed pair, created once and
- * repositioned per view (Decision C). The grid + list show them; the carousel hides
- * them (it keeps its own pager for now). */
+ * repositioned per view (Decision C). All three browse views show them: the grid +
+ * list as a vertical scroll bar at the edge, the carousel as a horizontal ◀▶ pager
+ * along its band bottom; the same Launch button moves to each view's layout. */
 static void ensure_controls(Ui *u)
 {
     Rect z;
@@ -1849,12 +1836,17 @@ static void ui_paint_controls(Ui *u)
     }
 
     if (u->safe || u->mode != UI_MODE_LIST ||
-        (u->view != VIEW_ICON && u->view != VIEW_LIST)) {
+        (u->view != VIEW_CAROUSEL && u->view != VIEW_ICON && u->view != VIEW_LIST)) {
         HideControl(u->scrollV);
         HideControl(u->launch);
         return;
     }
-    if (u->view == VIEW_ICON) {
+    if (u->view == VIEW_CAROUSEL) {
+        CarLayout L; carousel_layout(u, &L);
+        sb = L.pager;          /* horizontal scroll bar along the band bottom */
+        lb = L.launchBtn;      /* Launch button below the centred icon        */
+        n = L.count; vis = 2 * L.nside + 1;   /* tiles visible at once         */
+    } else if (u->view == VIEW_ICON) {
         GridLayout g; grid_layout(u, &g);
         SetRect(&sb, g.gridRight, (short)HEADER_H, (short)(g.gridRight + SBW), (short)(win_h(u) - HINT_H));
         n = g.n; vis = g.vis * g.cols;
@@ -2025,8 +2017,9 @@ void ui_scroll_step(Ui *u, short part)
     ModelCat *cat = model_cur_cat(u->m);
     int       n = cat ? cat->count : 0, page = 1, step = 0, target;
     if (n <= 0) return;
-    if (u->view == VIEW_ICON) { GridLayout g; grid_layout(u, &g); page = g.vis * g.cols; }
-    else                      { ListLayout L; list_layout(u, &L); page = L.itemRows; }
+    if (u->view == VIEW_ICON)      { GridLayout g; grid_layout(u, &g); page = g.vis * g.cols; }
+    else if (u->view == VIEW_LIST) { ListLayout L; list_layout(u, &L); page = L.itemRows; }
+    else                           { CarLayout L; carousel_layout(u, &L); page = 2 * L.nside + 1; }
     if (page < 1) page = 1;
     switch (part) {
         case inUpButton:   step = -1;    break;

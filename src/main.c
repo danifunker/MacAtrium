@@ -64,6 +64,18 @@ static WindowPtr gWin;
 static short gPendingDepthRestore = 0;
 static Prefs     gPrefs;
 
+/* Scroll-bar auto-repeat: TrackControl calls this action proc continuously while an
+ * arrow or page region is held, so the selection scrolls for as long as the button
+ * is down (hold-to-scroll) instead of one step per click. The thumb is tracked with
+ * nil instead (a post-drag jump), so `part` here is only ever an arrow/page code.
+ * Created once in main() — a no-op cast on 68k where ControlActionUPP is the ptr. */
+static ControlActionUPP gScrollAction = 0;
+static pascal void scroll_action(ControlHandle ctl, short part)
+{
+    (void)ctl;
+    if (part) ui_scroll_step(&gUi, part);
+}
+
 /* WaitNextEvent is a MultiFinder/System-7 trap — absent on base System 6. We
  * use it on System 7+ and fall back to GetNextEvent + SystemTask on 6.x (which
  * still yields to MultiFinder). Set from the probed system version at startup. */
@@ -623,6 +635,7 @@ int main(void)
     int loaded;
 
     toolbox_init();
+    gScrollAction = NewControlActionUPP(scroll_action);  /* hold-to-scroll auto-repeat */
     env_probe(&gEnv);                 /* match whatever depth the OS is set to;
                                          saves the original menu-bar height       */
     gHasWNE = (gEnv.sysVers >= 0x0700);  /* WaitNextEvent + AppleEvent Mgr: System 7+ */
@@ -781,8 +794,10 @@ int main(void)
                                 if (TrackControl(ctl, p, (ControlActionUPP)0))
                                     ui_scroll_to(&gUi, GetControlValue(ctl));
                             } else {
-                                short tp = TrackControl(ctl, p, (ControlActionUPP)0);
-                                if (tp) ui_scroll_step(&gUi, tp);
+                                /* Arrow / page region: the action proc steps the
+                                 * selection for as long as the part is held (a quick
+                                 * click still fires it once), so no post-track step. */
+                                TrackControl(ctl, p, gScrollAction);
                             }
                         } else {
                             handle_ui_command(ui_click(&gUi, p));
