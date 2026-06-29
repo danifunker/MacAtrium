@@ -41,7 +41,7 @@ build, identical inputs, only the binary differs):
 | rb-cli | result |
 |---|---|
 | `~/.local/bin/rb-cli` (06-26, pre-fix) | dies at 13,474 files — 415 `IndexSiblingLinkBroken` |
-| HEAD `1b22518` | **16,680 files, fsck 0 errors** → `/home/dani/repro-HEAD.hda` |
+| HEAD `1b22518` | **16,680 files, fsck 0 errors** → `/home/dani/MacAtrium-final-quadra-755.hda` |
 
 (Aside the maintainer corrected: rb-cli writes each fork as a single contiguous
 extent or fails — never multi-extent, so large forks were never the trigger.)
@@ -59,7 +59,7 @@ extent or fails — never multi-extent, so large forks were never the trigger.)
     `&cfg.rb_cli` directly before — the inconsistency that let app injection run
     stale while catalog inject ran HEAD).
 - **Full-library q800 boot-verify** (the milestone — first complete library ever
-  booted). Booted `/home/dani/repro-HEAD.hda`; auto-launched MacAtrium; paged
+  booted). Booted `/home/dani/MacAtrium-final-quadra-755.hda`; auto-launched MacAtrium; paged
   catalog navigated across categories at scale **Recommended 1/4 → Adventure 1/51
   → Action & Arcade 4/85** with on-demand page loads and **no Type-28 crash**;
   **COLOR covers + thumbnails render** (came up at colour/8-bit by default).
@@ -68,16 +68,40 @@ extent or fails — never multi-extent, so large forks were never the trigger.)
   `/home/dani/repos/rusty-backup/PROMPT-hfs-catalog-repro-recipe.md` — **left
   UNCOMMITTED in their tree for the maintainer** (we don't commit rusty-backup).
 
-Working tree (MacAtrium) is CLEAN after `5588f5b`.
+- `d7ca658` **preflight measures the real app footprint** (apps vs covers/art as
+  two values). Apps live in the resource fork, which rb-cli's `ls`/`locate` can't
+  size (data fork only, ≈0 for Mac apps), so the old estimate passed
+  `app_fork_bytes=0` and a full build projected ~125 MB while apps added ~1.2 GB.
+  Now measured for real via `show fs-info` used-space deltas (both forks):
+  `[footprint] covers + art N MB · apps N MB · volume used N / target MB`.
+
+Working tree (MacAtrium) is CLEAN after `d7ca658`.
+
+## 2b. The three FINAL disks (built this session)
+
+Old test stubs cleared; rebuilt B&W + colour at full scope with the current
+launcher; renamed all three. Apps dominate every disk (~1.19 GB, fork-measured):
+
+| Final | titles | volume used (apps · art) | disk file / free |
+|---|---|---|---|
+| `/home/dani/MacAtrium-final-bw-608.hda` (6.0.8, 1-bit) | 1218 | 1266 MB (apps 1187 · art 60) | 1.3 GB / 32 MB free (tight) |
+| `/home/dani/MacAtrium-final-color-71.hda` (7.1, 1+8-bit @384px) | 1218 | 1337 MB (apps 1187 · art 109) | 2.0 GB / 612 MB free (loose) |
+| `/home/dani/MacAtrium-final-quadra-755.hda` (7.5.5, 1+8+24-bit @448px) | 1328 | 1683 MB (apps · 1/8/24 art) | 2.0 GB / 318 MB free |
+
+All three fsck-clean. Quadra is the q800-boot-verified disk (was `repro-HEAD.hda`).
+B&W + colour are built + fsck-clean but **not yet emulator-booted** (next step:
+Snow for both, q800 for colour at 8-bit). Quadra carries 110 more titles than the
+others — its donor set was richer when the maintainer built it; B&W/colour resolve
+1218 from the current donors (same set for both).
 
 ## 3. Variants status
 
 | Variant | base | art | partition | emulator | status |
 |---|---|---|---|---|---|
-| Mac Plus/SE 6.0.8 (B&W) | 6.0.8 | 1 | 512/384 | Snow | built+verified |
-| Mac LC/II 7.1 (Colour) | 7.1 | 1,8 @384px | 1024/768 | Snow+MDC | built+verified |
+| Mac Plus/SE 6.0.8 (B&W) | 6.0.8 | 1 | 512/384 | Snow | **FINAL built (1218), fsck-clean; boot TODO** |
+| Mac LC/II 7.1 (Colour) | 7.1 | 1,8 @384px | 1024/768 | Snow+MDC | **FINAL built (1218), fsck-clean; boot TODO** |
 | Mac II 7.1 (Millions) | 7.1 | 1,8,24 | 3584/3072 | Snow(8-bit)/QEMU | 24-bit art untested |
-| **Quadra 800 7.5.5 (full)** | 7.5.5 | 1,8,24 @448px | 3584/3072 | **q800** | **BUILT clean (repro-HEAD.hda) + BOOTS + navigates ✅** |
+| **Quadra 800 7.5.5 (full)** | 7.5.5 | 1,8,24 @448px | 3584/3072 | **q800** | **FINAL (1328) + BOOTS + navigates ✅** |
 
 ## 4. The full-build config (recreate it; scratchpad is session-local)
 
@@ -90,12 +114,12 @@ Working tree (MacAtrium) is CLEAN after `5588f5b`.
 ```
 Run: `./tools/atrium-tool/target/release/atrium image --config <that>`. The hardened
 tool now uses that absolute `rb_cli` (logs it). NOTE: a rebuild is optional —
-`repro-HEAD.hda` is already the clean full disk. Disk is tight (~23 G free); a
+`MacAtrium-final-quadra-755.hda` is already the clean full disk. Disk is tight (~23 G free); a
 fresh build needs the 2 GB output + several GB of `.hqx` staging.
 
 ## 5. NEXT (in order)
 
-1. **24-bit "Millions" at full scale on the q800** — boot `repro-HEAD.hda` and push
+1. **24-bit "Millions" at full scale on the q800** — boot `MacAtrium-final-quadra-755.hda` and push
    Settings→Color Depth→Millions, navigate, confirm the `[3584,3072]` partition
    holds the ~1.4 MB `.24.pict` covers without a Type-28. (This session only
    exercised the default colour/8-bit depth; 24-bit at full scale is still computed,
