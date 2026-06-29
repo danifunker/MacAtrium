@@ -5,7 +5,7 @@
 {"id":"1990-ford-simulator-ii","categories":["Action & Arcade","Black & White"]}
 {"id":"2040-patches","categories":["Utilities"]}
 {"id":"22nd-street-whist-tutor-1-0","categories":["Card & Casino","Black & White"]}
-{"id":"3-in-three-1-2","categories":["Puzzle","Color"]}
+{"id": "3-in-three-1-2", "categories": ["Recommended", "Puzzle", "Color"]}
 {"id":"3d-checkers-2-0","categories":["Strategy & Sim","Black & White"]}
 {"id":"3d-checkers-5-1","categories":["Strategy & Sim","Black & White"]}
 {"id":"3d-tic-tac-toe","categories":["Strategy & Sim","Color"]}
@@ -19,7 +19,7 @@
 {"id":"a-l-i-e-n-s","categories":["Action & Arcade","Black & White"]}
 {"id":"a-mess-o-trouble-1-8","categories":["Adventure","Black & White"]}
 {"id":"a-mind-forever-voyaging","categories":["Interactive Fiction","Black & White"]}
-{"id":"a-train-1-0","categories":["Strategy & Sim","Color"]}
+{"id": "a-train-1-0", "categories": ["Recommended", "Strategy & Sim", "Color"]}
 {"id":"abalone-1-4-2","categories":["Strategy & Sim","Color"]}
 {"id":"abalone-1-6-2","categories":["Strategy & Sim","Color"]}
 {"id":"accordion-1-0","categories":["Card & Casino","Black & White"]}
@@ -62,7 +62,7 @@
 {"id":"appleshare","categories":["Utilities"]}
 {"id":"aqua-blooper-piper","categories":["Puzzle","Color"]}
 {"id":"archon","categories":["Action & Arcade","Strategy & Sim","Black & White"]}
-{"id":"arkanoid-1-10","categories":["Color"]}
+{"id": "arkanoid-1-10", "categories": ["Recommended", "Color"]}
 {"id":"armor-alley","categories":["Action & Arcade","Strategy & Sim","Black & White"]}
 {"id":"art-of-war-3-0","categories":["Color"]}
 {"id":"arthur","categories":["Interactive Fiction","Color"]}
@@ -247,7 +247,7 @@
 {"id":"city-defense-93","categories":["Action & Arcade","Color"]}
 {"id":"civil-war","categories":["Educational","Color"]}
 {"id":"civil-war-the-1-0","categories":["Educational","Color"]}
-{"id":"civilization-1-1-2","categories":["Color"]}
+{"id": "civilization-1-1-2", "categories": ["Recommended", "Color"]}
 {"id":"clarisworks","categories":["Applications"]}
 {"id":"classic-12-s-adams-adventures","categories":["Black & White"]}
 {"id":"classic-5-the-1-1-0","categories":["Strategy & Sim","Card & Casino","Color"]}
@@ -359,7 +359,7 @@
 {"id":"despair-1-4","categories":["Strategy & Sim","Black & White"]}
 {"id":"destroyer-1-0","categories":["Strategy & Sim","Black & White"]}
 {"id":"diag","categories":["Utilities"]}
-{"id":"diamonds-1-52","categories":["Color"]}
+{"id": "diamonds-1-52", "categories": ["Recommended", "Color"]}
 {"id":"diamonds-2-0-4","categories":["Color"]}
 {"id":"diatom","categories":["Applications"]}
 {"id":"dinner-at-eight","categories":["Applications"]}
@@ -461,7 +461,7 @@
 {"id":"five-stones-1-0","categories":["Strategy & Sim","Color"]}
 {"id":"fivestones-2-0","categories":["Color"]}
 {"id":"fivestones-2-3","categories":["Color"]}
-{"id":"flappy-mac-1-1","categories":["Action & Arcade","Color"]}
+{"id": "flappy-mac-1-1", "categories": ["Recommended", "Action & Arcade", "Color"]}
 {"id":"flight-commander-1-1","categories":["Strategy & Sim","Color"]}
 {"id":"flipper-1-0","categories":["Puzzle","Color"]}
 {"id":"flipper-2-0","categories":["Puzzle","Color"]}
@@ -500,7 +500,7 @@
 {"id":"fuutball","categories":["Sports","Black & White"]}
 {"id":"galactic-empire-1-0-3","categories":["Strategy & Sim","Color"]}
 {"id":"galactic-empire-2-0-3","categories":["Strategy & Sim","Color"]}
-{"id":"galactic-frontiers-1-0","categories":["Strategy & Sim","Black & White"]}
+{"id": "galactic-frontiers-1-0", "categories": ["Recommended", "Strategy & Sim", "Black & White"]}
 {"id":"galactic-trader-1-12","categories":["Strategy & Sim","Color"]}
 {"id":"galactic-warrior","categories":["Adventure","Interactive Fiction","Black & White"]}
 {"id":"galax-1-1","categories":["Strategy & Sim","Black & White"]}
@@ -525,7 +525,7 @@
 {"id":"glider-4-06","categories":["Action & Arcade","Black & White"]}
 {"id":"glider-4-10","categories":["Action & Arcade","Black & White"]}
 {"id":"global-dilemma-1-12","categories":["Strategy & Sim","Color"]}
-{"id":"glypha-3-0","categories":["Action & Arcade","Black & White"]}
+{"id": "glypha-3-0", "categories": ["Recommended", "Action & Arcade", "Black & White"]}
 {"id":"glypha-ii-1-0","categories":["Color"]}
 {"id":"glypha-ii-1-1","categories":["Color"]}
 {"id":"gm-s-aid-1-01","categories":["Role-Playing","Applications"]}
@@ -641,7 +641,7 @@
 {"id":"iggy-iggopolis-87","categories":["Color"]}
 {"id":"importfl","categories":["Utilities"]}
 {"id":"inchworm-2-0","categories":["Action & Arcade","Color"]}
-{"id":"indiana-jones-last-crusade-1-1","categories":["Color"]}
+{"id": "indiana-jones-last-crusade-1-1", "categories": ["Recommended", "Color"]}
 {"id":"infidel","categories":["Interactive Fiction","Black & White"]}
 {"id":"influence-2-1","categories":["Strategy & Sim","Black & White"]}
 {"id":"ingemar-s-skiing-game-1-0-3","categories":["Sports","Black & White"]}
@@ -666,7 +666,7 @@
 {"id":"jeopardy-demo","categories":["Color"]}
 {"id":"jetpack-1-2","categories":["Action & Arcade","Black & White"]}
 {"id":"jewelbox-1-0","categories":["Puzzle","Color"]}
-{"id":"jewelbox-2-0-2","categories":["Puzzle","Color"]}
+{"id": "jewelbox-2-0-2", "categories": ["Recommended", "Puzzle", "Color"]}
 {"id":"jinxter-1-2","categories":["Interactive Fiction","Color"]}
 {"id":"joker-poker","categories":["Black & White"]}
 {"id":"jotto-1-2","categories":["Puzzle","Black & White"]}
@@ -739,8 +739,8 @@
 {"id":"little-pythagoras","categories":["Adventure","Puzzle","Black & White"]}
 {"id":"loc","categories":["Black & White"]}
 {"id":"lode-runner-1-0","categories":["Action & Arcade","Puzzle","Black & White"]}
-{"id":"lode-runner-1-2","categories":["Action & Arcade","Puzzle","Black & White"]}
-{"id":"loom","categories":["Adventure","Color"]}
+{"id": "lode-runner-1-2", "categories": ["Recommended", "Action & Arcade", "Puzzle", "Black & White"]}
+{"id": "loom", "categories": ["Recommended", "Adventure", "Color"]}
 {"id":"lose-your-marbles-1-0","categories":["Color"]}
 {"id":"lost-adventure-2-0-2","categories":["Interactive Fiction","Black & White"]}
 {"id":"lost-new-york-1-0-2f","categories":["Color"]}
@@ -850,7 +850,7 @@
 {"id":"mastermaze","categories":["Adventure","Color"]}
 {"id":"match-15-1-2","categories":["Color"]}
 {"id":"math-rabbit-2-0","categories":["Educational","Color"]}
-{"id":"mathematica","categories":["Applications"]}
+{"id": "mathematica", "categories": ["Recommended", "Applications"]}
 {"id":"mavis-beacon-teaches-typing-1-3","categories":["Educational","Black & White"]}
 {"id":"maxram-2-4","categories":["Utilities"]}
 {"id":"maxtads-1-1-6","categories":["Educational","Applications"]}
@@ -996,7 +996,7 @@
 {"id":"otello-1-0","categories":["Strategy & Sim","Black & White"]}
 {"id":"otello-2-0","categories":["Strategy & Sim","Black & White"]}
 {"id":"outflank","categories":["Strategy & Sim","Black & White"]}
-{"id":"oxyd-3-6","categories":["Puzzle","Color"]}
+{"id": "oxyd-3-6", "categories": ["Recommended", "Puzzle", "Color"]}
 {"id":"p-w-adventure","categories":["Adventure","Black & White"]}
 {"id":"p51-mustang","categories":["Color"]}
 {"id":"pagemaker","categories":["Applications"]}
@@ -1023,7 +1023,7 @@
 {"id":"pharaoh-90","categories":["Strategy & Sim","Black & White"]}
 {"id":"phoenix-the-1-2","categories":["Adventure","Interactive Fiction","Black & White"]}
 {"id":"photomac-1-0","categories":["Applications"]}
-{"id":"photoshop","categories":["Applications"]}
+{"id": "photoshop", "categories": ["Recommended", "Applications"]}
 {"id":"phraze-craze-plus","categories":["Puzzle","Black & White"]}
 {"id":"pick-n-pile","categories":["Puzzle","Color"]}
 {"id":"picotthouse-1-1","categories":["Educational","Color"]}
@@ -1119,7 +1119,7 @@
 {"id":"road-racer","categories":["Black & White"]}
 {"id":"roboids-1-0","categories":["Action & Arcade","Color"]}
 {"id":"roboids-ii-1-0","categories":["Color"]}
-{"id":"robosport","categories":["Strategy & Sim","Color"]}
+{"id": "robosport", "categories": ["Recommended", "Strategy & Sim", "Color"]}
 {"id":"robot-battle-1-1d-beta","categories":["Color"]}
 {"id":"robot-planet","categories":["Adventure","Interactive Fiction","Color"]}
 {"id":"robowar-1-5-1","categories":["Strategy & Sim","Black & White"]}
@@ -1150,7 +1150,7 @@
 {"id":"save-the-farm-2-2-b","categories":["Action & Arcade","Color"]}
 {"id":"scarab-of-ra-1-2","categories":["Role-Playing","Black & White"]}
 {"id":"scarab-of-ra-1-3","categories":["Role-Playing","Black & White"]}
-{"id":"scarab-of-ra-1-4","categories":["Role-Playing","Black & White"]}
+{"id": "scarab-of-ra-1-4", "categories": ["Recommended", "Role-Playing", "Black & White"]}
 {"id":"schmoozer-about-the-world","categories":["Color"]}
 {"id":"scrabble-2-3","categories":["Strategy & Sim","Color"]}
 {"id":"screenrecorder","categories":["Utilities"]}
@@ -1181,17 +1181,17 @@
 {"id":"sierra-championship-boxing","categories":["Black & White"]}
 {"id":"sierra-patch","categories":["Utilities"]}
 {"id":"silicon-volleyball-2-0","categories":["Action & Arcade","Color"]}
-{"id":"simant-1-0","categories":["Color"]}
+{"id": "simant-1-0", "categories": ["Recommended", "Color"]}
 {"id":"simcity-1-1","categories":["Strategy & Sim","Color"]}
 {"id":"simcity-1-11","categories":["Recommended","Strategy & Sim","Color"]}
 {"id":"simcity-1-2bw","categories":["Color"]}
 {"id":"simcity-1-3b-w","categories":["Color"]}
 {"id":"simcity-1-4","categories":["Strategy & Sim","Color"]}
-{"id":"simearth-2-0bw","categories":["Color"]}
+{"id": "simearth-2-0bw", "categories": ["Recommended", "Color"]}
 {"id":"simlife-1-0-1","categories":["Strategy & Sim","Color"]}
 {"id":"sitting-duck","categories":["Action & Arcade","Black & White"]}
 {"id":"sky-shadow-1-0-2","categories":["Action & Arcade","Color"]}
-{"id":"sky-shadow-1-1-9m","categories":["Color"]}
+{"id": "sky-shadow-1-1-9m", "categories": ["Recommended", "Color"]}
 {"id":"slabbers-3-1-3","categories":["Color"]}
 {"id":"slam-dunk-1-30","categories":["Sports","Color"]}
 {"id":"slime-invaders-2-0-7","categories":["Action & Arcade","Color"]}
@@ -1238,7 +1238,7 @@
 {"id":"spacestation-pheta-2-7","categories":["Puzzle","Black & White"]}
 {"id":"spacetag-1-0","categories":["Color"]}
 {"id":"spacewar-97","categories":["Color"]}
-{"id":"sparkz","categories":["Action & Arcade","Color"]}
+{"id": "sparkz", "categories": ["Recommended", "Action & Arcade", "Color"]}
 {"id":"spear-of-destiny","categories":["Adventure","Color"]}
 {"id":"spectre-1-0","categories":["Action & Arcade","Color"]}
 {"id":"speedometer","categories":["Utilities"]}
@@ -1259,7 +1259,7 @@
 {"id":"star-trek-promethean-prophecy","categories":["Black & White"]}
 {"id":"star-trek-tng","categories":["Color"]}
 {"id":"star-trip","categories":["Black & White"]}
-{"id":"star-wars-1-0","categories":["Action & Arcade","Black & White"]}
+{"id": "star-wars-1-0", "categories": ["Recommended", "Action & Arcade", "Black & White"]}
 {"id":"starcross","categories":["Interactive Fiction","Black & White"]}
 {"id":"starflight-1-00-mono","categories":["Color"]}
 {"id":"starflight-ii-1-1","categories":["Color"]}
@@ -1325,7 +1325,7 @@
 {"id":"targhan-fr","categories":["Action & Arcade","Adventure","Black & White"]}
 {"id":"tarot-us","categories":["Applications"]}
 {"id":"taskmaker-2-0","categories":["Role-Playing","Color"]}
-{"id":"taskmaker-2-2-4","categories":["Role-Playing","Color"]}
+{"id": "taskmaker-2-2-4", "categories": ["Recommended", "Role-Playing", "Color"]}
 {"id":"tass-times-in-tonetown","categories":["Interactive Fiction","Black & White"]}
 {"id":"tee-oh","categories":["Puzzle","Black & White"]}
 {"id":"teltnuag-87","categories":["Color"]}
