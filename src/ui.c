@@ -516,8 +516,11 @@ static void draw_carousel(Ui *u)
     draw_settings_btn(u);
     if (cat) {
         char  cl[ITEM_CAT_LEN + 8];
-        short cw;
-        strcpy(cl, "^ "); strcat(cl, cat->name); strcat(cl, " v");
+        short cw, maxw = (short)(2 * (CATBAND_HALF - 28));
+        /* just the category name; the prev/next stepper buttons (ui_paint_controls)
+         * flank it where the "^ v" arrows used to be */
+        strncpy(cl, cat->name, sizeof cl - 1); cl[sizeof cl - 1] = '\0';
+        while (cl[0] && render_text_width(r, cl) > maxw) cl[strlen(cl) - 1] = '\0';
         cw = render_text_width(r, cl);
         render_text(r, (short)((W - cw) / 2), 20, cl, INK_NORMAL);
         {
@@ -1148,8 +1151,11 @@ static void draw_browse_header(Ui *u)
     draw_settings_btn(u);
     if (cat) {
         char  cl[ITEM_CAT_LEN + 8];
-        short cw;
-        strcpy(cl, "^ "); strcat(cl, cat->name); strcat(cl, " v");
+        short cw, maxw = (short)(2 * (CATBAND_HALF - 28));
+        /* just the category name; the prev/next stepper buttons (ui_paint_controls)
+         * flank it where the "^ v" arrows used to be */
+        strncpy(cl, cat->name, sizeof cl - 1); cl[sizeof cl - 1] = '\0';
+        while (cl[0] && render_text_width(r, cl) > maxw) cl[strlen(cl) - 1] = '\0';
         cw = render_text_width(r, cl);
         render_text(r, (short)((W - cw) / 2), 20, cl, INK_NORMAL);
         {
@@ -1769,7 +1775,11 @@ static void ensure_controls(Ui *u)
     u->launch    = NewControl(u->win, &z, "\pLaunch", false, 1, 0, 1, pushButProc, 0L);
     u->quitBtn   = NewControl(u->win, &z, "\pQuit",   false, 1, 0, 1, pushButProc, 0L);
     u->cancelBtn = NewControl(u->win, &z, "\pCancel", false, 1, 0, 1, pushButProc, 0L);
-    u->controlsReady = (u->scrollV && u->launch && u->quitBtn && u->cancelBtn) ? 1 : 0;
+    SetRect(&z, 0, 0, 24, 20);
+    u->catPrev   = NewControl(u->win, &z, "\p<", false, 1, 0, 1, pushButProc, 0L);
+    u->catNext   = NewControl(u->win, &z, "\p>", false, 1, 0, 1, pushButProc, 0L);
+    u->controlsReady = (u->scrollV && u->launch && u->quitBtn && u->cancelBtn &&
+                        u->catPrev && u->catNext) ? 1 : 0;
 }
 
 /* The quit-confirm dialog's panel + its two button rects (shared by draw + the
@@ -1822,6 +1832,22 @@ static void ui_paint_controls(Ui *u)
     }
     HideControl(u->quitBtn);
     HideControl(u->cancelBtn);
+
+    /* Category stepper buttons sit in the header band of the carousel + grid (the
+     * List view uses its categories pane instead). */
+    if (!u->safe && u->mode == UI_MODE_LIST &&
+        (u->view == VIEW_CAROUSEL || u->view == VIEW_ICON) && model_cur_cat(u->m)) {
+        int  W = win_w(u);
+        Rect cp, cn;
+        SetRect(&cp, (short)(W / 2 - CATBAND_HALF), 5, (short)(W / 2 - CATBAND_HALF + 24), 25);
+        SetRect(&cn, (short)(W / 2 + CATBAND_HALF - 24), 5, (short)(W / 2 + CATBAND_HALF), 25);
+        place_control(u->catPrev, &cp); ShowControl(u->catPrev); Draw1Control(u->catPrev);
+        place_control(u->catNext, &cn); ShowControl(u->catNext); Draw1Control(u->catNext);
+    } else {
+        HideControl(u->catPrev);
+        HideControl(u->catNext);
+    }
+
     if (u->safe || u->mode != UI_MODE_LIST ||
         (u->view != VIEW_ICON && u->view != VIEW_LIST)) {
         HideControl(u->scrollV);
@@ -2024,6 +2050,12 @@ void ui_scroll_to(Ui *u, short val)
     if (target < 0) target = 0;
     if (target >= n) target = n - 1;
     if (target != u->m->curItem) { model_move_item(u->m, target - u->m->curItem); browse_redraw(u); }
+}
+
+/* Step the category by the header's prev/next buttons (main.c, after TrackControl). */
+void ui_step_category(Ui *u, short dir)
+{
+    if (model_move_cat(u->m, dir)) browse_redraw(u);
 }
 
 /* ---- input ---------------------------------------------------------------- */

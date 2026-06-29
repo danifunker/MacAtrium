@@ -64,6 +64,8 @@ typedef struct {
     ControlHandle launch;     /* real "Launch" push button                              */
     ControlHandle quitBtn;    /* quit-confirm dialog: "Quit" (default) push button      */
     ControlHandle cancelBtn;  /* quit-confirm dialog: "Cancel" push button              */
+    ControlHandle catPrev;    /* header category stepper: previous (carousel + grid)    */
+    ControlHandle catNext;    /* header category stepper: next                          */
     int        controlsReady; /* 1 once the controls have been created                  */
     int        setupSel;      /* selected row on the first-run UI_MODE_SETUP screen */
     int        carousel;      /* carousel icons shown: odd 3..25, capped by fit */
@@ -110,6 +112,8 @@ void      ui_set_status(Ui *u, const char *msg);
  * by an arrow/page part, or jump to the thumb's value. */
 void      ui_scroll_step(Ui *u, short part);
 void      ui_scroll_to(Ui *u, short val);
+/* Step the category by the header's prev/next stepper buttons (main.c). */
+void      ui_step_category(Ui *u, short dir);
 
 /* Open the "Are you sure you want to quit?" confirmation (the close box / File >
  * Quit / Cmd-Opt-Q route through this instead of quitting directly). */
