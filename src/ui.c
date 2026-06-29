@@ -1059,12 +1059,248 @@ static void draw_setup(Ui *u)
       cw = render_text_width(r, t); render_text(r, (short)((W - cw) / 2), (short)(H - 12), t, INK_DIM); }
 }
 
+/* Shared browse-screen header: the Settings gear, the title, the centred
+ * "^ Category v" band, and the N / M counter. Used by the grid view (the
+ * carousel draws its own identical header inline). */
+static void draw_browse_header(Ui *u)
+{
+    Render   *r = u->r;
+    Model    *m = u->m;
+    ModelCat *cat = model_cur_cat(m);
+    int       W = win_w(u);
+    char      num[16];
+    render_text_size(r, 12);
+    draw_settings_btn(u);
+    render_text(r, GEAR_X + GEAR_W, 20, "MacAtrium", INK_TITLE);
+    if (cat) {
+        char  cl[ITEM_CAT_LEN + 8];
+        short cw;
+        strcpy(cl, "^ "); strcat(cl, cat->name); strcat(cl, " v");
+        cw = render_text_width(r, cl);
+        render_text(r, (short)((W - cw) / 2), 20, cl, INK_NORMAL);
+        {
+            char line[24];
+            l2s(m->curItem + 1, num); strcpy(line, num); strcat(line, " / ");
+            l2s(cat->count, num); strcat(line, num);
+            render_text(r, (short)(W - MARGIN - render_text_width(r, line)), 20, line, INK_DIM);
+        }
+    }
+    render_hline(r, 0, (short)W, (short)(HEADER_H - 1));
+}
+
+/* A simple vertical scroll bar (track + fixed thumb + ^/v arrows). Classic dither
+ * comes with the theme pass; this is the functional mouse-paging affordance. */
+#define SBW 16
+static void draw_scrollbar_v(Ui *u, short x, short y, short h, int total, int vis, int top)
+{
+    Render *r = u->r;
+    Rect    b;
+    SetRect(&b, x, y, (short)(x + SBW), (short)(y + h)); render_frame(r, &b);
+    SetRect(&b, x, y, (short)(x + SBW), (short)(y + SBW)); render_frame(r, &b);
+    render_text_size(r, 12);
+    render_text(r, (short)(x + 5), (short)(y + 12), "^", INK_NORMAL);
+    SetRect(&b, x, (short)(y + h - SBW), (short)(x + SBW), (short)(y + h)); render_frame(r, &b);
+    render_text(r, (short)(x + 5), (short)(y + h - SBW + 12), "v", INK_NORMAL);
+    if (total > vis) {
+        short trkY = (short)(y + SBW), trkH = (short)(h - 2 * SBW);
+        short thumb = (short)(trkH * vis / total); short pos;
+        if (thumb < 16) thumb = 16;
+        SetRect(&b, (short)(x + 1), trkY, (short)(x + SBW - 1), (short)(trkY + trkH));
+        render_fill(r, &b, FILL_PANEL);
+        pos = (short)((long)top * (trkH - thumb) / (total - vis));
+        SetRect(&b, (short)(x + 1), (short)(trkY + pos), (short)(x + SBW - 1), (short)(trkY + pos + thumb));
+        render_fill(r, &b, FILL_BG); render_frame(r, &b);
+    }
+}
+
+/* ---- Icon Grid view (Finder "by Icon") ---- */
+static void grid_metrics(Ui *u, int *cols, int *cw, int *chh, int *top, int *vis)
+{
+    int W = win_w(u), H = win_h(u);
+    *cw = 108; *chh = 84;
+    *cols = (W - 2 * MARGIN - SBW) / *cw; if (*cols < 1) *cols = 1;
+    *top  = HEADER_H + 8;
+    *vis  = (H - HINT_H - *top) / *chh; if (*vis < 1) *vis = 1;
+}
+
+static void draw_iconview(Ui *u)
+{
+    Render   *r = u->r;
+    Model    *m = u->m;
+    ModelCat *cat = model_cur_cat(m);
+    Rect      full = u->win->portRect, rr;
+    int       W = win_w(u), H = win_h(u);
+    int       cols, cw, chh, top, vis, n, sel, selRow, totRows, scroll, i, gx0;
+
+    render_fill(r, &full, FILL_BG);
+    draw_browse_header(u);
+    if (!cat || cat->count == 0) {
+        const char *t = "(no items in this category)";
+        render_text(r, (short)((W - render_text_width(r, t)) / 2), (short)(H / 2), t, INK_DIM);
+        return;
+    }
+    grid_metrics(u, &cols, &cw, &chh, &top, &vis);
+    n = cat->count; sel = m->curItem;
+    selRow = sel / cols; totRows = (n + cols - 1) / cols;
+    scroll = selRow - vis / 2;
+    if (scroll > totRows - vis) scroll = totRows - vis;
+    if (scroll < 0) scroll = 0;
+    gx0 = (W - SBW - cols * cw) / 2; if (gx0 < MARGIN) gx0 = MARGIN;
+    for (i = 0; i < vis * cols; i++) {
+        int idx = scroll * cols + i, rrow = i / cols, ccol = i % cols, isSel;
+        short cx, cy, isz = 38, ix, nameW;
+        const CatItem *it; Art *ic; char nm[ITEM_NAME_LEN];
+        if (idx >= n) break;
+        cx = (short)(gx0 + ccol * cw); cy = (short)(top + rrow * chh);
+        it = &m->cat->items[cat->idx[idx]]; isSel = (idx == sel);
+        if (isSel) { SetRect(&rr, cx, cy, (short)(cx + cw - 6), (short)(cy + chh - 4)); render_fill(r, &rr, FILL_SEL); }
+        ix = (short)(cx + (cw - 6 - isz) / 2);
+        ic = row_icon(u, cat->idx[idx], it);
+        SetRect(&rr, ix, (short)(cy + 8), (short)(ix + isz), (short)(cy + 8 + isz));
+        if (ic) art_draw_fit(ic, &rr); else render_frame(r, &rr);
+        strncpy(nm, it->name, sizeof nm - 1); nm[sizeof nm - 1] = '\0';
+        while (nm[0] && render_text_width(r, nm) > cw - 12) nm[strlen(nm) - 1] = '\0';
+        nameW = render_text_width(r, nm);
+        render_text(r, (short)(cx + (cw - 6 - nameW) / 2), (short)(cy + chh - 12), nm,
+                    isSel ? INK_SELECTED : INK_NORMAL);
+    }
+    draw_scrollbar_v(u, (short)(W - SBW), (short)HEADER_H, (short)(H - HINT_H - HEADER_H), totRows, vis, scroll);
+}
+
+static int iconview_nav(Ui *u, char ch)
+{
+    Model    *m = u->m;
+    ModelCat *cat = model_cur_cat(m);
+    int cols, cw, chh, top, vis, n = cat ? cat->count : 0, idx = m->curItem;
+    grid_metrics(u, &cols, &cw, &chh, &top, &vis);
+    switch (ch) {
+        case kCharLeft:  model_move_item(m, -1); return 1;
+        case kCharRight: model_move_item(m, +1); return 1;
+        case kCharUp:
+            if (idx < cols) { if (!model_move_cat(m, -1)) u->settingsFocus = 1; }
+            else model_move_item(m, -cols);
+            return 1;
+        case kCharDown:
+            if (idx + cols >= n) model_move_cat(m, +1);
+            else model_move_item(m, +cols);
+            return 1;
+    }
+    return 0;
+}
+static int iconview_idle(Ui *u) { (void)u; return UI_IDLE_NONE; }   /* icons load in draw */
+
+/* ---- List / two-pane browser view ---- */
+#define LPANE 152   /* categories pane width */
+
+static void vbar(Ui *u, short x, short y, short h)   /* 1px vertical divider */
+{
+    Rect d; SetRect(&d, x, y, (short)(x + 1), (short)(y + h)); render_frame(u->r, &d);
+}
+
+static void draw_listview(Ui *u)
+{
+    Render        *r = u->r;
+    Model         *m = u->m;
+    ModelCat      *cat = model_cur_cat(m);
+    const CatItem *cur = model_cur_item(m);
+    Rect           full = u->win->portRect, rr;
+    int            W = win_w(u), H = win_h(u), i, DET = 90;
+    short          bTop = (short)(HEADER_H), bBot = (short)(H - HINT_H);
+    short          lstBot = (short)(bBot - DET), rx = (short)(LPANE + 1), rw = (short)(W - LPANE - 1);
+    char           num[16];
+
+    render_fill(r, &full, FILL_BG);
+    render_text_size(r, 12);
+    draw_settings_btn(u);
+    render_text(r, GEAR_X + GEAR_W, 20, "MacAtrium", INK_TITLE);
+    render_hline(r, 0, (short)W, (short)(HEADER_H - 1));
+    vbar(u, LPANE, bTop, (short)(bBot - bTop));
+
+    /* left pane: categories (Left/Right change the current one) */
+    render_text(r, 8, (short)(bTop + 15), "Categories", INK_TITLE);
+    render_hline(r, 0, LPANE, (short)(bTop + 22));
+    {
+        int rows = (bBot - (bTop + 24)) / ROW_H, top, n = m->ncats;
+        top = m->curCat - rows / 2; if (top > n - rows) top = n - rows; if (top < 0) top = 0;
+        for (i = 0; i < rows && top + i < n; i++) {
+            int ci = top + i, sel = (ci == m->curCat);
+            short y0 = (short)(bTop + 26 + i * ROW_H);
+            char nm[ITEM_CAT_LEN];
+            if (sel) { SetRect(&rr, 1, y0, (short)(LPANE - 1), (short)(y0 + ROW_H)); render_fill(r, &rr, FILL_SEL); }
+            strncpy(nm, m->cats[ci].name, sizeof nm - 1); nm[sizeof nm - 1] = '\0';
+            while (nm[0] && render_text_width(r, nm) > LPANE - 14) nm[strlen(nm) - 1] = '\0';
+            render_text(r, 8, (short)(y0 + ROW_H - 5), nm, sel ? INK_SELECTED : INK_NORMAL);
+        }
+    }
+
+    /* right pane: the category's items (Up/Down move the selection) */
+    if (cat) {
+        char hdr[ITEM_CAT_LEN + 24];
+        strcpy(hdr, cat->name); strcat(hdr, "  -  ");
+        l2s(cat->count, num); strcat(hdr, num); strcat(hdr, " items");
+        render_text(r, (short)(rx + 8), (short)(bTop + 15), hdr, INK_NORMAL);
+    }
+    render_hline(r, rx, (short)W, (short)(bTop + 22));
+    if (cat && cat->count > 0) {
+        int rows = (lstBot - (bTop + 24)) / ROW_H, top, n = cat->count, sel = m->curItem;
+        top = sel - rows / 2; if (top > n - rows) top = n - rows; if (top < 0) top = 0;
+        for (i = 0; i < rows && top + i < n; i++) {
+            int idx = top + i, isSel = (idx == sel);
+            const CatItem *it = &m->cat->items[cat->idx[idx]];
+            short y0 = (short)(bTop + 26 + i * ROW_H);
+            char nm[ITEM_NAME_LEN], g[16];
+            if (isSel) { SetRect(&rr, rx, y0, (short)(W - SBW), (short)(y0 + ROW_H)); render_fill(r, &rr, FILL_SEL); }
+            strncpy(nm, it->name, sizeof nm - 1); nm[sizeof nm - 1] = '\0';
+            while (nm[0] && render_text_width(r, nm) > rw - 150) nm[strlen(nm) - 1] = '\0';
+            render_text(r, (short)(rx + 8), (short)(y0 + ROW_H - 5), nm, isSel ? INK_SELECTED : INK_NORMAL);
+            strncpy(g, it->genre, sizeof g - 1); g[sizeof g - 1] = '\0';
+            while (g[0] && render_text_width(r, g) > 74) g[strlen(g) - 1] = '\0';   /* fit before year */
+            if (g[0]) render_text(r, (short)(W - SBW - 120), (short)(y0 + ROW_H - 5), g, isSel ? INK_SELECTED : INK_DIM);
+            if (it->year > 0) { l2s(it->year, num); render_text(r, (short)(W - SBW - 40), (short)(y0 + ROW_H - 5), num, isSel ? INK_SELECTED : INK_DIM); }
+        }
+        draw_scrollbar_v(u, (short)(W - SBW), (short)(bTop + 24), (short)(lstBot - (bTop + 24)), n, rows, top);
+    }
+
+    /* bottom detail strip — SCREENSHOT (not box art) + meta */
+    render_hline(r, rx, (short)W, lstBot);
+    {
+        short ay0 = (short)(lstBot + 8), ah = (short)(DET - 18), aw = (short)(ah * 4 / 3);
+        Rect ar; int loaded = (cur && cur == u->artFor);
+        short mx = (short)(rx + 12 + aw + 14);
+        SetRect(&ar, (short)(rx + 12), ay0, (short)(rx + 12 + aw), (short)(ay0 + ah));
+        render_frame(r, &ar);
+        if (loaded && u->listArt) { Rect in = ar; InsetRect(&in, 2, 2); art_draw_fit(u->listArt, &in); }
+        if (cur) {
+            char meta[ITEM_GENRE_LEN + 32]; meta[0] = '\0';
+            render_text(r, mx, (short)(lstBot + 22), cur->name, INK_TITLE);
+            if (cur->year > 0) { l2s(cur->year, num); strcat(meta, num); strcat(meta, "  -  "); }
+            if (cur->genre[0]) strcat(meta, cur->genre);
+            render_text(r, mx, (short)(lstBot + 40), meta, INK_NORMAL);
+            render_text(r, mx, (short)(lstBot + 58), "Return  launch      P  box art", INK_DIM);
+        }
+    }
+}
+
+static int listview_nav(Ui *u, char ch)
+{
+    Model *m = u->m;
+    switch (ch) {
+        case kCharUp:    model_move_item(m, -1); return 1;
+        case kCharDown:  model_move_item(m, +1); return 1;
+        case kCharLeft:  if (!model_move_cat(m, -1)) u->settingsFocus = 1; return 1;
+        case kCharRight: model_move_cat(m, +1); return 1;
+    }
+    return 0;
+}
+/* List detail screenshot loads deferred; a full repaint shows it (the targeted
+ * cover-box redraw is carousel-specific). */
+static int listview_idle(Ui *u) { return ensure_art_loaded(u) ? UI_IDLE_FULL : UI_IDLE_NONE; }
+
 /* ---- browse views (MVC strategy) ----------------------------------------
  * Each view renders the shared Model (model.c) in the content area and maps the
  * arrow keys to model moves. The shared keys (Return / Esc / P / I / type-ahead)
  * and the chrome live in ui.c, so a view is just: how to draw + how arrows move.
- * Icon Grid + List are added next; until then they fall back to the carousel so
- * a chosen-but-unbuilt view still works. */
+ * List is added next; until then it falls back to the carousel. */
 typedef struct {
     const char *name;
     void (*draw)(Ui *u);
@@ -1084,11 +1320,13 @@ static int carousel_nav(Ui *u, char ch)
 }
 static int carousel_idle(Ui *u) { return ensure_art_loaded(u) ? UI_IDLE_ART : UI_IDLE_NONE; }
 
-static const BrowseView gCarouselView = { "Carousel", draw_carousel, carousel_nav, carousel_idle };
+static const BrowseView gCarouselView = { "Carousel",  draw_carousel, carousel_nav, carousel_idle };
+static const BrowseView gIconView     = { "Icon Grid", draw_iconview, iconview_nav, iconview_idle };
+static const BrowseView gListView     = { "List",      draw_listview, listview_nav, listview_idle };
 static const BrowseView *const gViews[VIEW_N] = {
     &gCarouselView,   /* VIEW_CAROUSEL */
-    &gCarouselView,   /* VIEW_ICON  — TODO: gIconView (falls back to carousel for now) */
-    &gCarouselView,   /* VIEW_LIST  — TODO: gListView */
+    &gIconView,       /* VIEW_ICON */
+    &gListView,       /* VIEW_LIST */
 };
 static const BrowseView *cur_view(Ui *u)
 {
@@ -1399,6 +1637,15 @@ UiCommand ui_key(Ui *u, char ch)
         u->bgValid = 0;                             /* colours changed everywhere */
         ui_draw(u);
         return UI_PREFS_DIRTY;                      /* theme changed -> persist */
+    }
+
+    /* Tab cycles the browse view (Carousel -> Icon -> List) — interim until the
+     * View menu lands; persisted. */
+    if (ch == '\t' && u->mode == UI_MODE_LIST && !u->settingsFocus && !u->safe) {
+        u->view = (u->view + 1) % VIEW_N;
+        u->bgValid = 0;
+        ui_draw(u);
+        return UI_PREFS_DIRTY;
     }
 
     /* Settings panel: rows adjusted with arrows, Esc returns to the list. */
