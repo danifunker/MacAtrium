@@ -53,6 +53,31 @@ fn is_clutter_dir(e: &Entry) -> bool {
         )
 }
 
+/// Escape one path component so rb-cli addresses it as an exact literal in the
+/// slash grammar: a real `\` becomes `\\` and a real `/` becomes `\/`. Mirrors
+/// rb-cli's `parse::escape_path_component`. Classic-Mac HFS volumes allow `/`
+/// in a name (it's the Finder's display of the `:` HFS separator), so a donor
+/// file like `Oxyd b/w` must be escaped before it can be addressed by name.
+fn esc(name: &str) -> String {
+    let mut out = String::with_capacity(name.len());
+    for c in name.chars() {
+        if c == '\\' || c == '/' {
+            out.push('\\');
+        }
+        out.push(c);
+    }
+    out
+}
+
+/// Sanitize a donor name into an on-disk destination component: map `/` — the
+/// only byte that can't appear in a `/`-joined target path — to `-`. Never `:`
+/// (the HFS path separator). The on-disk name deliberately differs from the
+/// donor original; the catalog records this sanitized name so the launcher can
+/// find and launch the file.
+fn sanitize(name: &str) -> String {
+    name.replace('/', "-")
+}
+
 /// Lowercase ASCII slug; common Latin accents folded so "Déjà Vu" → "deja-vu".
 pub fn slugify(s: &str) -> String {
     let mut out = String::new();
@@ -184,29 +209,20 @@ fn harvest_tree(
         return Ok(());
     }
     let entries = rb
-        .ls(image, src_folder)
+        .ls_exact(image, src_folder)
         .with_context(|| format!("listing {src_folder}"))?;
 
     for e in &entries {
-        if e.name.contains('/') {
-            warnings.push(format!("{src_folder}: skipping '{}' (name contains '/')", e.name));
-            continue;
-        }
-        // rb-cli treats source paths as globs, so it can't address a name with a
-        // glob metacharacter (see PROMPT-literal-path-flag.md in rusty-backup).
-        // Skip such entries rather than abort the whole harvest.
-        if e.name.contains(|c| matches!(c, '*' | '?' | '[' | ']' | '{' | '}')) {
-            warnings.push(format!(
-                "{src_folder}: skipping '{}' (name has a glob metachar; rb-cli can't address it yet)",
-                e.name
-            ));
-            continue;
-        }
-        let child_src = format!("{}/{}", src_folder.trim_end_matches('/'), e.name);
+        // Source addressing uses the slash grammar with `\/` escaping, so a name
+        // containing a literal `/` (e.g. `Oxyd b/w`) is addressed verbatim
+        // instead of being skipped. The destination component is sanitized
+        // (`/` -> `-`) since `/` can't live inside a `/`-joined target path.
+        let child_src = format!("{}/{}", src_folder.trim_end_matches('/'), esc(&e.name));
+        let dst_name = sanitize(&e.name);
         let child_rel = if rel.is_empty() {
-            e.name.clone()
+            dst_name.clone()
         } else {
-            format!("{rel}/{}", e.name)
+            format!("{rel}/{dst_name}")
         };
 
         if e.is_dir {
@@ -230,15 +246,19 @@ fn harvest_tree(
         }
 
         // A file: extract both forks and inject into its mirrored directory.
+        // put-binhex takes the filename from the BinHex header (the donor's real
+        // name, possibly with a `/`), so force the sanitized on-disk name via
+        // --rename when they differ.
         let dst_dir = match child_rel.rfind('/') {
             Some(i) => format!("{app_dir}/{}", &child_rel[..i]),
             None => app_dir.to_string(),
         };
+        let rename = (dst_name != e.name).then_some(dst_name.as_str());
         let hqx = stage_dir.join(format!("{}.hqx", slugify(&child_rel)));
         rb.get_binhex(image, &child_src, &hqx)
             .with_context(|| format!("extracting {child_src}"))?;
         if let Some(target) = into {
-            rb.put_binhex(target, &hqx, &dst_dir)
+            rb.put_binhex(target, &hqx, &dst_dir, rename)
                 .with_context(|| format!("injecting {child_rel} into {dst_dir}"))?;
         }
         files.push(child_rel);
@@ -258,14 +278,18 @@ fn harvest_one(
     warnings: &mut Vec<String>,
 ) -> Result<Option<Harvested>> {
     let entries = rb
-        .ls(image, src_folder)
+        .ls_exact(image, src_folder)
         .with_context(|| format!("listing {src_folder}"))?;
 
     let app = match pick_appl(&entries, src_folder) {
         Some(name) => name,
         None => return Ok(None),
     };
-    let app_dir = format!("{apps_root}/{app}");
+    // The on-disk folder + app-file names are sanitized (a donor APPL like
+    // `Oxyd b/w` can't be a `/`-joined path component); the display `name`
+    // keeps the donor original.
+    let app_dst = sanitize(&app);
+    let app_dir = format!("{apps_root}/{app_dst}");
 
     let app_slug = slugify(&app);
     let stage_dir = stage.join(&app_slug);
@@ -291,7 +315,7 @@ fn harvest_one(
         kind,
         year: infer_year(src_folder),
         genre,
-        app_path: format!("Apps/{app}/{app}"),
+        app_path: format!("Apps/{app_dst}/{app_dst}"),
         files,
     }))
 }
@@ -455,6 +479,39 @@ pub fn run(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn esc_escapes_slash_and_backslash_for_rb_cli() {
+        // A donor file like "Oxyd b/w" must address verbatim via the \/ escape.
+        assert_eq!(esc("Oxyd b/w"), r"Oxyd b\/w");
+        assert_eq!(esc(r"a\b"), r"a\\b");
+        assert_eq!(esc("plain"), "plain");
+        // Composed into a source path, only the in-name slash is escaped.
+        let child_src = format!("{}/{}", "/Games/Oxyd 3.6", esc("Oxyd b/w"));
+        assert_eq!(child_src, r"/Games/Oxyd 3.6/Oxyd b\/w");
+    }
+
+    #[test]
+    fn sanitize_maps_slash_not_colon() {
+        assert_eq!(sanitize("Oxyd b/w"), "Oxyd b-w");
+        assert_eq!(sanitize("TCP/IP Tool"), "TCP-IP Tool");
+        // No `/` -> unchanged (a colon never appears in an HFS name).
+        assert_eq!(sanitize("Dark Castle"), "Dark Castle");
+    }
+
+    #[test]
+    fn slash_name_round_trips_through_app_path() {
+        // Mirrors harvest_one's catalog derivation for an APPL named "Oxyd b/w":
+        // the on-disk path is sanitized; the catalog app field carries no '/'.
+        let app = "Oxyd b/w";
+        let app_dst = sanitize(app);
+        let app_path = format!("Apps/{app_dst}/{app_dst}");
+        assert_eq!(app_path, "Apps/Oxyd b-w/Oxyd b-w");
+        // No path component carries the donor's literal slash.
+        assert!(app_path.split('/').all(|c| !c.contains("b/w")));
+        // The display name keeps the donor original.
+        assert_eq!(app, "Oxyd b/w");
+    }
 
     #[test]
     fn slugs() {
