@@ -763,6 +763,12 @@ int main(void)
                         if (cp && ctl == gUi.launch) {
                             if (TrackControl(ctl, p, (ControlActionUPP)0) == inButton)
                                 handle_ui_command(UI_LAUNCH);
+                        } else if (cp && ctl == gUi.catPrev) {
+                            if (TrackControl(ctl, p, (ControlActionUPP)0) == inButton)
+                                ui_step_category(&gUi, -1);
+                        } else if (cp && ctl == gUi.catNext) {
+                            if (TrackControl(ctl, p, (ControlActionUPP)0) == inButton)
+                                ui_step_category(&gUi, +1);
                         } else if (cp && ctl == gUi.quitBtn) {
                             if (TrackControl(ctl, p, (ControlActionUPP)0) == inButton)
                                 handle_ui_command(UI_QUIT);   /* confirmed quit */
