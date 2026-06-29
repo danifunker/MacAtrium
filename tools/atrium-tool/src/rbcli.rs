@@ -236,12 +236,18 @@ fn resolve_abs(bin: &str) -> Option<PathBuf> {
     if p.is_absolute() {
         return Some(p.to_path_buf());
     }
-    if bin.contains('/') {
+    if bin.contains('/') || bin.contains('\\') {
         return std::fs::canonicalize(p).ok();
     }
+    // A bare name: walk $PATH. On Windows the executable carries an extension
+    // (rb-cli.exe), so try the name with each before the bare form.
+    let exts: &[&str] = if cfg!(windows) {
+        &[".exe", ".com", ".bat", ".cmd", ""]
+    } else {
+        &[""]
+    };
     std::env::split_paths(&std::env::var_os("PATH")?)
-        .map(|d| d.join(bin))
-        .find(|c| c.is_file())
+        .find_map(|d| exts.iter().map(|e| d.join(format!("{bin}{e}"))).find(|c| c.is_file()))
 }
 
 /// Log the resolved rb-cli binary + its `--version` at the start of a build. The
@@ -332,16 +338,20 @@ mod tests {
 
     #[test]
     fn resolve_bin_prefers_absolute_and_per_build() {
+        // Use paths that are absolute on the HOST OS: a leading "/" is NOT
+        // absolute on Windows (it needs a drive letter or UNC), so pick per-target.
+        let cfg_abs = if cfg!(windows) { "C:\\opt\\rb-cli.exe" } else { "/opt/rb-cli" };
+        let set_abs = if cfg!(windows) { "C:\\bin\\rb-cli.exe" } else { "/usr/bin/rb-cli" };
         // cfg's absolute path beats a bare settings name — the stale-$PATH trap
         // (a bare "rb-cli" silently shadowing the configured binary).
-        assert_eq!(resolve_bin("/opt/rb-cli", Some("rb-cli")), "/opt/rb-cli");
+        assert_eq!(resolve_bin(cfg_abs, Some("rb-cli")), cfg_abs);
         // cfg's absolute path also wins over an absolute settings path (per-build).
-        assert_eq!(resolve_bin("/opt/rb-cli", Some("/usr/bin/rb-cli")), "/opt/rb-cli");
+        assert_eq!(resolve_bin(cfg_abs, Some(set_abs)), cfg_abs);
         // cfg is the bare default → an absolute settings path is preferred.
-        assert_eq!(resolve_bin("rb-cli", Some("/usr/bin/rb-cli")), "/usr/bin/rb-cli");
+        assert_eq!(resolve_bin("rb-cli", Some(set_abs)), set_abs);
         // both bare (or no settings) → the per-build cfg value.
         assert_eq!(resolve_bin("rb-cli", Some("rb-cli")), "rb-cli");
-        assert_eq!(resolve_bin("/opt/rb-cli", None), "/opt/rb-cli");
+        assert_eq!(resolve_bin(cfg_abs, None), cfg_abs);
         assert_eq!(resolve_bin("rb-cli", None), "rb-cli");
     }
 
