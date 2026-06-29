@@ -25,7 +25,7 @@ typedef enum {
 } UiCommand;
 
 enum { UI_MODE_LIST = 0, UI_MODE_MENU, UI_MODE_PREVIEW, UI_MODE_SETTINGS,
-       UI_MODE_INFO, UI_MODE_CTLPANELS, UI_MODE_SETUP };
+       UI_MODE_INFO, UI_MODE_CTLPANELS, UI_MODE_SETUP, UI_MODE_ABOUT };
 
 /* Browse view modes — the first-run chooser (UI_MODE_SETUP) and the View menu
  * pick one; `Ui::view` holds the current. All views drive the same Model. */
@@ -91,6 +91,14 @@ enum { UI_IDLE_NONE = 0, UI_IDLE_ART = 1, UI_IDLE_FULL = 2 };
  * WaitNextEvent reports no event. */
 int       ui_idle(Ui *u);
 void      ui_set_status(Ui *u, const char *msg);
+
+/* Menu-bar entry points (main.c owns the real System menu bar and calls these so
+ * the UI layer stays draw + state only). Each sets the relevant mode/state and
+ * repaints; the View switch + Settings changes are persisted by main (save_prefs). */
+void      ui_show_about(Ui *u);              /* Apple > About MacAtrium     */
+void      ui_show_settings(Ui *u);           /* View  > Settings…           */
+void      ui_show_info(Ui *u);               /* File  > Get Info            */
+void      ui_set_view(Ui *u, int view);      /* View  > Carousel/Icon/List  */
 
 /* Drop the per-item art caches (detail cover + tile icons) after a category
  * page loads — the paged catalog reuses its items array, so the caches would

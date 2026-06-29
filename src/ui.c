@@ -509,10 +509,10 @@ static void draw_carousel(Ui *u)
      * its detail pane just stays empty until the selection settles. */
     if (u->r->useOffscreen) ensure_art_loaded(u);
 
-    /* ---- header: gear, title, the category (with ^v), and N / M ---- */
+    /* ---- header: gear, the category (with ^v), and N / M (the app title now
+     * lives in the System menu bar, so it's no longer repeated here) ---- */
     render_text_size(r, 12);
     draw_settings_btn(u);
-    render_text(r, GEAR_X + GEAR_W, 20, "MacAtrium", INK_TITLE);
     if (cat) {
         char  cl[ITEM_CAT_LEN + 8];
         short cw;
@@ -689,8 +689,19 @@ static void draw_carousel(Ui *u)
  * Artwork / Startup Sound / Shutdown Sound) plus a Control Panels action row.
  * Up/Down move rows; Left/Right (and Return) change the selected row's value;
  * Return on the last row opens the Control Panels list. */
-#define SET_N 9
-#define SET_ROW_CTLPANELS (SET_N - 1)   /* the action row (opens the cdev list) */
+/* Browse-view display names (Settings "View" row + the first-run chooser) and
+ * one-line descriptions (chooser only). Defined here so set_row_text can name the
+ * current view; draw_setup (further down) reuses them. */
+static const char *kViewName[VIEW_N] = { "Carousel", "Icon Grid", "List Browser" };
+static const char *kViewDesc[VIEW_N] = {
+    "Flip through big covers. Best for keyboard / controller.",
+    "A grid of icons, like the Finder. Good with a mouse.",
+    "Categories + a list with screenshots. Best for big libraries."
+};
+
+#define SET_N 10
+#define SET_ROW_VIEW      6             /* browse view: Carousel / Icon / List      */
+#define SET_ROW_CTLPANELS (SET_N - 1)   /* the action row (opens the cdev list)     */
 
 static void set_row_text(Ui *u, int row, char *out)
 {
@@ -730,11 +741,16 @@ static void set_row_text(Ui *u, int row, char *out)
             strcat(out, u->sndShutdown ? "On" : "Off");
             break;
         case 6:
+            strcpy(out, "View");
+            while (strlen(out) < 16) strcat(out, " ");
+            strcat(out, kViewName[(u->view >= 0 && u->view < VIEW_N) ? u->view : 0]);
+            break;
+        case 7:
             strcpy(out, "Categories");
             while (strlen(out) < 16) strcat(out, " ");
             strcat(out, u->catList ? "Shown" : "Hidden");
             break;
-        case 7:
+        case 8:
             strcpy(out, "Carousel");
             while (strlen(out) < 16) strcat(out, " ");
             l2s(u->carousel, num); strcat(out, num); strcat(out, " icons");
@@ -747,6 +763,47 @@ static void set_row_text(Ui *u, int row, char *out)
     }
 }
 
+/* One Settings row (selection highlight + "Label   value" text). Shared by the
+ * full-panel draw and the partial (selection/value-changed) redraw, so adjusting a
+ * row repaints just that row instead of re-filling — and flashing — the whole panel
+ * (mirrors draw_menu_row, which already gives the Esc menu a clean refresh). */
+static void draw_settings_row(Ui *u, short px, short py, int pw, int i)
+{
+    Render *r = u->r;
+    short   y0   = (short)(py + 40 + i * (ROW_H + 6));
+    short   base = (short)(y0 + ROW_H - 5);
+    int     sel  = (i == u->setSel);
+    char    line[48];
+    Rect    rr;
+    SetRect(&rr, (short)(px + 4), y0, (short)(px + pw - 4), (short)(y0 + ROW_H));
+    render_fill(r, &rr, sel ? FILL_SEL : FILL_PANEL);
+    set_row_text(u, i, line);
+    render_text(r, (short)(px + MARGIN), base, line, sel ? INK_SELECTED : INK_NORMAL);
+}
+
+/* The contextual bottom hint (clip-length note on the sound rows, the open hint on
+ * Control Panels, else the nav keys). Depends on the selected row, so it's redrawn
+ * on every selection move; clears its band first so the previous hint doesn't ghost. */
+static void draw_settings_hint(Ui *u, short px, short py, int pw, int ph)
+{
+    Render     *r = u->r;
+    const char *hint;
+    Rect        band;
+    short       x;
+    SetRect(&band, (short)(px + 1), (short)(py + ph - 21),
+            (short)(px + pw - 1), (short)(py + ph - 1));
+    render_fill(r, &band, FILL_PANEL);
+    if (u->setSel == 4 || u->setSel == 5)
+        hint = "Sounds: a clip baked in the image, max 7 sec";
+    else if (u->setSel == SET_ROW_CTLPANELS)
+        hint = "Return  open the Control Panels list";
+    else
+        hint = "^v row   <> change   Esc back";
+    x = (short)(px + (pw - render_text_width(r, hint)) / 2);
+    if (x < (short)(px + 4)) x = (short)(px + 4);
+    render_text(r, x, (short)(py + ph - 7), hint, INK_DIM);
+}
+
 static void draw_settings(Ui *u)
 {
     Render *r = u->r;
@@ -755,44 +812,41 @@ static void draw_settings(Ui *u)
     int     ph = SET_N * (ROW_H + 6) + 56;
     short   px = (short)((W - pw) / 2);
     short   py = (short)((H - ph) / 2);
-    Rect    panel, rr;
+    Rect    panel;
     int     i;
+
+    render_text_size(r, 12);
+
+    /* Selection/value-only change: the panel is already on screen (overlayDrawn)
+     * and the browse view behind it is untouched (bgValid), so repaint just the
+     * affected row(s) + the contextual hint — re-filling the whole panel every
+     * keystroke was the flash. A value change that DOES invalidate the background
+     * (theme / depth / view / artwork / categories / carousel) clears overlayDrawn
+     * back in ui_draw, so it falls through to the full draw below. */
+    if (u->overlayDrawn) {
+        if (u->lastSel != u->setSel && u->lastSel >= 0 && u->lastSel < SET_N)
+            draw_settings_row(u, px, py, pw, u->lastSel);
+        draw_settings_row(u, px, py, pw, u->setSel);
+        draw_settings_hint(u, px, py, pw, ph);
+        u->lastSel = u->setSel;
+        return;
+    }
 
     SetRect(&panel, px, py, (short)(px + pw), (short)(py + ph));
     render_fill(r, &panel, FILL_PANEL);
     render_frame(r, &panel);
 
-    render_text_size(r, 12);
     render_text(r, (short)(px + MARGIN), (short)(py + 22), "Settings", INK_TITLE);
     render_hline(r, px, (short)(px + pw), (short)(py + 30));
 
-    for (i = 0; i < SET_N; i++) {
-        short y0   = (short)(py + 40 + i * (ROW_H + 6));
-        short base = (short)(y0 + ROW_H - 5);
-        int   sel  = (i == u->setSel);
-        char  line[48];
-        SetRect(&rr, (short)(px + 4), y0, (short)(px + pw - 4), (short)(y0 + ROW_H));
-        render_fill(r, &rr, sel ? FILL_SEL : FILL_PANEL);
-        set_row_text(u, i, line);
-        render_text(r, (short)(px + MARGIN), base, line, sel ? INK_SELECTED : INK_NORMAL);
-    }
+    for (i = 0; i < SET_N; i++)
+        draw_settings_row(u, px, py, pw, i);
 
     render_hline(r, px, (short)(px + pw), (short)(py + ph - 22));
-    {
-        /* Contextual bottom hint: the clip-length note on the sound rows, the
-         * open hint on Control Panels, else the nav keys. */
-        const char *hint;
-        short x;
-        if (u->setSel == 4 || u->setSel == 5)
-            hint = "Sounds: a clip baked in the image, max 7 sec";
-        else if (u->setSel == SET_ROW_CTLPANELS)
-            hint = "Return  open the Control Panels list";
-        else
-            hint = "^v row   <> change   Esc back";
-        x = (short)(px + (pw - render_text_width(r, hint)) / 2);
-        if (x < (short)(px + 4)) x = (short)(px + 4);
-        render_text(r, x, (short)(py + ph - 7), hint, INK_DIM);
-    }
+    draw_settings_hint(u, px, py, pw, ph);
+
+    u->overlayDrawn = 1;
+    u->lastSel = u->setSel;
 }
 
 /* The Control Panels list (reached from Settings -> Control Panels): a scrollable
@@ -1009,14 +1063,34 @@ static void draw_info(Ui *u)
     }
 }
 
-/* First-run interaction chooser (UI_MODE_SETUP): pick how to browse the library.
- * Sets Ui::view; persisted, so it shows only once (and from the View menu later). */
-static const char *kViewName[VIEW_N] = { "Carousel", "Icon Grid", "List Browser" };
-static const char *kViewDesc[VIEW_N] = {
-    "Flip through big covers. Best for keyboard / controller.",
-    "A grid of icons, like the Finder. Good with a mouse.",
-    "Categories + a list with screenshots. Best for big libraries."
-};
+/* The About card (Apple > About MacAtrium): app name, a one-line description, and
+ * the build stamp. A full-screen card like the Info/Preview views — any key/click
+ * dismisses it. */
+static void draw_about(Ui *u)
+{
+    Render *r = u->r;
+    int     W = win_w(u), H = win_h(u);
+    Rect    full = u->win->portRect;
+    short   cy = (short)(H / 2 - 44), cw;
+    char    ver[40];
+
+    render_fill(r, &full, FILL_BG);
+    render_text_size(r, 12);
+    { const char *t = "MacAtrium";
+      cw = render_text_width(r, t); render_text(r, (short)((W - cw) / 2), cy, t, INK_TITLE); }
+    cy = (short)(cy + 28);
+    { const char *t = "A launcher for classic Macintosh games.";
+      cw = render_text_width(r, t); render_text(r, (short)((W - cw) / 2), cy, t, INK_NORMAL); }
+    cy = (short)(cy + 20);
+    { const char *t = "Pick a title and play. The System runs the rest.";
+      cw = render_text_width(r, t); render_text(r, (short)((W - cw) / 2), cy, t, INK_DIM); }
+    cy = (short)(cy + 30);
+    strcpy(ver, "build "); strcat(ver, MACATRIUM_VERSION);
+    cw = render_text_width(r, ver); render_text(r, (short)((W - cw) / 2), cy, ver, INK_DIM);
+
+    { const char *t = "Press any key to continue.";
+      cw = render_text_width(r, t); render_text(r, (short)((W - cw) / 2), (short)(H - 14), t, INK_DIM); }
+}
 
 /* The clickable rect for setup row i (shared by draw_setup + ui_click). */
 static void setup_row_rect(Ui *u, int i, Rect *rr)
@@ -1059,9 +1133,9 @@ static void draw_setup(Ui *u)
       cw = render_text_width(r, t); render_text(r, (short)((W - cw) / 2), (short)(H - 12), t, INK_DIM); }
 }
 
-/* Shared browse-screen header: the Settings gear, the title, the centred
- * "^ Category v" band, and the N / M counter. Used by the grid view (the
- * carousel draws its own identical header inline). */
+/* Shared browse-screen header: the Settings gear, the centred "^ Category v" band,
+ * and the N / M counter (the app title lives in the System menu bar now). Used by
+ * the grid view (the carousel draws its own identical header inline). */
 static void draw_browse_header(Ui *u)
 {
     Render   *r = u->r;
@@ -1071,7 +1145,6 @@ static void draw_browse_header(Ui *u)
     char      num[16];
     render_text_size(r, 12);
     draw_settings_btn(u);
-    render_text(r, GEAR_X + GEAR_W, 20, "MacAtrium", INK_TITLE);
     if (cat) {
         char  cl[ITEM_CAT_LEN + 8];
         short cw;
@@ -1212,7 +1285,6 @@ static void draw_listview(Ui *u)
     render_fill(r, &full, FILL_BG);
     render_text_size(r, 12);
     draw_settings_btn(u);
-    render_text(r, GEAR_X + GEAR_W, 20, "MacAtrium", INK_TITLE);
     render_hline(r, 0, (short)W, (short)(HEADER_H - 1));
     vbar(u, LPANE, bTop, (short)(bBot - bTop));
 
@@ -1370,6 +1442,9 @@ void ui_draw(Ui *u)
     } else if (u->mode == UI_MODE_INFO) {
         draw_info(u);
         u->bgValid = 0;
+    } else if (u->mode == UI_MODE_ABOUT) {
+        draw_about(u);
+        u->bgValid = 0;                 /* full-screen card -> carousel not in GWorld */
     } else {
         /* The menu / settings / control-panels panels are overlays. When only the
          * overlay's selection changed, the carousel behind it is already in the
@@ -1590,11 +1665,15 @@ static int settings_adjust(Ui *u, int dir)
             u->sndShutdown = u->sndShutdown ? 0 : 1;
             if (u->sndShutdown) sound_play_file("sounds/shutdown", 1); /* preview */
             return 1;
-        case 6:                                    /* Categories list Show/Hide (persisted) */
+        case 6:                                    /* View: Carousel / Icon Grid / List (persisted) */
+            u->view = (u->view + dir + VIEW_N) % VIEW_N;
+            u->bgValid = 0;                         /* the whole browse screen changes */
+            return 1;
+        case 7:                                    /* Categories list Show/Hide (persisted) */
             u->catList = u->catList ? 0 : 1;
             u->bgValid = 0;                         /* browse layout changes */
             return 1;
-        case 7: {                                  /* Carousel icon count: odd 3..25 (persisted) */
+        case 8: {                                  /* Carousel icon count: odd 3..25 (persisted) */
             int n = u->carousel + dir * 2;
             if (n < 3)  n = 3;
             if (n > 25) n = 25;
@@ -1698,6 +1777,13 @@ UiCommand ui_key(Ui *u, char ch)
             case kCharEscape: u->settingsFocus = 0; u->mode = UI_MODE_MENU; u->menuSel = 0; break;
             default:          u->settingsFocus = 0; break;   /* any other key unfocuses */
         }
+        ui_draw(u);
+        return UI_NONE;
+    }
+
+    /* About card: any key returns to the list. */
+    if (u->mode == UI_MODE_ABOUT) {
+        u->mode = UI_MODE_LIST;
         ui_draw(u);
         return UI_NONE;
     }
@@ -1916,8 +2002,8 @@ UiCommand ui_click(Ui *u, Point pt)
         return UI_NONE;
     }
 
-    /* Full-screen info / preview cards: any click returns to the list. */
-    if (u->mode == UI_MODE_INFO || u->mode == UI_MODE_PREVIEW) {
+    /* Full-screen info / preview / about cards: any click returns to the list. */
+    if (u->mode == UI_MODE_INFO || u->mode == UI_MODE_PREVIEW || u->mode == UI_MODE_ABOUT) {
         if (u->previewPic) { art_dispose(u->previewPic); u->previewPic = 0; }
         u->mode = UI_MODE_LIST;
         ui_draw(u);
@@ -1971,4 +2057,46 @@ UiCommand ui_click(Ui *u, Point pt)
         ui_draw(u);
         return UI_NONE;
     }
+}
+
+/* ---- menu-bar entry points (called by main.c's MenuSelect/MenuKey dispatch) ----
+ * Thin wrappers so the System menu bar drives the same state the keyboard does;
+ * each dismisses any open panel/card first, sets the new mode/state, and repaints. */
+void ui_show_about(Ui *u)
+{
+    u->mode = UI_MODE_ABOUT;
+    ui_draw(u);
+}
+
+void ui_show_settings(Ui *u)
+{
+    u->settingsFocus = 0;
+    u->setSel = 0;
+    u->mode = UI_MODE_SETTINGS;
+    ui_draw(u);
+}
+
+void ui_show_info(Ui *u)
+{
+    const CatItem *it;
+    if (u->safe) return;
+    if (u->previewPic) { art_dispose(u->previewPic); u->previewPic = 0; }
+    it = model_cur_item(u->m);
+    if (it) {
+        const char *base = art_base(u, it);
+        if (base && base[0]) u->previewPic = load_item_art(u, base);
+        u->mode = UI_MODE_INFO;
+    } else {
+        u->mode = UI_MODE_LIST;
+    }
+    ui_draw(u);
+}
+
+void ui_set_view(Ui *u, int view)
+{
+    if (view < 0 || view >= VIEW_N) return;
+    u->settingsFocus = 0;
+    u->mode = UI_MODE_LIST;            /* dismiss any panel so the new view shows */
+    if (u->view != view) { u->view = view; u->bgValid = 0; }
+    ui_draw(u);
 }

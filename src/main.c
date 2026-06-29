@@ -104,42 +104,72 @@ static void bring_self_front(void)
     }
 }
 
-/* True full-screen: drop the menu bar to 0 height AND cede its strip back to the
- * desktop (GrayRgn), so a full-screen window's visible region actually owns the
- * top — otherwise the Window Manager keeps clipping that strip and our header
- * never paints there. Called at startup and again after a sub-launch (the child
- * restores the bar). Restored for Launch Finder. */
-static void hide_menu_bar(void)
+/* ---- the System menu bar (docs/28) ---------------------------------------------
+ * The launcher owns a real Toolbox menu bar (Apple / File / Edit / View / Special),
+ * built programmatically — no MENU resources. Items map to the same actions the
+ * keyboard drives (handle_ui_command + the ui_show_* hooks). The window sits below
+ * the bar (make_window: top = mbarHeight), so the bar is always visible and we no
+ * longer hide it / reclaim its strip; on return from a sub-launch (which drew its
+ * own bar) we just DrawMenuBar() to repaint ours. */
+enum { mApple = 128, mFile = 129, mEdit = 130, mView = 131, mSpecial = 132 };
+enum { kFileLaunch = 1, kFileGetInfo = 2 };  /* then a sep, then Show Finder / Quit */
+enum { kViewSettings = 5 };                  /* views are items 1..VIEW_N; 4 = sep   */
+enum { kSpecialRestart = 1, kSpecialShutdown = 2 };
+
+static MenuHandle gAppleMenu, gFileMenu, gEditMenu, gViewMenu, gSpecialMenu;
+/* File > Show Finder / Quit item numbers, or 0 when omitted — the System-6 boot
+ * shell has no separate Finder to front or hand back to (canLaunchReturn false). */
+static short gFileShowFinder = 0, gFileQuit = 0;
+
+static void install_menus(void)
 {
-    RgnHandle mbRgn;
-    LMSetMBarHeight(0);
-    mbRgn = NewRgn();
-    if (mbRgn) {
-        RgnHandle gray = LMGetGrayRgn();
-        Rect mb = gEnv.screen;
-        mb.bottom = (short)(mb.top + gEnv.mbarHeight);
-        if (gray) {
-            RectRgn(mbRgn, &mb);
-            UnionRgn(gray, mbRgn, gray);
-        }
-        DisposeRgn(mbRgn);
+    gAppleMenu = NewMenu(mApple, "\p\024");        /* 0x14 = the apple glyph (Chicago) */
+    AppendMenu(gAppleMenu, "\pAbout MacAtrium;(-");
+    AppendResMenu(gAppleMenu, 'DRVR');             /* desk accessories from the System */
+    InsertMenu(gAppleMenu, 0);
+
+    gFileMenu = NewMenu(mFile, "\pFile");
+    AppendMenu(gFileMenu, "\pLaunch/L;Get Info/I");
+    if (gEnv.canLaunchReturn) {                    /* a Finder exists to hand back to */
+        AppendMenu(gFileMenu, "\p(-;Show Finder;Quit/Q");
+        gFileShowFinder = 4;
+        gFileQuit       = 5;
     }
+    InsertMenu(gFileMenu, 0);
+
+    /* Edit: present (and standard) for desk accessories; disabled in the appliance
+     * itself, which has no text editing. SystemEdit routes to an active DA. */
+    gEditMenu = NewMenu(mEdit, "\pEdit");
+    AppendMenu(gEditMenu, "\p(Undo/Z;(-;(Cut/X;(Copy/C;(Paste/V;(Clear");
+    InsertMenu(gEditMenu, 0);
+
+    gViewMenu = NewMenu(mView, "\pView");
+    AppendMenu(gViewMenu, "\pCarousel;Icon Grid;List;(-;Settings\311");  /* \311 = ellipsis */
+    InsertMenu(gViewMenu, 0);
+
+    gSpecialMenu = NewMenu(mSpecial, "\pSpecial");
+    AppendMenu(gSpecialMenu, "\pRestart;Shut Down");
+    InsertMenu(gSpecialMenu, 0);
+
+    DrawMenuBar();
 }
 
-/* Give the system menu bar back its original height — for Show Finder and Quit,
- * so the Finder has its menus. (We leave the reclaimed GrayRgn strip alone; the
- * Finder redraws its own bar over it on activation.) */
-static void restore_menu_bar(void)
+/* Tick the View menu's check beside the current browse view (read straight from the
+ * UI). Called right before the bar is pulled down, so it's always current no matter
+ * how the view last changed (menu, Settings, Tab, or the first-run chooser). */
+static void sync_view_menu(void)
 {
-    LMSetMBarHeight(gEnv.mbarHeight);
+    int i;
+    for (i = 0; i < VIEW_N; i++)
+        CheckItem(gViewMenu, (short)(i + 1), (Boolean)(i == gUi.view));
 }
 
 /* Quit the launcher entirely and hand the machine back to the Finder (the
- * resident boot shell) — Cmd-Option-Q. Restores the menu bar first so the Finder
- * comes up with its menus. Does not return. */
+ * resident boot shell) — Cmd-Option-Q or File > Quit. The menu bar is already at
+ * full height (we no longer hide it), and the Finder redraws its own bar when it
+ * comes front. Does not return. */
 static void quit_to_finder(void)
 {
-    restore_menu_bar();
     (void)sysctl_show_finder();   /* front the Finder (best-effort) */
     ExitToShell();                /* terminate us; the Finder becomes the shell */
 }
@@ -174,8 +204,8 @@ static void install_ae_handlers(void)
 
 static WindowPtr make_window(const Env *e)
 {
-    Rect b = e->screen;              /* full screen — the menu bar is hidden    */
-                                     /* (LMSetMBarHeight 0), so we own y = 0..top */
+    Rect b = e->screen;              /* full screen below the menu bar           */
+    b.top = (short)(b.top + e->mbarHeight);   /* sit flush under the System bar   */
     /* A colour window (CGrafPort) when Color QD is present, so the off-screen
      * GWorld blits correctly at >1-bit depths (and the user can switch depth at
      * runtime); a plain B&W window otherwise. */
@@ -397,10 +427,9 @@ static void do_launch(void)
     returns = gEnv.canLaunchReturn && (gEnv.sysVers >= 0x0700);
 
     /* A non-returning launch won't run us again until the System relaunches us, so
-     * hand the game the environment it expects — give the menu bar its height back
-     * (we hid it) and reset the cursor. (A returning launch restores below.) */
+     * hand the game the environment it expects — reset the cursor. (The menu bar is
+     * already at full height; the game draws its own.) */
     if (!returns) {
-        restore_menu_bar();
         InitCursor();
     }
 
@@ -450,19 +479,14 @@ static void do_launch(void)
 
     /* Otherwise we're staying resident: a returning launch that FAILED, or a
      * non-returning (System 6) launch that only returns on failure. Put the capped
-     * depth back, re-hide the menu bar on the appliance, re-front and report. */
+     * depth back, repaint our menu bar (the child drew its own), re-front and report. */
     if (savedDepth > 0) {
         (void)display_set_depth(savedDepth);
         (void)display_set_default_depth(savedDepth);   /* keep PRAM in step (docs/15) */
         render_reset_for_depth(&gRender, &gEnv, savedDepth);
     }
-    if (!returns) {
-        hide_menu_bar();
-        CalcVis((WindowPeek)gWin);
-    }
     bring_self_front();
-    hide_menu_bar();                  /* child restored the bar; re-hide + reclaim */
-    CalcVis((WindowPeek)gWin);
+    DrawMenuBar();                    /* the child drew its own bar; repaint ours */
     SelectWindow(gWin);
     SetPort(gWin);
 
@@ -496,22 +520,21 @@ static void handle_ui_command(UiCommand cmd)
     switch (cmd) {
         case UI_LAUNCH:   do_launch(); save_prefs(); break;
         case UI_SHOW_FINDER:
-            restore_menu_bar();    /* the Finder needs its menus */
+            /* Front the Finder; it draws its own menu bar (we get suspended and, on
+             * resume, repaint ours). If no Finder is resident we stayed front. */
             if (!sysctl_show_finder()) {
                 ui_set_status(&gUi, "Finder not resident - use Restart.");
-                hide_menu_bar();   /* stayed put -> full-screen again */
-                CalcVis((WindowPeek)gWin);
+                DrawMenuBar();
                 ui_draw(&gUi);
             }
             break;
         case UI_OPEN_CDEV: {
-            /* Open the chosen control panel via the Finder: give the menu bar
-             * back, send the odoc, and front the Finder so the cdev is visible.
-             * On resume (osEvt) we re-hide the bar. */
+            /* Open the chosen control panel via the Finder: send the odoc and front
+             * the Finder so the cdev is visible (it draws its own bar; on resume we
+             * repaint ours). */
             const CtlPanel *cp = ui_current_cdev(&gUi);
             if (cp) {
                 OSErr oe;
-                restore_menu_bar();
                 oe = ctlpanels_open(cp);
                 if (oe == noErr) {
                     (void)sysctl_show_finder();
@@ -522,8 +545,7 @@ static void handle_ui_command(UiCommand cmd)
                     append_long(m, oe);
                     strcat(m, ")");
                     ui_set_status(&gUi, m);
-                    hide_menu_bar();
-                    CalcVis((WindowPeek)gWin);
+                    DrawMenuBar();
                     ui_draw(&gUi);
                 }
             }
@@ -543,6 +565,48 @@ static void handle_ui_command(UiCommand cmd)
     }
 }
 
+/* Dispatch a MenuSelect / MenuKey result (HiWord = menu id, LoWord = item number).
+ * Most items funnel into the same handlers the keyboard uses; the View + the
+ * Apple/Edit items poke the UI / Toolbox directly. HiliteMenu(0) unhighlights the
+ * pulled-down title afterward. */
+static void do_menu(long mr)
+{
+    short menu = HiWord(mr);
+    short item = LoWord(mr);
+    if (menu == 0) return;             /* click/key released off any menu */
+    switch (menu) {
+        case mApple:
+            if (item == 1) {
+                ui_show_about(&gUi);
+            } else {                   /* a desk accessory (item 2 is the separator) */
+                Str255 nm;
+                GetMenuItemText(gAppleMenu, item, nm);
+                (void)OpenDeskAcc(nm);
+            }
+            break;
+        case mFile:
+            if (item == kFileLaunch)             { do_launch(); save_prefs(); }
+            else if (item == kFileGetInfo)       ui_show_info(&gUi);
+            else if (gFileShowFinder && item == gFileShowFinder)
+                                                 handle_ui_command(UI_SHOW_FINDER);
+            else if (gFileQuit && item == gFileQuit)
+                                                 handle_ui_command(UI_QUIT);   /* no return */
+            break;
+        case mEdit:
+            (void)SystemEdit((short)(item - 1));   /* route to an active DA, if any */
+            break;
+        case mView:
+            if (item >= 1 && item <= VIEW_N)     { ui_set_view(&gUi, item - 1); save_prefs(); }
+            else if (item == kViewSettings)      ui_show_settings(&gUi);
+            break;
+        case mSpecial:
+            if (item == kSpecialRestart)         handle_ui_command(UI_RESTART);
+            else if (item == kSpecialShutdown)   handle_ui_command(UI_SHUTDOWN);
+            break;
+    }
+    HiliteMenu(0);
+}
+
 int main(void)
 {
     EventRecord evt;
@@ -556,12 +620,10 @@ int main(void)
      * base 6.0.8, so only install the handlers (and accept high-level events) there. */
     if (gHasWNE) install_ae_handlers();
     prefs_load(&gPrefs);              /* saved theme / volume / selection */
-    hide_menu_bar();                  /* true full-screen (restored for Launch
-                                         Finder; gEnv keeps the original height) */
 
-    gWin = make_window(&gEnv);
-    CalcVis((WindowPeek)gWin);         /* claim the reclaimed top strip */
+    gWin = make_window(&gEnv);         /* full screen below the menu bar */
     render_init(&gRender, &gEnv);
+    install_menus();                   /* real System menu bar (docs/28) */
 
     /* Colour depth persists in the video card's slot PRAM (display_set_default_depth
      * → cscSetDefaultMode), so the *system* boots at the chosen depth and we just
@@ -640,13 +702,21 @@ int main(void)
                 case keyDown:
                 case autoKey: {
                     char c = (char)(evt.message & charCodeMask);
-                    /* Cmd-Option-Q quits the launcher back to the Finder. Match the
-                     * virtual key CODE (Q = 0x0C), not the char: Option mangles the
-                     * character (Option-Q yields the "oe" ligature, not 'q'). */
                     short keyCode = (short)((evt.message >> 8) & 0xFF);
-                    if ((evt.modifiers & cmdKey) && (evt.modifiers & optionKey) &&
-                        keyCode == 0x0C) {
-                        quit_to_finder();          /* does not return */
+                    if (evt.modifiers & cmdKey) {
+                        /* Cmd-Option-Q quits the launcher back to the Finder. Match
+                         * the virtual key CODE (Q = 0x0C), not the char: Option
+                         * mangles it (Option-Q yields the "oe" ligature). */
+                        if ((evt.modifiers & optionKey) && keyCode == 0x0C)
+                            quit_to_finder();      /* does not return */
+                        /* Other Cmd-combos are menu shortcuts. MenuKey returns the
+                         * matched menu/item (0 if none); unmatched combos are
+                         * swallowed rather than passed to the UI as plain keys. */
+                        {
+                            long mr = MenuKey(c);
+                            if (HiWord(mr)) do_menu(mr);
+                        }
+                        break;
                     }
                     handle_ui_command(ui_key(&gUi, c));
                     break;
@@ -659,16 +729,22 @@ int main(void)
                     break;
                 }
                 case mouseDown: {
-                    /* The launcher is a single full-screen window, so a content
-                     * click maps straight to a UI hit-test. Convert to window-local
-                     * and let ui_click() return the command to dispatch. */
+                    /* The launcher is a single window below the menu bar. A menu-bar
+                     * click pulls a menu down (MenuSelect); a content click maps to a
+                     * UI hit-test (window-local); a click in a desk-accessory window
+                     * goes to that DA (SystemClick). */
                     WindowPtr w;
                     short part = FindWindow(evt.where, &w);
-                    if (part == inContent && w == gWin) {
+                    if (part == inMenuBar) {
+                        sync_view_menu();          /* checkmark the live view first */
+                        do_menu(MenuSelect(evt.where));
+                    } else if (part == inContent && w == gWin) {
                         Point p = evt.where;
                         SetPort(gWin);
                         GlobalToLocal(&p);
                         handle_ui_command(ui_click(&gUi, p));
+                    } else if (part == inSysWindow) {
+                        SystemClick(&evt, w);      /* a desk accessory's window */
                     } else {
                         SelectWindow(gWin);
                     }
@@ -680,16 +756,15 @@ int main(void)
                     break;
                 case osEvt:
                     /* Suspend/resume from the app switcher. On suspend (e.g. we
-                     * fronted the Finder for Show Finder or to open a control
-                     * panel) hand the menu bar back AND hide our full-screen
-                     * window so the Finder/control panel is actually visible. On
-                     * resume, show + repaint full-screen and re-hide the bar. */
+                     * fronted the Finder for Show Finder or to open a control panel)
+                     * hide our window so the Finder/control panel is visible. On
+                     * resume, show + repaint, and redraw our menu bar (the front app
+                     * drew its own over ours). */
                     if (((evt.message >> 24) & 0xFFL) == suspendResumeMessage) {
                         if (evt.message & resumeFlag) {
                             ShowWindow(gWin);
                             SelectWindow(gWin);
-                            hide_menu_bar();
-                            CalcVis((WindowPeek)gWin);
+                            DrawMenuBar();
                             SetPort(gWin);
                             /* A depth-capped game just quit: put our depth back now
                              * that we're front again (ui_draw re-fits the backend to
@@ -701,7 +776,6 @@ int main(void)
                             }
                             ui_draw(&gUi);
                         } else {
-                            restore_menu_bar();
                             HideWindow(gWin);
                         }
                     }
