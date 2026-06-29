@@ -54,6 +54,7 @@ typedef struct {
     int        vol;           /* speaker volume 0..SOUND_VOL_MAX (-1 = n/a)   */
     int        artPref;       /* 0 = Box Art, 1 = Screenshot (the `shot` field) */
     int        view;          /* current browse view (VIEW_CAROUSEL/ICON/LIST)  */
+    int        listFocus;     /* List view: 0 = categories pane, 1 = items pane  */
     int        setupSel;      /* selected row on the first-run UI_MODE_SETUP screen */
     int        carousel;      /* carousel icons shown: odd 3..25, capped by fit */
     int        sndStartup;    /* 1 = play the startup sound on launch          */
