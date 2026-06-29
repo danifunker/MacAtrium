@@ -19,7 +19,10 @@
   ],
   "default": "Recommended",
   "catch_all_game": "",
-  "kind_map": { "app": "Applications", "utility": "Utilities" },
+  "kind_map": {
+    "app": "Applications",
+    "utility": "Utilities"
+  },
   "genre_map": {
     "Arcade": "Action & Arcade",
     "Action": "Action & Arcade",
@@ -47,15 +50,60 @@
     "Science & Math": "Educational"
   },
   "recommended": [
-    "prince-of-persia", "dark-castle-1-2", "beyond-dark-castle-1-0", "lemmings-1-1",
-    "shufflepuck-cafe", "glider-3-1-2", "spectre", "bolo-0-99-2", "crystal-quest",
-    "tetris-1-2", "simcity-1-11", "risk", "kid-pix", "oregon-trail-1-0",
-    "number-munchers-1-2", "carmen-sandiego-1-0", "reader-rabbit-2", "cosmic-osmo-1-6"
+    "prince-of-persia",
+    "dark-castle-1-2",
+    "beyond-dark-castle-1-0",
+    "lemmings-1-1",
+    "shufflepuck-cafe",
+    "glider-3-1-2",
+    "spectre",
+    "bolo-0-99-2",
+    "crystal-quest",
+    "tetris-1-2",
+    "simcity-1-11",
+    "risk",
+    "kid-pix",
+    "oregon-trail-1-0",
+    "number-munchers-1-2",
+    "carmen-sandiego-1-0",
+    "reader-rabbit-2",
+    "cosmic-osmo-1-6",
+    "simant-1-0",
+    "oxyd-3-6",
+    "simearth-2-0bw",
+    "civilization-1-1-2",
+    "indiana-jones-last-crusade-1-1",
+    "lode-runner-1-2",
+    "robosport",
+    "3-in-three-1-2",
+    "arkanoid-1-10",
+    "star-wars-1-0",
+    "sky-shadow-1-1-9m",
+    "scarab-of-ra-1-4",
+    "taskmaker-2-2-4",
+    "jewelbox-2-0-2",
+    "flappy-mac-1-1",
+    "galactic-frontiers-1-0",
+    "diamonds-1-52",
+    "sparkz",
+    "glypha-3-0",
+    "a-train-1-0",
+    "loom",
+    "mathematica",
+    "photoshop"
   ],
   "adds": {
-    "kid-pix": ["Educational"],
-    "prince-of-persia": ["No Mouse Required"],
-    "dark-castle-1-2": ["Action & Arcade"],
-    "beyond-dark-castle-1-0": ["Action & Arcade"]
+    "kid-pix": [
+      "Educational"
+    ],
+    "prince-of-persia": [
+      "No Mouse Required"
+    ],
+    "dark-castle-1-2": [
+      "Action & Arcade"
+    ],
+    "beyond-dark-castle-1-0": [
+      "Action & Arcade"
+    ]
   }
 }
