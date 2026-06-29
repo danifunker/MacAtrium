@@ -55,18 +55,38 @@ impl RbCli {
         Ok(String::from_utf8_lossy(&out.stdout).into_owned())
     }
 
-    /// List a directory inside an image.
+    /// List a directory inside an image. The path is interpreted as a glob
+    /// pattern (`*`, `?`, `[`, `{` expand); use [`RbCli::ls_exact`] to address a
+    /// directory whose name contains those characters verbatim.
     pub fn ls(&self, image: &Path, path: &str) -> Result<Vec<Entry>> {
+        self.ls_impl(image, path, false)
+    }
+
+    /// List a directory addressed as an exact, literal path — never globbed, so
+    /// a name containing `[ ] { } * ?` (or a `\/`-escaped literal slash) is
+    /// matched verbatim. Used by the harvest / fetch walkers, which always know
+    /// the exact path they want.
+    pub fn ls_exact(&self, image: &Path, path: &str) -> Result<Vec<Entry>> {
+        self.ls_impl(image, path, true)
+    }
+
+    fn ls_impl(&self, image: &Path, path: &str, literal: bool) -> Result<Vec<Entry>> {
         let img = image.to_string_lossy();
-        let out = self.run(&["ls", "-q", &img, path])?;
+        let mut args = vec!["ls", "-q", &img, path];
+        if literal {
+            args.push("--literal");
+        }
+        let out = self.run(&args)?;
         Ok(out.lines().filter_map(parse_ls_line).collect())
     }
 
     /// Extract a file (both forks + Finder info) as a BinHex .hqx on the host.
+    /// `src` is addressed as an exact literal path (`--literal`), so a name with
+    /// a `\/`-escaped slash or a glob metacharacter is read verbatim.
     pub fn get_binhex(&self, image: &Path, src: &str, out_hqx: &Path) -> Result<()> {
         let img = image.to_string_lossy();
         let dst = out_hqx.to_string_lossy();
-        self.run(&["get-binhex", "-q", &img, src, &dst])?;
+        self.run(&["get-binhex", "-q", "--literal", &img, src, &dst])?;
         Ok(())
     }
 
@@ -89,10 +109,32 @@ impl RbCli {
     /// the fresh disk and shows real icons (a copied-in app with `hasBeenInited`
     /// still set is treated as already-catalogued → generic icon). Matches the
     /// flag policy the launcher install applies to itself.
-    pub fn put_binhex(&self, image: &Path, hqx: &Path, dst_dir: &str) -> Result<()> {
+    /// `rename` overrides the on-disk filename (otherwise it comes from the
+    /// BinHex header) — used to write a sanitized name when the donor's real
+    /// name can't live in the target path (e.g. one containing a `/`).
+    pub fn put_binhex(
+        &self,
+        image: &Path,
+        hqx: &Path,
+        dst_dir: &str,
+        rename: Option<&str>,
+    ) -> Result<()> {
         let img = image.to_string_lossy();
         let h = hqx.to_string_lossy();
-        self.run(&["put-binhex", &img, &h, "--dst-dir", dst_dir, "--clear-inited", "-q"])?;
+        let mut args = vec![
+            "put-binhex",
+            &img,
+            &h,
+            "--dst-dir",
+            dst_dir,
+            "--clear-inited",
+            "-q",
+        ];
+        if let Some(r) = rename {
+            args.push("--rename");
+            args.push(r);
+        }
+        self.run(&args)?;
         Ok(())
     }
 
@@ -202,7 +244,7 @@ impl RbCli {
             Some((p, l)) if !l.is_empty() => (if p.is_empty() { "/" } else { p }, l),
             _ => return false,
         };
-        match self.ls(image, parent) {
+        match self.ls_exact(image, parent) {
             Ok(entries) => entries.iter().any(|e| e.name == leaf),
             Err(_) => false,
         }

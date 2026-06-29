@@ -118,6 +118,7 @@ void ui_init(Ui *u, Env *env, Render *r, Model *m, WindowPtr win, int safe)
     u->vol = sound_available() ? sound_get_vol() : -1;
     u->artPref = 1;                            /* Screenshot is the primary cover (box art on P) */
     u->view = VIEW_CAROUSEL;                   /* default browse view (first-run chooser may change) */
+    u->listFocus = 1;                          /* List view starts focused on the items pane */
     u->setupSel = 0;
     u->carousel = 7;                           /* icons shown: 7 by default (odd 3..25), fit-capped */
     u->sndStartup = 0;                                       /* sounds off by default */
@@ -1460,100 +1461,156 @@ static void list_layout(Ui *u, ListLayout *L)
     L->itemRows = rows; L->itemTop = top; L->nItems = n;
 }
 
+/* One categories-pane row (visible index i). Selected + focused = filled; selected
+ * but the OTHER pane is focused = outline only; clears its row first (for redraw). */
+static void draw_list_cat_row(Ui *u, const ListLayout *L, int i)
+{
+    Render *r = u->r;
+    Model  *m = u->m;
+    int     ci = L->catTop + i, sel, active;
+    short   y0;
+    Rect    rr;
+    char    nm[ITEM_CAT_LEN];
+    if (i < 0 || ci < 0 || ci >= m->ncats) return;
+    sel = (ci == m->curCat); active = (u->listFocus == 0);
+    y0 = (short)(L->bTop + 26 + i * ROW_H);
+    SetRect(&rr, 1, y0, (short)(LPANE - 1), (short)(y0 + ROW_H));
+    render_fill(r, &rr, FILL_BG);
+    if (sel) { if (active) render_fill(r, &rr, FILL_SEL); else render_frame(r, &rr); }
+    strncpy(nm, m->cats[ci].name, sizeof nm - 1); nm[sizeof nm - 1] = '\0';
+    while (nm[0] && render_text_width(r, nm) > LPANE - 14) nm[strlen(nm) - 1] = '\0';
+    render_text(r, 8, (short)(y0 + ROW_H - 5), nm, (sel && active) ? INK_SELECTED : INK_NORMAL);
+}
+
+/* One items-pane row (visible index i): name + genre + year columns, same focus-
+ * aware highlight as the category rows. */
+static void draw_list_item_row(Ui *u, const ListLayout *L, int i)
+{
+    Render        *r = u->r;
+    Model         *m = u->m;
+    ModelCat      *cat = model_cur_cat(m);
+    const CatItem *it;
+    int            idx = L->itemTop + i, sel, active, ink, dim;
+    int            W = win_w(u);
+    short          y0;
+    Rect           rr;
+    char           nm[ITEM_NAME_LEN], g[16], num[16];
+    if (!cat || i < 0 || idx < 0 || idx >= L->nItems) return;
+    it = &m->cat->items[cat->idx[idx]];
+    sel = (idx == m->curItem); active = (u->listFocus == 1);
+    y0 = (short)(L->bTop + 26 + i * ROW_H);
+    SetRect(&rr, L->rx, y0, (short)(W - SBW), (short)(y0 + ROW_H));
+    render_fill(r, &rr, FILL_BG);
+    if (sel) { if (active) render_fill(r, &rr, FILL_SEL); else render_frame(r, &rr); }
+    ink = (sel && active) ? INK_SELECTED : INK_NORMAL;
+    dim = (sel && active) ? INK_SELECTED : INK_DIM;
+    strncpy(nm, it->name, sizeof nm - 1); nm[sizeof nm - 1] = '\0';
+    while (nm[0] && render_text_width(r, nm) > L->rw - 150) nm[strlen(nm) - 1] = '\0';
+    render_text(r, (short)(L->rx + 8), (short)(y0 + ROW_H - 5), nm, ink);
+    strncpy(g, it->genre, sizeof g - 1); g[sizeof g - 1] = '\0';
+    while (g[0] && render_text_width(r, g) > 74) g[strlen(g) - 1] = '\0';
+    if (g[0]) render_text(r, (short)(W - SBW - 120), (short)(y0 + ROW_H - 5), g, dim);
+    if (it->year > 0) { l2s(it->year, num); render_text(r, (short)(W - SBW - 40), (short)(y0 + ROW_H - 5), num, dim); }
+}
+
+/* The bottom detail strip — the selected item's screenshot + name / year / genre. */
+static void draw_list_detail(Ui *u, const ListLayout *L)
+{
+    Render        *r = u->r;
+    const CatItem *cur = model_cur_item(u->m);
+    int            W = win_w(u), loaded;
+    short          ay0, ah, aw, mx;
+    Rect           strip, ar;
+    char           num[16];
+    SetRect(&strip, L->rx, L->lstBot, (short)W, L->bBot);
+    render_fill(r, &strip, FILL_BG);
+    render_text_size(r, 12);
+    render_hline(r, L->rx, (short)W, L->lstBot);
+    ay0 = (short)(L->lstBot + 8); ah = (short)(LDET - 18); aw = (short)(ah * 4 / 3);
+    mx  = (short)(L->rx + 12 + aw + 14);
+    SetRect(&ar, (short)(L->rx + 12), ay0, (short)(L->rx + 12 + aw), (short)(ay0 + ah));
+    render_frame(r, &ar);
+    loaded = (cur && cur == u->artFor);
+    if (loaded && u->listArt) { Rect in = ar; InsetRect(&in, 2, 2); art_draw_fit(u->listArt, &in); }
+    if (cur) {
+        char meta[ITEM_GENRE_LEN + 32]; meta[0] = '\0';
+        render_text(r, mx, (short)(L->lstBot + 22), cur->name, INK_TITLE);
+        if (cur->year > 0) { l2s(cur->year, num); strcat(meta, num); strcat(meta, "  -  "); }
+        if (cur->genre[0]) strcat(meta, cur->genre);
+        render_text(r, mx, (short)(L->lstBot + 40), meta, INK_NORMAL);
+        render_text(r, mx, (short)(L->lstBot + 58), "Return  launch      P  box art", INK_DIM);
+    }
+}
+
 static void draw_listview(Ui *u)
 {
     Render        *r = u->r;
     Model         *m = u->m;
     ModelCat      *cat = model_cur_cat(m);
-    const CatItem *cur = model_cur_item(m);
-    Rect           full = u->win->portRect, rr;
-    int            W = win_w(u), i, DET = LDET;
+    Rect           full = u->win->portRect;
+    int            W = win_w(u), i;
     ListLayout     L;
-    short          bTop, bBot, lstBot, rx, rw;
     char           num[16];
 
     list_layout(u, &L);
-    bTop = L.bTop; bBot = L.bBot; lstBot = L.lstBot; rx = L.rx; rw = L.rw;
-
     render_fill(r, &full, FILL_BG);
     render_text_size(r, 12);
     draw_settings_btn(u);
     render_hline(r, 0, (short)W, (short)(HEADER_H - 1));
-    vbar(u, LPANE, bTop, (short)(bBot - bTop));
+    vbar(u, LPANE, L.bTop, (short)(L.bBot - L.bTop));
 
-    /* left pane: categories */
-    render_text(r, 8, (short)(bTop + 15), "Categories", INK_TITLE);
-    render_hline(r, 0, LPANE, (short)(bTop + 22));
-    for (i = 0; i < L.catRows && L.catTop + i < m->ncats; i++) {
-        int ci = L.catTop + i, sel = (ci == m->curCat);
-        short y0 = (short)(bTop + 26 + i * ROW_H);
-        char nm[ITEM_CAT_LEN];
-        if (sel) { SetRect(&rr, 1, y0, (short)(LPANE - 1), (short)(y0 + ROW_H)); render_fill(r, &rr, FILL_SEL); }
-        strncpy(nm, m->cats[ci].name, sizeof nm - 1); nm[sizeof nm - 1] = '\0';
-        while (nm[0] && render_text_width(r, nm) > LPANE - 14) nm[strlen(nm) - 1] = '\0';
-        render_text(r, 8, (short)(y0 + ROW_H - 5), nm, sel ? INK_SELECTED : INK_NORMAL);
-    }
+    render_text(r, 8, (short)(L.bTop + 15), "Categories", INK_TITLE);
+    render_hline(r, 0, LPANE, (short)(L.bTop + 22));
+    for (i = 0; i < L.catRows && L.catTop + i < m->ncats; i++)
+        draw_list_cat_row(u, &L, i);
 
-    /* right pane: the category's items */
     if (cat) {
         char hdr[ITEM_CAT_LEN + 24];
         strcpy(hdr, cat->name); strcat(hdr, "  -  ");
         l2s(cat->count, num); strcat(hdr, num); strcat(hdr, " items");
-        render_text(r, (short)(rx + 8), (short)(bTop + 15), hdr, INK_NORMAL);
+        render_text(r, (short)(L.rx + 8), (short)(L.bTop + 15), hdr, INK_NORMAL);
     }
-    render_hline(r, rx, (short)W, (short)(bTop + 22));
+    render_hline(r, L.rx, (short)W, (short)(L.bTop + 22));
     if (cat && cat->count > 0) {
-        for (i = 0; i < L.itemRows && L.itemTop + i < L.nItems; i++) {
-            int idx = L.itemTop + i, isSel = (idx == m->curItem);
-            const CatItem *it = &m->cat->items[cat->idx[idx]];
-            short y0 = (short)(bTop + 26 + i * ROW_H);
-            char nm[ITEM_NAME_LEN], g[16];
-            if (isSel) { SetRect(&rr, rx, y0, (short)(W - SBW), (short)(y0 + ROW_H)); render_fill(r, &rr, FILL_SEL); }
-            strncpy(nm, it->name, sizeof nm - 1); nm[sizeof nm - 1] = '\0';
-            while (nm[0] && render_text_width(r, nm) > rw - 150) nm[strlen(nm) - 1] = '\0';
-            render_text(r, (short)(rx + 8), (short)(y0 + ROW_H - 5), nm, isSel ? INK_SELECTED : INK_NORMAL);
-            strncpy(g, it->genre, sizeof g - 1); g[sizeof g - 1] = '\0';
-            while (g[0] && render_text_width(r, g) > 74) g[strlen(g) - 1] = '\0';   /* fit before year */
-            if (g[0]) render_text(r, (short)(W - SBW - 120), (short)(y0 + ROW_H - 5), g, isSel ? INK_SELECTED : INK_DIM);
-            if (it->year > 0) { l2s(it->year, num); render_text(r, (short)(W - SBW - 40), (short)(y0 + ROW_H - 5), num, isSel ? INK_SELECTED : INK_DIM); }
-        }
-        draw_scrollbar_v(u, (short)(W - SBW), (short)(bTop + 24), (short)(lstBot - (bTop + 24)), L.nItems, L.itemRows, L.itemTop);
+        for (i = 0; i < L.itemRows && L.itemTop + i < L.nItems; i++)
+            draw_list_item_row(u, &L, i);
+        draw_scrollbar_v(u, (short)(W - SBW), (short)(L.bTop + 24),
+                         (short)(L.lstBot - (L.bTop + 24)), L.nItems, L.itemRows, L.itemTop);
     }
+    draw_list_detail(u, &L);
 
-    /* bottom detail strip — SCREENSHOT (not box art) + meta */
-    render_hline(r, rx, (short)W, lstBot);
-    {
-        short ay0 = (short)(lstBot + 8), ah = (short)(DET - 18), aw = (short)(ah * 4 / 3);
-        Rect ar; int loaded = (cur && cur == u->artFor);
-        short mx = (short)(rx + 12 + aw + 14);
-        SetRect(&ar, (short)(rx + 12), ay0, (short)(rx + 12 + aw), (short)(ay0 + ah));
-        render_frame(r, &ar);
-        if (loaded && u->listArt) { Rect in = ar; InsetRect(&in, 2, 2); art_draw_fit(u->listArt, &in); }
-        if (cur) {
-            char meta[ITEM_GENRE_LEN + 32]; meta[0] = '\0';
-            render_text(r, mx, (short)(lstBot + 22), cur->name, INK_TITLE);
-            if (cur->year > 0) { l2s(cur->year, num); strcat(meta, num); strcat(meta, "  -  "); }
-            if (cur->genre[0]) strcat(meta, cur->genre);
-            render_text(r, mx, (short)(lstBot + 40), meta, INK_NORMAL);
-            render_text(r, mx, (short)(lstBot + 58), "Return  launch      P  box art", INK_DIM);
-        }
-    }
+    u->lastDrawnItem  = m->curItem;
+    u->lastDrawnTop   = L.itemTop;
+    u->lastDrawnCat   = m->curCat;
+    u->lastDrawnFocus = u->listFocus;
 }
 
+/* Left/Right move focus between the two panes (Left at the categories pane reaches
+ * the gear, as before); Up/Down operate within the focused pane. */
 static int listview_nav(Ui *u, char ch)
 {
     Model *m = u->m;
     switch (ch) {
-        case kCharUp:    model_move_item(m, -1); return 1;
-        case kCharDown:  model_move_item(m, +1); return 1;
-        case kCharLeft:  if (!model_move_cat(m, -1)) u->settingsFocus = 1; return 1;
-        case kCharRight: model_move_cat(m, +1); return 1;
+        case kCharUp:
+            if (u->listFocus == 0) { if (!model_move_cat(m, -1)) u->settingsFocus = 1; }
+            else                     model_move_item(m, -1);
+            return 1;
+        case kCharDown:
+            if (u->listFocus == 0)   model_move_cat(m, +1);
+            else                     model_move_item(m, +1);
+            return 1;
+        case kCharLeft:
+            if (u->listFocus == 1)   u->listFocus = 0;       /* items -> categories */
+            else                     u->settingsFocus = 1;   /* categories -> gear  */
+            return 1;
+        case kCharRight:
+            if (u->listFocus == 0)   u->listFocus = 1;       /* categories -> items */
+            return 1;
     }
     return 0;
 }
-/* List detail screenshot loads deferred; a full repaint shows it (the targeted
- * cover-box redraw is carousel-specific). */
-static int listview_idle(Ui *u) { return ensure_art_loaded(u) ? UI_IDLE_FULL : UI_IDLE_NONE; }
+/* List screenshot loads deferred: a targeted repaint of just the detail strip. */
+static int listview_idle(Ui *u) { return ensure_art_loaded(u) ? UI_IDLE_ART : UI_IDLE_NONE; }
 
 /* Click in the List view: a click in the categories pane selects that category and
  * focuses it; a click in the items pane selects that item and focuses the items
@@ -1591,6 +1648,41 @@ static int listview_click(Ui *u, Point pt, UiCommand *out)
         }
     }
     return 0;
+}
+
+/* Incremental redraw for an items-pane selection move that stayed on the visible
+ * page: repaint just the old + new item rows + the detail strip, blit the items
+ * side. A category change, a focus change, or a scroll falls back to a full draw. */
+static int listview_draw_sel(Ui *u)
+{
+    ListLayout L;
+    Rect       dirty;
+    if (!u->bgValid) return 0;
+    list_layout(u, &L);
+    if (u->listFocus != 1 || u->m->curCat != u->lastDrawnCat ||
+        u->listFocus != u->lastDrawnFocus || L.itemTop != u->lastDrawnTop)
+        return 0;
+    render_begin(u->r, u->win);
+    draw_list_item_row(u, &L, u->lastDrawnItem - L.itemTop);   /* old -> deselected */
+    draw_list_item_row(u, &L, u->m->curItem - L.itemTop);      /* new -> selected   */
+    draw_list_detail(u, &L);
+    SetRect(&dirty, L.rx, L.bTop, (short)win_w(u), L.bBot);    /* the items side */
+    render_end_rect(u->r, u->win, &dirty);
+    u->lastDrawnItem = u->m->curItem;
+    return 1;
+}
+
+/* Deferred screenshot settled: repaint only the bottom detail strip. */
+static void listview_draw_art(Ui *u)
+{
+    ListLayout L;
+    Rect       strip;
+    if (!u->bgValid) return;
+    list_layout(u, &L);
+    render_begin(u->r, u->win);
+    draw_list_detail(u, &L);
+    SetRect(&strip, L.rx, L.lstBot, (short)win_w(u), L.bBot);
+    render_end_rect(u->r, u->win, &strip);
 }
 
 /* ---- browse views (MVC strategy) ----------------------------------------
@@ -1670,7 +1762,7 @@ static int carousel_click(Ui *u, Point pt, UiCommand *out)
 
 static const BrowseView gCarouselView = { "Carousel",  draw_carousel, carousel_nav, carousel_idle, carousel_click, 0,                 carousel_draw_art };
 static const BrowseView gIconView     = { "Icon Grid", draw_iconview, iconview_nav, iconview_idle, iconview_click, iconview_draw_sel, iconview_draw_art };
-static const BrowseView gListView     = { "List",      draw_listview, listview_nav, listview_idle, listview_click, 0,                 0 };
+static const BrowseView gListView     = { "List",      draw_listview, listview_nav, listview_idle, listview_click, listview_draw_sel, listview_draw_art };
 static const BrowseView *const gViews[VIEW_N] = {
     &gCarouselView,   /* VIEW_CAROUSEL */
     &gIconView,       /* VIEW_ICON */

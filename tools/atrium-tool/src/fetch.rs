@@ -264,7 +264,7 @@ pub fn run(
                 let r = if *is_macbin {
                     rb.put_macbinary(img, f, &dst_dir)
                 } else {
-                    rb.put_binhex(img, f, &dst_dir)
+                    rb.put_binhex(img, f, &dst_dir, None)
                 };
                 match r {
                     Ok(()) => n += 1,
@@ -361,7 +361,11 @@ fn collect_appls(rb: &RbCli, image: &Path, dir: &str, out: &mut Vec<(String, Str
     if depth > 12 {
         return;
     }
-    let Ok(entries) = rb.ls(image, dir) else { return };
+    // Exact listing so a bracket-named folder lists instead of globbing. The
+    // `/`-skip stays: this walker joins raw names into `p` without escaping, so
+    // a slash-named source isn't addressable here (the `harvest` path handles
+    // those via `esc`).
+    let Ok(entries) = rb.ls_exact(image, dir) else { return };
     for e in entries {
         if e.name.contains('/') {
             continue;
