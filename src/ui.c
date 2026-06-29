@@ -1059,6 +1059,44 @@ static void draw_setup(Ui *u)
       cw = render_text_width(r, t); render_text(r, (short)((W - cw) / 2), (short)(H - 12), t, INK_DIM); }
 }
 
+/* ---- browse views (MVC strategy) ----------------------------------------
+ * Each view renders the shared Model (model.c) in the content area and maps the
+ * arrow keys to model moves. The shared keys (Return / Esc / P / I / type-ahead)
+ * and the chrome live in ui.c, so a view is just: how to draw + how arrows move.
+ * Icon Grid + List are added next; until then they fall back to the carousel so
+ * a chosen-but-unbuilt view still works. */
+typedef struct {
+    const char *name;
+    void (*draw)(Ui *u);
+    int  (*nav)(Ui *u, char ch);   /* arrow key → model move; 1 = consumed */
+    int  (*idle)(Ui *u);           /* deferred art load → UI_IDLE_* */
+} BrowseView;
+
+static int carousel_nav(Ui *u, char ch)
+{
+    switch (ch) {
+        case kCharLeft:  model_move_item(u->m, -1); return 1;   /* scroll games */
+        case kCharRight: model_move_item(u->m, +1); return 1;
+        case kCharUp:    if (!model_move_cat(u->m, -1)) u->settingsFocus = 1; return 1;
+        case kCharDown:  model_move_cat(u->m, +1); return 1;    /* change category */
+    }
+    return 0;
+}
+static int carousel_idle(Ui *u) { return ensure_art_loaded(u) ? UI_IDLE_ART : UI_IDLE_NONE; }
+
+static const BrowseView gCarouselView = { "Carousel", draw_carousel, carousel_nav, carousel_idle };
+static const BrowseView *const gViews[VIEW_N] = {
+    &gCarouselView,   /* VIEW_CAROUSEL */
+    &gCarouselView,   /* VIEW_ICON  — TODO: gIconView (falls back to carousel for now) */
+    &gCarouselView,   /* VIEW_LIST  — TODO: gListView */
+};
+static const BrowseView *cur_view(Ui *u)
+{
+    int v = u->view;
+    if (v < 0 || v >= VIEW_N) v = VIEW_CAROUSEL;
+    return gViews[v];
+}
+
 void ui_draw(Ui *u)
 {
     /* Keep the colour backend matched to the live screen depth on *every* repaint,
@@ -1102,7 +1140,7 @@ void ui_draw(Ui *u)
                        u->mode == UI_MODE_CTLPANELS);
         if (!overlay || !u->bgValid) {
             if (u->safe) draw_safe(u);
-            else         draw_carousel(u);
+            else         cur_view(u)->draw(u);   /* current browse view (carousel/grid/list) */
             u->bgValid = 1;
             u->overlayDrawn = 0;           /* the repaint erased any overlay panel */
         }
@@ -1138,10 +1176,10 @@ int ui_idle(Ui *u)
         }
     }
 
-    if (u->safe || u->mode != UI_MODE_LIST) return UI_IDLE_NONE;  /* only carousel loads art */
+    if (u->safe || u->mode != UI_MODE_LIST) return UI_IDLE_NONE;  /* only the browse view loads art */
     /* Deferred cover load (direct-draw path): repaint ONLY the cover box, not the
      * whole screen — that second full repaint was the "double refresh" on flip. */
-    return ensure_art_loaded(u) ? UI_IDLE_ART : UI_IDLE_NONE;
+    return cur_view(u)->idle(u);
 }
 
 /* Repaint only the detail cover box (the deferred-load target). On the off-screen
@@ -1463,20 +1501,17 @@ UiCommand ui_key(Ui *u, char ch)
         return UI_LAUNCH;
     }
 
-    /* list / safe mode */
+    /* list / safe mode — the current browse view owns arrow navigation; the
+     * shared keys (Esc / Return / P / I / type-ahead) below apply to every view. */
+    if (!u->safe && cur_view(u)->nav(u, ch)) {
+        ui_draw(u);
+        return cmd;                 /* cmd == UI_NONE here */
+    }
     switch (ch) {
         case kCharEscape:
             u->mode = UI_MODE_MENU;
             u->menuSel = 0;
             break;
-        /* Carousel nav: Left/Right scroll games, Up/Down change category. */
-        case kCharLeft:  if (!u->safe) model_move_item(u->m, -1); break;
-        case kCharRight: if (!u->safe) model_move_item(u->m, +1); break;
-        case kCharUp:
-            /* Up past the first category focuses the Settings gear. */
-            if (!u->safe && !model_move_cat(u->m, -1)) u->settingsFocus = 1;
-            break;
-        case kCharDown:  if (!u->safe) model_move_cat(u->m, +1); break;
         case kCharReturn:
         case kCharEnter:
             if (!u->safe && model_cur_item(u->m)) {
