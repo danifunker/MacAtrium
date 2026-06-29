@@ -8,7 +8,8 @@ emulate, so this is how the 7.5.5 + 24-bit ("Millions") variants get verified.
 
 - <rom>  Quadra 800 ROM (1 MiB, crc32 4e70e3c0 — f1acad13.rom from mame macqd800).
 - Screenshots -> <out_dir>/snap_NNN_<sec>s.png and final.png (640x480-ish macfb).
-- --keys "20:ret;25:down" sends QMP key `ret` at 20 s, `down` at 25 s. Key names
+- --keys "20:ret;25:down" sends QMP key `ret` at 20 s, `down` at 25 s. A '+' makes
+  a chord, e.g. "30:meta_l+l" presses Cmd-L together (meta_l = the Command key). Key names
   are QMP QKeyCodes: ret esc up down left right spc a-z 0-9 etc.
 - The disk is opened with QEMU -snapshot, so the original image is never mutated.
 """
@@ -101,7 +102,10 @@ def screendump(f, png_path):
 
 
 def send_key(f, name):
-    qmp_cmd(f, "send-key", keys=[{"type": "qcode", "data": name}])
+    # A '+' joins qcodes into a chord pressed together, e.g. "meta_l+l" = Cmd-L
+    # (meta_l is the Mac Command key). Single keys send as before.
+    parts = name.split("+")
+    qmp_cmd(f, "send-key", keys=[{"type": "qcode", "data": p} for p in parts])
 
 
 def main():
