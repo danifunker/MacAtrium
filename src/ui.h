@@ -25,7 +25,11 @@ typedef enum {
 } UiCommand;
 
 enum { UI_MODE_LIST = 0, UI_MODE_MENU, UI_MODE_PREVIEW, UI_MODE_SETTINGS,
-       UI_MODE_INFO, UI_MODE_CTLPANELS };
+       UI_MODE_INFO, UI_MODE_CTLPANELS, UI_MODE_SETUP };
+
+/* Browse view modes — the first-run chooser (UI_MODE_SETUP) and the View menu
+ * pick one; `Ui::view` holds the current. All views drive the same Model. */
+enum { VIEW_CAROUSEL = 0, VIEW_ICON, VIEW_LIST, VIEW_N };
 
 #define UI_MAX_DEPTHS 6
 
@@ -49,6 +53,8 @@ typedef struct {
     int        ndepths;       /* count in depths[]                            */
     int        vol;           /* speaker volume 0..SOUND_VOL_MAX (-1 = n/a)   */
     int        artPref;       /* 0 = Box Art, 1 = Screenshot (the `shot` field) */
+    int        view;          /* current browse view (VIEW_CAROUSEL/ICON/LIST)  */
+    int        setupSel;      /* selected row on the first-run UI_MODE_SETUP screen */
     int        carousel;      /* carousel icons shown: odd 3..25, capped by fit */
     int        sndStartup;    /* 1 = play the startup sound on launch          */
     int        sndShutdown;   /* 1 = play the shutdown sound on Shut Down      */

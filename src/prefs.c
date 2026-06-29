@@ -92,6 +92,7 @@ void prefs_load(Prefs *p)
     p->sndShutdown = 0; p->haveSndShutdown = 0;
     p->catList = 0; p->haveCatList = 0;
     p->carousel = 7; p->haveCarousel = 0;
+    p->view = 0; p->haveView = 0;
     p->depth = 0; p->haveDepth = 0;
     p->category[0] = '\0';
     p->item[0]     = '\0';
@@ -147,6 +148,11 @@ void prefs_load(Prefs *p)
                 p->carousel = v;
                 p->haveCarousel = 1;
             }
+        } else if (strcmp(key, "view") == 0) {
+            int v = parse_int(val);
+            if (v < 0) v = 0;
+            if (v > 2) v = 2;               /* VIEW_CAROUSEL/ICON/LIST */
+            p->view = v; p->haveView = 1;
         } else if (strcmp(key, "depth") == 0) {
             int v = parse_int(val);
             if (v > 0) { p->depth = v; p->haveDepth = 1; }
@@ -227,6 +233,11 @@ OSErr prefs_save(const Prefs *p)
     if (p->haveCarousel) {
         append_str(body, &n, sizeof body, "carousel=");
         append_int(body, &n, sizeof body, p->carousel);
+        append_str(body, &n, sizeof body, "\r");
+    }
+    if (p->haveView) {
+        append_str(body, &n, sizeof body, "view=");
+        append_int(body, &n, sizeof body, p->view);
         append_str(body, &n, sizeof body, "\r");
     }
     if (p->haveDepth) {

@@ -117,6 +117,8 @@ void ui_init(Ui *u, Env *env, Render *r, Model *m, WindowPtr win, int safe)
     u->ndepths = display_depths(u->depths, UI_MAX_DEPTHS);   /* all OS-supported depths */
     u->vol = sound_available() ? sound_get_vol() : -1;
     u->artPref = 1;                            /* Screenshot is the primary cover (box art on P) */
+    u->view = VIEW_CAROUSEL;                   /* default browse view (first-run chooser may change) */
+    u->setupSel = 0;
     u->carousel = 7;                           /* icons shown: 7 by default (odd 3..25), fit-capped */
     u->sndStartup = 0;                                       /* sounds off by default */
     u->sndShutdown = 0;
@@ -1007,6 +1009,56 @@ static void draw_info(Ui *u)
     }
 }
 
+/* First-run interaction chooser (UI_MODE_SETUP): pick how to browse the library.
+ * Sets Ui::view; persisted, so it shows only once (and from the View menu later). */
+static const char *kViewName[VIEW_N] = { "Carousel", "Icon Grid", "List Browser" };
+static const char *kViewDesc[VIEW_N] = {
+    "Flip through big covers. Best for keyboard / controller.",
+    "A grid of icons, like the Finder. Good with a mouse.",
+    "Categories + a list with screenshots. Best for big libraries."
+};
+
+/* The clickable rect for setup row i (shared by draw_setup + ui_click). */
+static void setup_row_rect(Ui *u, int i, Rect *rr)
+{
+    int W = win_w(u);
+    short bx = (short)(MARGIN + 30), bw = (short)(W - 2 * (MARGIN + 30));
+    short y0 = (short)(96 + i * 64);
+    SetRect(rr, bx, y0, (short)(bx + bw), (short)(y0 + 56));
+}
+
+static void draw_setup(Ui *u)
+{
+    Render *r = u->r;
+    int     W = win_w(u), H = win_h(u);
+    Rect    full = u->win->portRect, rr;
+    short   cw;
+    int     i;
+
+    render_fill(r, &full, FILL_BG);
+    render_text_size(r, 12);
+    { const char *t = "Welcome to MacAtrium";
+      cw = render_text_width(r, t); render_text(r, (short)((W - cw) / 2), 40, t, INK_TITLE); }
+    { const char *t = "How would you like to browse your library?";
+      cw = render_text_width(r, t); render_text(r, (short)((W - cw) / 2), 64, t, INK_NORMAL); }
+    render_hline(r, MARGIN, 76, (short)(W - 2 * MARGIN));
+
+    for (i = 0; i < VIEW_N; i++) {
+        int sel = (i == u->setupSel);
+        setup_row_rect(u, i, &rr);
+        render_fill(r, &rr, sel ? FILL_SEL : FILL_PANEL);
+        render_frame(r, &rr);
+        render_text(r, (short)(rr.left + 14), (short)(rr.top + 22), kViewName[i],
+                    sel ? INK_SELECTED : INK_TITLE);
+        render_text(r, (short)(rr.left + 14), (short)(rr.top + 42), kViewDesc[i],
+                    sel ? INK_SELECTED : INK_DIM);
+    }
+    { const char *t = "Up / Down to choose, Return to continue.";
+      cw = render_text_width(r, t); render_text(r, (short)((W - cw) / 2), (short)(H - 26), t, INK_DIM); }
+    { const char *t = "You can change this any time in the View menu.";
+      cw = render_text_width(r, t); render_text(r, (short)((W - cw) / 2), (short)(H - 12), t, INK_DIM); }
+}
+
 void ui_draw(Ui *u)
 {
     /* Keep the colour backend matched to the live screen depth on *every* repaint,
@@ -1033,7 +1085,10 @@ void ui_draw(Ui *u)
         u->overlayDrawn = 0;               /* a switched/opened overlay draws fully once */
         u->lastMode = u->mode;
     }
-    if (u->mode == UI_MODE_PREVIEW) {
+    if (u->mode == UI_MODE_SETUP) {
+        draw_setup(u);
+        u->bgValid = 0;                 /* full-screen first-run chooser */
+    } else if (u->mode == UI_MODE_PREVIEW) {
         draw_preview(u);
         u->bgValid = 0;                 /* full-screen view -> carousel not in GWorld */
     } else if (u->mode == UI_MODE_INFO) {
@@ -1281,6 +1336,25 @@ UiCommand ui_key(Ui *u, char ch)
 {
     UiCommand cmd = UI_NONE;
 
+    /* First-run chooser is modal: Up/Down pick, Return/Esc confirm + persist. */
+    if (u->mode == UI_MODE_SETUP) {
+        UiCommand sc = UI_NONE;
+        switch (ch) {
+            case kCharUp:    if (u->setupSel > 0) u->setupSel--; break;
+            case kCharDown:  if (u->setupSel < VIEW_N - 1) u->setupSel++; break;
+            case kCharReturn:
+            case kCharEnter:
+            case kCharEscape:
+                u->view = u->setupSel;
+                u->mode = UI_MODE_LIST;
+                u->bgValid = 0;
+                sc = UI_PREFS_DIRTY;        /* persist the view + mark first-run done */
+                break;
+        }
+        ui_draw(u);                         /* redraw the chooser (or the carousel on confirm) */
+        return sc;
+    }
+
     /* Theme toggle works in any mode (list / menu / safe / preview). */
     if (ch == 't' || ch == 'T') {
         render_toggle_theme(u->r);
@@ -1460,6 +1534,21 @@ UiCommand ui_key(Ui *u, char ch)
  * dismiss on a click outside the panel (the universal mouse "Back"). */
 UiCommand ui_click(Ui *u, Point pt)
 {
+    /* First-run chooser: a click on a row picks that view and continues. */
+    if (u->mode == UI_MODE_SETUP) {
+        int i;
+        for (i = 0; i < VIEW_N; i++) {
+            Rect rr; setup_row_rect(u, i, &rr);
+            if (PtInRect(pt, &rr)) {
+                u->setupSel = i; u->view = i;
+                u->mode = UI_MODE_LIST; u->bgValid = 0;
+                ui_draw(u);
+                return UI_PREFS_DIRTY;
+            }
+        }
+        return UI_NONE;
+    }
+
     /* Safe (no-catalog) screen: a click opens the Esc menu so Restart / Shut Down
      * stay reachable with the mouse. */
     if (u->safe) {
