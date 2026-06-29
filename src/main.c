@@ -202,16 +202,26 @@ static void install_ae_handlers(void)
                           NewAEEventHandlerUPP(ae_quit), 0, false);
 }
 
+/* The standard document-window title bar height (the WDEF draws it in the structure
+ * region, above the content portRect). */
+#define kTitleBarH 19
+
 static WindowPtr make_window(const Env *e)
 {
-    Rect b = e->screen;              /* full screen below the menu bar           */
-    b.top = (short)(b.top + e->mbarHeight);   /* sit flush under the System bar   */
-    /* A colour window (CGrafPort) when Color QD is present, so the off-screen
-     * GWorld blits correctly at >1-bit depths (and the user can switch depth at
-     * runtime); a plain B&W window otherwise. */
+    /* A real titled, immovable, full-screen window: the content sits below the menu
+     * bar AND the title bar (so the bar lands just under the menu bar), inset 1px so
+     * the window's side/bottom frame shows. noGrowDocProc = title bar + close box,
+     * no grow box; goAwayFlag = the close box. We never DragWindow it (immovable). */
+    Rect b = e->screen;
+    b.top    = (short)(b.top + e->mbarHeight + kTitleBarH);
+    b.left   = (short)(b.left + 1);
+    b.right  = (short)(b.right - 1);
+    b.bottom = (short)(b.bottom - 1);
+    /* A colour window (CGrafPort) when Color QD is present, so the off-screen GWorld
+     * blits correctly at >1-bit depths; a plain B&W window otherwise. */
     if (e->hasColorQD)
-        return NewCWindow(0L, &b, "\p", true, plainDBox, (WindowPtr)-1L, false, 0);
-    return NewWindow(0L, &b, "\p", true, plainDBox, (WindowPtr)-1L, false, 0);
+        return NewCWindow(0L, &b, "\pMacAtrium", true, noGrowDocProc, (WindowPtr)-1L, true, 0);
+    return NewWindow(0L, &b, "\pMacAtrium", true, noGrowDocProc, (WindowPtr)-1L, true, 0);
 }
 
 /* Returns 1 if a non-empty catalog loaded; 0 -> safe screen. */
@@ -762,6 +772,13 @@ int main(void)
                         } else {
                             handle_ui_command(ui_click(&gUi, p));
                         }
+                    } else if (part == inGoAway && w == gWin) {
+                        /* The title bar's close box: confirm, then quit. (The
+                         * quit-confirm dialog lands in Phase 6; for now it quits.) */
+                        if (TrackGoAway(w, evt.where))
+                            handle_ui_command(UI_QUIT);
+                    } else if (part == inDrag && w == gWin) {
+                        /* Immovable appliance window: ignore drags. */
                     } else if (part == inSysWindow) {
                         SystemClick(&evt, w);      /* a desk accessory's window */
                     } else {
