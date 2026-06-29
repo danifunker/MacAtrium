@@ -49,6 +49,7 @@ typedef struct {
     int        ndepths;       /* count in depths[]                            */
     int        vol;           /* speaker volume 0..SOUND_VOL_MAX (-1 = n/a)   */
     int        artPref;       /* 0 = Box Art, 1 = Screenshot (the `shot` field) */
+    int        carousel;      /* carousel icons shown: odd 3..25, capped by fit */
     int        sndStartup;    /* 1 = play the startup sound on launch          */
     int        sndShutdown;   /* 1 = play the shutdown sound on Shut Down      */
     Art       *rowIcon[MAX_ITEMS]; /* lazily-loaded list-row icons, by catalog idx */
@@ -63,16 +64,25 @@ typedef struct {
                               * full repaint so a switched/closed overlay clears  */
     int        catList;       /* 1 = show the categories list panel on the browse
                               * screen (toggled in Settings)                      */
+    int        overlayDrawn;  /* 1 = the menu/settings panel is fully drawn, so a
+                              * selection move repaints only the changed rows     */
+    int        lastSel;       /* overlay row last drawn selected (-1 = none)      */
 } Ui;
 
 void      ui_init(Ui *u, Env *env, Render *r, Model *m, WindowPtr win, int safe);
 void      ui_draw(Ui *u);
+void      ui_draw_art(Ui *u);   /* targeted: repaint only the detail cover area */
 UiCommand ui_key(Ui *u, char ch);
 UiCommand ui_click(Ui *u, Point pt);   /* mouse: hit-test a window-local click */
 
+/* ui_idle() return: what (if anything) the idle tick needs repainted —
+ * NONE, just the cover box (ui_draw_art), or the whole screen (ui_draw). */
+enum { UI_IDLE_NONE = 0, UI_IDLE_ART = 1, UI_IDLE_FULL = 2 };
+
 /* Idle work: lazily load the selected item's detail art (deferred so scrolling
- * stays cheap). Returns 1 if it loaded something and the caller should redraw.
- * Call from the event loop when WaitNextEvent reports no event. */
+ * stays cheap), or pick up an external screen-depth change. Returns a UI_IDLE_*
+ * code telling the caller what to repaint. Call from the event loop when
+ * WaitNextEvent reports no event. */
 int       ui_idle(Ui *u);
 void      ui_set_status(Ui *u, const char *msg);
 

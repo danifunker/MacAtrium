@@ -333,6 +333,7 @@ static void save_prefs(void)
     p.sndStartup = gUi.sndStartup;   p.haveSndStartup = 1;
     p.sndShutdown = gUi.sndShutdown; p.haveSndShutdown = 1;
     p.catList = gUi.catList;         p.haveCatList = 1;
+    p.carousel = gUi.carousel;       p.haveCarousel = 1;
     p.depth = display_current_depth();  p.haveDepth = (p.depth > 0);  /* boot-depth pref */
 
     p.category[0] = '\0';
@@ -607,6 +608,7 @@ int main(void)
     if (gPrefs.haveSndStartup)  gUi.sndStartup  = gPrefs.sndStartup;   /* restore sound prefs */
     if (gPrefs.haveSndShutdown) gUi.sndShutdown = gPrefs.sndShutdown;
     if (gPrefs.haveCatList)     gUi.catList     = gPrefs.catList;      /* restore cat-list view */
+    if (gPrefs.haveCarousel)    gUi.carousel    = gPrefs.carousel;    /* restore carousel size */
 
     bring_self_front();
     SetPort(gWin);
@@ -620,8 +622,14 @@ int main(void)
         mem_debug_tick(gWin);   /* dev-only memory overlay; no-op without MEM_DEBUG */
         if (!next_event(&evt)) {
             /* Idle: load the settled selection's detail art (deferred so a fast
-             * scroll never blocks on decoding a colour PICT), then repaint. */
-            if (ui_idle(&gUi)) ui_draw(&gUi);
+             * scroll never blocks on decoding a colour PICT). Repaint only the
+             * cover box for an art load — repainting the whole screen there was the
+             * "double refresh" on flip; a depth change still needs a full redraw. */
+            {
+                int rc = ui_idle(&gUi);
+                if (rc == UI_IDLE_FULL)     ui_draw(&gUi);
+                else if (rc == UI_IDLE_ART) ui_draw_art(&gUi);
+            }
             continue;
         }
         {

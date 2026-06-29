@@ -11,6 +11,25 @@
 cmake_minimum_required(VERSION 3.9)
 project(MacAtrium C)
 
+# Stamp the build with the current git commit (short hash, +"-dirty" when the
+# tree has uncommitted changes) so the launcher can show its version in the Menu.
+# Captured at configure time — re-run cmake to refresh after committing.
+execute_process(
+    COMMAND git -C ${CMAKE_SOURCE_DIR} rev-parse --short HEAD
+    OUTPUT_VARIABLE MACATRIUM_GIT_HASH
+    OUTPUT_STRIP_TRAILING_WHITESPACE ERROR_QUIET)
+if(NOT MACATRIUM_GIT_HASH)
+    set(MACATRIUM_GIT_HASH "unknown")
+endif()
+execute_process(
+    COMMAND git -C ${CMAKE_SOURCE_DIR} diff --quiet HEAD
+    RESULT_VARIABLE MACATRIUM_GIT_DIRTY ERROR_QUIET)
+if(MACATRIUM_GIT_DIRTY)
+    set(MACATRIUM_GIT_HASH "${MACATRIUM_GIT_HASH}-dirty")
+endif()
+configure_file(${CMAKE_SOURCE_DIR}/src/version.h.in ${CMAKE_BINARY_DIR}/version.h @ONLY)
+include_directories(${CMAKE_BINARY_DIR})
+
 add_application(MacAtrium
     src/main.c
     src/env.c
