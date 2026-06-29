@@ -25,7 +25,8 @@ typedef enum {
 } UiCommand;
 
 enum { UI_MODE_LIST = 0, UI_MODE_MENU, UI_MODE_PREVIEW, UI_MODE_SETTINGS,
-       UI_MODE_INFO, UI_MODE_CTLPANELS, UI_MODE_SETUP, UI_MODE_ABOUT };
+       UI_MODE_INFO, UI_MODE_CTLPANELS, UI_MODE_SETUP, UI_MODE_ABOUT,
+       UI_MODE_QUITCONFIRM };
 
 /* Browse view modes — the first-run chooser (UI_MODE_SETUP) and the View menu
  * pick one; `Ui::view` holds the current. All views drive the same Model. */
@@ -61,6 +62,8 @@ typedef struct {
     int        lastDrawnFocus;/* List pane focus at the last full draw (focus change -> full) */
     ControlHandle scrollV;    /* real Control-Manager vertical scroll bar (grid + list) */
     ControlHandle launch;     /* real "Launch" push button                              */
+    ControlHandle quitBtn;    /* quit-confirm dialog: "Quit" (default) push button      */
+    ControlHandle cancelBtn;  /* quit-confirm dialog: "Cancel" push button              */
     int        controlsReady; /* 1 once the controls have been created                  */
     int        setupSel;      /* selected row on the first-run UI_MODE_SETUP screen */
     int        carousel;      /* carousel icons shown: odd 3..25, capped by fit */
@@ -107,6 +110,10 @@ void      ui_set_status(Ui *u, const char *msg);
  * by an arrow/page part, or jump to the thumb's value. */
 void      ui_scroll_step(Ui *u, short part);
 void      ui_scroll_to(Ui *u, short val);
+
+/* Open the "Are you sure you want to quit?" confirmation (the close box / File >
+ * Quit / Cmd-Opt-Q route through this instead of quitting directly). */
+void      ui_confirm_quit(Ui *u);
 
 void      ui_show_about(Ui *u);              /* Apple > About MacAtrium     */
 void      ui_show_settings(Ui *u);           /* View  > Settings…           */
