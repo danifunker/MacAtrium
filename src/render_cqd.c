@@ -30,16 +30,18 @@ static ThemePalette kDark = {
     { 0x5555, 0x5555, 0x5555 }    /* line    #555555 grey rule   */
 };
 
-/* Light ("Platinum"): platinum desktop, white list area, system-blue selection,
- * near-black text, mid-grey dim, light rule. */
+/* Light (authentic System 7): white window interiors, black-on-white chrome, a
+ * PALE low-saturation highlight (the System 7 Highlight colour — NOT a saturated
+ * accent), black 1px rules. selText is BLACK (dark text reads on the pale tint).
+ * This is the classic look; the Platinum/blue version read as a modern app. */
 static ThemePalette kLight = {
-    { 0xDCDC, 0xDCDC, 0xDCDC },   /* bg      #dcdcdc platinum   */
-    { 0xFFFF, 0xFFFF, 0xFFFF },   /* panel   white              */
-    { 0x2C2C, 0x6B6B, 0xDDDD },   /* sel     #2c6bdd system blue*/
-    { 0x1A1A, 0x1A1A, 0x1A1A },   /* text    #1a1a1a near-black */
-    { 0x6C6C, 0x6C6C, 0x6C6C },   /* dim     #6c6c6c            */
-    { 0xFFFF, 0xFFFF, 0xFFFF },   /* selText white              */
-    { 0xB4B4, 0xB4B4, 0xB4B4 }    /* line    #b4b4b4 light rule */
+    { 0xFFFF, 0xFFFF, 0xFFFF },   /* bg      white (window interior)      */
+    { 0xEAEA, 0xEAEA, 0xEAEA },   /* panel   #eaeaea — overlays stand out */
+    { 0xC6C6, 0xCFCF, 0xEFEF },   /* sel     #c6cfef pale blue-grey tint  */
+    { 0x0000, 0x0000, 0x0000 },   /* text    black                        */
+    { 0x7878, 0x7878, 0x7878 },   /* dim     #787878 mid grey             */
+    { 0x0000, 0x0000, 0x0000 },   /* selText black (dark on the pale tint)*/
+    { 0x0000, 0x0000, 0x0000 }    /* line    black 1px rules + frames      */
 };
 
 static ThemePalette *pal(const Render *r)

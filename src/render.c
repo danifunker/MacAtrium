@@ -10,7 +10,7 @@
 void render_init(Render *r, const Env *e)
 {
     r->color        = e->useColor;
-    r->theme        = THEME_DARK;      /* dark by default; 'T' toggles at runtime */
+    r->theme        = THEME_LIGHT;     /* classic black-on-white by default; 'T' toggles to dark */
     r->depth        = e->pixelSize > 0 ? e->pixelSize : 1;
     /* Off-screen compositing needs Color QD *and* System 7+: on base System 6 the
      * GWorld/temp-memory path can bomb with dsMemFullErr (out of memory) at launch,
