@@ -465,21 +465,24 @@ pub fn run(cfg: &BuildConfig) -> Result<()> {
         } else {
             String::new()
         };
+        // Apps live in the resource fork, which rb-cli can't size up front, so the
+        // app footprint isn't projected here — it's MEASURED live during harvest
+        // (the `[footprint]` lines below) as a volume used-space delta. Only base +
+        // art (covers/screenshots/icons) are estimable ahead of time.
         eprintln!(
-            "[preflight] ~{} MB projected (base {} + art ~{} for {} item(s)){}",
-            mb(est.total()),
+            "[preflight] base {} MB + covers/art ~{} MB est for {} item(s){} (apps measured live during harvest)",
             mb(est.base_bytes),
             mb(est.art_bytes),
             n_items,
             tgt
         );
-        if !est.fits() {
-            eprintln!("[preflight] WARNING: projection exceeds target — raise disk_size_mb (≤2048)");
-        }
     }
 
     // 1c. grow the image to the requested size (disk-size controller).
     crate::preflight::apply_disk_size(&rb, cfg)?;
+    // Baseline volume usage after the grow (OS + launcher only) — the zero point
+    // the harvest/art footprints are measured against.
+    let used_after_grow = rb.fs_used(&cfg.out).unwrap_or(0);
 
     // 3. harvest apps from donor images into the output + append stubs. Two paths,
     // both may run: a high-level `selection` (dataset ids/categories → donor
@@ -529,6 +532,16 @@ pub fn run(cfg: &BuildConfig) -> Result<()> {
             )?;
         }
     }
+
+    // Footprint #1 — apps. The harvested apps are the build's big half and live in
+    // the resource fork, so measure the real cost as the volume used-space delta
+    // (fork-accurate; `ls` can't see resource forks). Reported now for immediate
+    // feedback on the long harvest step; folded into the summary after art too.
+    let used_after_apps = rb.fs_used(&cfg.out).unwrap_or(used_after_grow);
+    eprintln!(
+        "[footprint] apps {} MB (both forks, on-volume)",
+        used_after_apps.saturating_sub(used_after_grow) / (1024 * 1024)
+    );
 
     // 3b. enrich from the Macintosh Garden archive (68K-only) BEFORE LaunchBox, so
     // MG wins for gap-fills; stage its box-front/screenshot art for the art pass.
@@ -589,6 +602,22 @@ pub fn run(cfg: &BuildConfig) -> Result<()> {
     // 6b. art: bake box-art + screenshot + app icons for the INSTALLED titles,
     // inject them, and merge the image/shot/icon paths back. (Shared with `add`.)
     bake_art(cfg, &rb, &stage, &present)?;
+
+    // Footprint #2 — covers + art, again a used-space delta. Summary line shows the
+    // two halves (apps vs covers/art) and the volume total against the target, so a
+    // disk can be right-sized from real numbers instead of an apps-blind estimate.
+    let used_after_art = rb.fs_used(&cfg.out).unwrap_or(used_after_apps);
+    {
+        let mb = |b: u64| b / (1024 * 1024);
+        let target = cfg.disk_size_mb.map(|m| m.min(crate::config::MAX_DISK_MB)).unwrap_or(0);
+        eprintln!(
+            "[footprint] covers + art {} MB · apps {} MB · volume used {} MB{}",
+            mb(used_after_art.saturating_sub(used_after_apps)),
+            mb(used_after_apps.saturating_sub(used_after_grow)),
+            mb(used_after_art),
+            if target > 0 { format!(" / {target} MB target") } else { String::new() },
+        );
+    }
 
     // 7. catalog: generate + inject from the present (already-filtered) set.
     eprintln!("[6/7] catalog      generate + inject (paged, docs/21)");

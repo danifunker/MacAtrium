@@ -174,6 +174,24 @@ impl RbCli {
         Ok(())
     }
 
+    /// Bytes in use on the image's HFS volume — **both forks** + metadata — via
+    /// `rb-cli show fs-info`. This is the only fork-accurate size rb-cli exposes:
+    /// `ls`/`locate` report the *data* fork only, which is ~0 for the resource-fork
+    /// Mac apps we harvest, so summing `ls` sizes would wildly undercount. Callers
+    /// measure a build stage's real footprint as a used-space delta around it.
+    /// Tries the `@1` partition ref first (APM disk), then the bare path.
+    pub fn fs_used(&self, image: &Path) -> Result<u64> {
+        let img = image.to_string_lossy().into_owned();
+        for refr in [format!("{img}@1"), img.clone()] {
+            if let Ok(out) = self.run(&["show", "fs-info", &refr]) {
+                if let Some(u) = parse_fs_used(&out) {
+                    return Ok(u);
+                }
+            }
+        }
+        bail!("fs_used: could not read `Used` from `show fs-info {img}`");
+    }
+
     /// True if `path` (a file or directory) exists inside the image. Implemented
     /// by listing the parent and checking for the leaf, so it works for the
     /// space/`ƒ`-containing names our app paths carry. Any rb-cli error (missing
@@ -272,6 +290,16 @@ fn parse_ls_line(line: &str) -> Option<Entry> {
     Some(Entry { is_dir, ostype, creator, name, size })
 }
 
+/// Pull the exact byte count from a `show fs-info` "Used:" line, e.g.
+/// `Used:        22.2 MiB (23289856 bytes)` → `23289856`. Prefers the
+/// parenthesised exact bytes over the rounded human figure.
+fn parse_fs_used(out: &str) -> Option<u64> {
+    let line = out.lines().find(|l| l.trim_start().starts_with("Used:"))?;
+    let after_paren = &line[line.find('(')? + 1..];
+    let digits: String = after_paren.chars().take_while(|c| c.is_ascii_digit()).collect();
+    digits.parse().ok()
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -315,6 +343,15 @@ mod tests {
         assert_eq!(resolve_bin("rb-cli", Some("rb-cli")), "rb-cli");
         assert_eq!(resolve_bin("/opt/rb-cli", None), "/opt/rb-cli");
         assert_eq!(resolve_bin("rb-cli", None), "rb-cli");
+    }
+
+    #[test]
+    fn parses_fs_info_used_bytes() {
+        let out = "Partition 2 (APM): Apple_HFS\nFilesystem:  HFS\nVolume:      Mac7-1\n\
+                   Total:       40.0 MiB (41933824 bytes)\nUsed:        22.2 MiB (23289856 bytes)\n\
+                   Free:        17.8 MiB (18643968 bytes)\n";
+        assert_eq!(parse_fs_used(out), Some(23289856));
+        assert_eq!(parse_fs_used("no used line here"), None);
     }
 
     #[test]
