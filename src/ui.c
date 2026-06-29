@@ -1764,10 +1764,27 @@ static void ensure_controls(Ui *u)
     Rect z;
     if (u->controlsReady || !u->win) return;
     SetRect(&z, 0, 0, SBW, 100);
-    u->scrollV = NewControl(u->win, &z, "\p", false, 0, 0, 0, scrollBarProc, 0L);
+    u->scrollV   = NewControl(u->win, &z, "\p", false, 0, 0, 0, scrollBarProc, 0L);
     SetRect(&z, 0, 0, 84, 20);
-    u->launch  = NewControl(u->win, &z, "\pLaunch", false, 1, 0, 1, pushButProc, 0L);
-    u->controlsReady = (u->scrollV && u->launch) ? 1 : 0;
+    u->launch    = NewControl(u->win, &z, "\pLaunch", false, 1, 0, 1, pushButProc, 0L);
+    u->quitBtn   = NewControl(u->win, &z, "\pQuit",   false, 1, 0, 1, pushButProc, 0L);
+    u->cancelBtn = NewControl(u->win, &z, "\pCancel", false, 1, 0, 1, pushButProc, 0L);
+    u->controlsReady = (u->scrollV && u->launch && u->quitBtn && u->cancelBtn) ? 1 : 0;
+}
+
+/* The quit-confirm dialog's panel + its two button rects (shared by draw + the
+ * control placement). */
+#define QC_PW 344
+#define QC_PH 116
+static void quitconfirm_rects(Ui *u, Rect *panel, Rect *quitBtn, Rect *cancelBtn)
+{
+    int   W = win_w(u), H = win_h(u);
+    short px = (short)((W - QC_PW) / 2), py = (short)((H - QC_PH) / 2);
+    SetRect(panel, px, py, (short)(px + QC_PW), (short)(py + QC_PH));
+    SetRect(quitBtn,   (short)(px + QC_PW - 90),  (short)(py + QC_PH - 34),
+            (short)(px + QC_PW - 20),  (short)(py + QC_PH - 14));
+    SetRect(cancelBtn, (short)(px + QC_PW - 184), (short)(py + QC_PH - 34),
+            (short)(px + QC_PW - 110), (short)(py + QC_PH - 14));
 }
 
 /* Reposition a control only when its rect actually changed, so a per-frame repaint
@@ -1790,6 +1807,21 @@ static void ui_paint_controls(Ui *u)
     int  n, vis, val, max, canLaunch;
     ensure_controls(u);
     if (!u->controlsReady) return;
+    if (u->mode == UI_MODE_QUITCONFIRM) {       /* the modal's two real buttons */
+        Rect panel, qb, cb, ring;
+        quitconfirm_rects(u, &panel, &qb, &cb);
+        HideControl(u->scrollV); HideControl(u->launch);
+        place_control(u->quitBtn, &qb);   ShowControl(u->quitBtn);   Draw1Control(u->quitBtn);
+        place_control(u->cancelBtn, &cb);  ShowControl(u->cancelBtn); Draw1Control(u->cancelBtn);
+        /* the bold default-button ring around Quit (the CDEF doesn't draw it) */
+        ring = qb; InsetRect(&ring, -4, -4);
+        PenSize(3, 3); ForeColor(blackColor);
+        FrameRoundRect(&ring, 16, 16);
+        PenSize(1, 1);
+        return;
+    }
+    HideControl(u->quitBtn);
+    HideControl(u->cancelBtn);
     if (u->safe || u->mode != UI_MODE_LIST ||
         (u->view != VIEW_ICON && u->view != VIEW_LIST)) {
         HideControl(u->scrollV);
@@ -1823,6 +1855,26 @@ static void ui_paint_controls(Ui *u)
     HiliteControl(u->launch, (short)(canLaunch ? 0 : 255));
     ShowControl(u->launch);
     Draw1Control(u->launch);
+}
+
+/* The quit-confirmation modal: a centred panel + message. The Quit (default) and
+ * Cancel buttons are real push-button controls drawn by ui_paint_controls. */
+static void draw_quitconfirm(Ui *u)
+{
+    Render     *r = u->r;
+    Rect        panel, qb, cb;
+    const char *msg = "Are you sure you want to quit MacAtrium?";
+    short       cw, mid;
+    quitconfirm_rects(u, &panel, &qb, &cb);
+    render_fill(r, &panel, FILL_PANEL);
+    render_frame(r, &panel);
+    render_text_size(r, 12);
+    mid = (short)(panel.left + (panel.right - panel.left) / 2);
+    cw = render_text_width(r, msg);
+    render_text(r, (short)(mid - cw / 2), (short)(panel.top + 34), msg, INK_TITLE);
+    { const char *t = "The Finder will come back.";
+      cw = render_text_width(r, t);
+      render_text(r, (short)(mid - cw / 2), (short)(panel.top + 54), t, INK_DIM); }
 }
 
 void ui_draw(Ui *u)
@@ -1868,7 +1920,7 @@ void ui_draw(Ui *u)
          * overlay's selection changed, the carousel behind it is already in the
          * GWorld, so skip repainting it — that's what made menu Up/Down lurch. */
         int overlay = (u->mode == UI_MODE_MENU || u->mode == UI_MODE_SETTINGS ||
-                       u->mode == UI_MODE_CTLPANELS);
+                       u->mode == UI_MODE_CTLPANELS || u->mode == UI_MODE_QUITCONFIRM);
         if (!overlay || !u->bgValid) {
             if (u->safe) draw_safe(u);
             else         cur_view(u)->draw(u);   /* current browse view (carousel/grid/list) */
@@ -1881,6 +1933,8 @@ void ui_draw(Ui *u)
             draw_settings(u);
         else if (u->mode == UI_MODE_CTLPANELS)
             draw_ctlpanels(u);
+        else if (u->mode == UI_MODE_QUITCONFIRM)
+            draw_quitconfirm(u);
     }
     render_end(u->r, u->win);
     ui_paint_controls(u);          /* real scroll bar + Launch button, over the blit */
@@ -2154,6 +2208,13 @@ UiCommand ui_key(Ui *u, char ch)
 {
     UiCommand cmd = UI_NONE;
 
+    /* Quit-confirm modal: Return = Quit (default), Esc = Cancel. */
+    if (u->mode == UI_MODE_QUITCONFIRM) {
+        if (ch == kCharReturn || ch == kCharEnter) return UI_QUIT;
+        if (ch == kCharEscape) { u->mode = UI_MODE_LIST; ui_draw(u); }
+        return UI_NONE;
+    }
+
     /* First-run chooser is modal: Up/Down pick, Return/Esc confirm + persist. */
     if (u->mode == UI_MODE_SETUP) {
         UiCommand sc = UI_NONE;
@@ -2365,6 +2426,15 @@ UiCommand ui_key(Ui *u, char ch)
  * dismiss on a click outside the panel (the universal mouse "Back"). */
 UiCommand ui_click(Ui *u, Point pt)
 {
+    /* Quit-confirm modal: the Quit / Cancel buttons are real controls (handled in
+     * main before ui_click); a click outside the panel cancels. */
+    if (u->mode == UI_MODE_QUITCONFIRM) {
+        Rect panel, qb, cb;
+        quitconfirm_rects(u, &panel, &qb, &cb);
+        if (!PtInRect(pt, &panel)) { u->mode = UI_MODE_LIST; ui_draw(u); }
+        return UI_NONE;
+    }
+
     /* First-run chooser: a click on a row picks that view and continues. */
     if (u->mode == UI_MODE_SETUP) {
         int i;
@@ -2501,6 +2571,13 @@ UiCommand ui_click(Ui *u, Point pt)
 void ui_show_about(Ui *u)
 {
     u->mode = UI_MODE_ABOUT;
+    ui_draw(u);
+}
+
+void ui_confirm_quit(Ui *u)
+{
+    u->settingsFocus = 0;
+    u->mode = UI_MODE_QUITCONFIRM;
     ui_draw(u);
 }
 

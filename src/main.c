@@ -600,7 +600,7 @@ static void do_menu(long mr)
             else if (gFileShowFinder && item == gFileShowFinder)
                                                  handle_ui_command(UI_SHOW_FINDER);
             else if (gFileQuit && item == gFileQuit)
-                                                 handle_ui_command(UI_QUIT);   /* no return */
+                                                 ui_confirm_quit(&gUi);   /* ask first */
             break;
         case mEdit:
             (void)SystemEdit((short)(item - 1));   /* route to an active DA, if any */
@@ -717,8 +717,10 @@ int main(void)
                         /* Cmd-Option-Q quits the launcher back to the Finder. Match
                          * the virtual key CODE (Q = 0x0C), not the char: Option
                          * mangles it (Option-Q yields the "oe" ligature). */
-                        if ((evt.modifiers & optionKey) && keyCode == 0x0C)
-                            quit_to_finder();      /* does not return */
+                        if ((evt.modifiers & optionKey) && keyCode == 0x0C) {
+                            ui_confirm_quit(&gUi); /* ask before quitting */
+                            break;
+                        }
                         /* Other Cmd-combos are menu shortcuts. MenuKey returns the
                          * matched menu/item (0 if none); unmatched combos are
                          * swallowed rather than passed to the UI as plain keys. */
@@ -761,6 +763,13 @@ int main(void)
                         if (cp && ctl == gUi.launch) {
                             if (TrackControl(ctl, p, (ControlActionUPP)0) == inButton)
                                 handle_ui_command(UI_LAUNCH);
+                        } else if (cp && ctl == gUi.quitBtn) {
+                            if (TrackControl(ctl, p, (ControlActionUPP)0) == inButton)
+                                handle_ui_command(UI_QUIT);   /* confirmed quit */
+                        } else if (cp && ctl == gUi.cancelBtn) {
+                            if (TrackControl(ctl, p, (ControlActionUPP)0) == inButton) {
+                                gUi.mode = UI_MODE_LIST; ui_draw(&gUi);   /* cancel */
+                            }
                         } else if (cp && ctl == gUi.scrollV) {
                             if (cp == inThumb) {
                                 if (TrackControl(ctl, p, (ControlActionUPP)0))
@@ -773,10 +782,9 @@ int main(void)
                             handle_ui_command(ui_click(&gUi, p));
                         }
                     } else if (part == inGoAway && w == gWin) {
-                        /* The title bar's close box: confirm, then quit. (The
-                         * quit-confirm dialog lands in Phase 6; for now it quits.) */
+                        /* The title bar's close box asks before quitting. */
                         if (TrackGoAway(w, evt.where))
-                            handle_ui_command(UI_QUIT);
+                            ui_confirm_quit(&gUi);
                     } else if (part == inDrag && w == gWin) {
                         /* Immovable appliance window: ignore drags. */
                     } else if (part == inSysWindow) {
