@@ -617,6 +617,7 @@ fn main() -> Result<()> {
                 into.as_deref(),
                 &apps_root,
                 append_to.as_deref(),
+                None,
             )?;
         }
         Cmd::Image { config } => {
