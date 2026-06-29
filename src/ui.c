@@ -1187,23 +1187,39 @@ static void draw_scrollbar_v(Ui *u, short x, short y, short h, int total, int vi
 }
 
 /* ---- Icon Grid view (Finder "by Icon") ---- */
-static void grid_metrics(Ui *u, int *cols, int *cw, int *chh, int *top, int *vis)
+/* Geometry shared by the grid's draw + click (the carousel_layout pattern), so a
+ * click maps to the same cell the draw painted. `scroll` is derived from the
+ * selection (keeps it centred/visible). */
+typedef struct {
+    int cols, cw, chh, top, vis, n, totRows, scroll, gx0;
+} GridLayout;
+
+static void grid_layout(Ui *u, GridLayout *g)
 {
-    int W = win_w(u), H = win_h(u);
-    *cw = 108; *chh = 84;
-    *cols = (W - 2 * MARGIN - SBW) / *cw; if (*cols < 1) *cols = 1;
-    *top  = HEADER_H + 8;
-    *vis  = (H - HINT_H - *top) / *chh; if (*vis < 1) *vis = 1;
+    Model    *m = u->m;
+    ModelCat *cat = model_cur_cat(m);
+    int       W = win_w(u), H = win_h(u), selRow;
+    g->cw = 108; g->chh = 84;
+    g->cols = (W - 2 * MARGIN - SBW) / g->cw; if (g->cols < 1) g->cols = 1;
+    g->top  = HEADER_H + 8;
+    g->vis  = (H - HINT_H - g->top) / g->chh; if (g->vis < 1) g->vis = 1;
+    g->n    = cat ? cat->count : 0;
+    g->totRows = (g->n + g->cols - 1) / g->cols;
+    selRow  = m->curItem / g->cols;
+    g->scroll = selRow - g->vis / 2;
+    if (g->scroll > g->totRows - g->vis) g->scroll = g->totRows - g->vis;
+    if (g->scroll < 0) g->scroll = 0;
+    g->gx0 = (W - SBW - g->cols * g->cw) / 2; if (g->gx0 < MARGIN) g->gx0 = MARGIN;
 }
 
 static void draw_iconview(Ui *u)
 {
-    Render   *r = u->r;
-    Model    *m = u->m;
-    ModelCat *cat = model_cur_cat(m);
-    Rect      full = u->win->portRect, rr;
-    int       W = win_w(u), H = win_h(u);
-    int       cols, cw, chh, top, vis, n, sel, selRow, totRows, scroll, i, gx0;
+    Render     *r = u->r;
+    Model      *m = u->m;
+    ModelCat   *cat = model_cur_cat(m);
+    Rect        full = u->win->portRect, rr;
+    int         W = win_w(u), H = win_h(u), i;
+    GridLayout  g;
 
     render_fill(r, &full, FILL_BG);
     draw_browse_header(u);
@@ -1212,62 +1228,113 @@ static void draw_iconview(Ui *u)
         render_text(r, (short)((W - render_text_width(r, t)) / 2), (short)(H / 2), t, INK_DIM);
         return;
     }
-    grid_metrics(u, &cols, &cw, &chh, &top, &vis);
-    n = cat->count; sel = m->curItem;
-    selRow = sel / cols; totRows = (n + cols - 1) / cols;
-    scroll = selRow - vis / 2;
-    if (scroll > totRows - vis) scroll = totRows - vis;
-    if (scroll < 0) scroll = 0;
-    gx0 = (W - SBW - cols * cw) / 2; if (gx0 < MARGIN) gx0 = MARGIN;
-    for (i = 0; i < vis * cols; i++) {
-        int idx = scroll * cols + i, rrow = i / cols, ccol = i % cols, isSel;
+    grid_layout(u, &g);
+    for (i = 0; i < g.vis * g.cols; i++) {
+        int idx = g.scroll * g.cols + i, rrow = i / g.cols, ccol = i % g.cols, isSel;
         short cx, cy, isz = 38, ix, nameW;
         const CatItem *it; Art *ic; char nm[ITEM_NAME_LEN];
-        if (idx >= n) break;
-        cx = (short)(gx0 + ccol * cw); cy = (short)(top + rrow * chh);
-        it = &m->cat->items[cat->idx[idx]]; isSel = (idx == sel);
-        if (isSel) { SetRect(&rr, cx, cy, (short)(cx + cw - 6), (short)(cy + chh - 4)); render_fill(r, &rr, FILL_SEL); }
-        ix = (short)(cx + (cw - 6 - isz) / 2);
+        if (idx >= g.n) break;
+        cx = (short)(g.gx0 + ccol * g.cw); cy = (short)(g.top + rrow * g.chh);
+        it = &m->cat->items[cat->idx[idx]]; isSel = (idx == m->curItem);
+        if (isSel) { SetRect(&rr, cx, cy, (short)(cx + g.cw - 6), (short)(cy + g.chh - 4)); render_fill(r, &rr, FILL_SEL); }
+        ix = (short)(cx + (g.cw - 6 - isz) / 2);
         ic = row_icon(u, cat->idx[idx], it);
         SetRect(&rr, ix, (short)(cy + 8), (short)(ix + isz), (short)(cy + 8 + isz));
         if (ic) art_draw_fit(ic, &rr); else render_frame(r, &rr);
         strncpy(nm, it->name, sizeof nm - 1); nm[sizeof nm - 1] = '\0';
-        while (nm[0] && render_text_width(r, nm) > cw - 12) nm[strlen(nm) - 1] = '\0';
+        while (nm[0] && render_text_width(r, nm) > g.cw - 12) nm[strlen(nm) - 1] = '\0';
         nameW = render_text_width(r, nm);
-        render_text(r, (short)(cx + (cw - 6 - nameW) / 2), (short)(cy + chh - 12), nm,
+        render_text(r, (short)(cx + (g.cw - 6 - nameW) / 2), (short)(cy + g.chh - 12), nm,
                     isSel ? INK_SELECTED : INK_NORMAL);
     }
-    draw_scrollbar_v(u, (short)(W - SBW), (short)HEADER_H, (short)(H - HINT_H - HEADER_H), totRows, vis, scroll);
+    draw_scrollbar_v(u, (short)(W - SBW), (short)HEADER_H, (short)(H - HINT_H - HEADER_H), g.totRows, g.vis, g.scroll);
 }
 
 static int iconview_nav(Ui *u, char ch)
 {
-    Model    *m = u->m;
-    ModelCat *cat = model_cur_cat(m);
-    int cols, cw, chh, top, vis, n = cat ? cat->count : 0, idx = m->curItem;
-    grid_metrics(u, &cols, &cw, &chh, &top, &vis);
+    Model      *m = u->m;
+    GridLayout  g;
+    int         idx = m->curItem;
+    grid_layout(u, &g);
     switch (ch) {
         case kCharLeft:  model_move_item(m, -1); return 1;
         case kCharRight: model_move_item(m, +1); return 1;
         case kCharUp:
-            if (idx < cols) { if (!model_move_cat(m, -1)) u->settingsFocus = 1; }
-            else model_move_item(m, -cols);
+            if (idx < g.cols) { if (!model_move_cat(m, -1)) u->settingsFocus = 1; }
+            else model_move_item(m, -g.cols);
             return 1;
         case kCharDown:
-            if (idx + cols >= n) model_move_cat(m, +1);
-            else model_move_item(m, +cols);
+            if (idx + g.cols >= g.n) model_move_cat(m, +1);
+            else model_move_item(m, +g.cols);
             return 1;
     }
     return 0;
 }
+
+/* Click a grid cell: select it; re-click the already-selected cell launches it
+ * (so a double-click = select-then-launch, the native open-on-double-click feel). */
+static int iconview_click(Ui *u, Point pt, UiCommand *out)
+{
+    Model      *m = u->m;
+    GridLayout  g;
+    int         i;
+    grid_layout(u, &g);
+    if (g.n == 0) return 0;
+    for (i = 0; i < g.vis * g.cols; i++) {
+        int   idx = g.scroll * g.cols + i, rrow = i / g.cols, ccol = i % g.cols;
+        short cx, cy;
+        Rect  cell;
+        if (idx >= g.n) break;
+        cx = (short)(g.gx0 + ccol * g.cw); cy = (short)(g.top + rrow * g.chh);
+        SetRect(&cell, cx, cy, (short)(cx + g.cw - 6), (short)(cy + g.chh - 4));
+        if (PtInRect(pt, &cell)) {
+            if (idx == m->curItem) { u->status[0] = '\0'; *out = UI_LAUNCH; }
+            else model_move_item(m, idx - m->curItem);
+            return 1;
+        }
+    }
+    return 0;
+}
+
 static int iconview_idle(Ui *u) { (void)u; return UI_IDLE_NONE; }   /* icons load in draw */
 
 /* ---- List / two-pane browser view ---- */
 #define LPANE 152   /* categories pane width */
+#define LDET  90    /* bottom detail (screenshot) strip height */
 
 static void vbar(Ui *u, short x, short y, short h)   /* 1px vertical divider */
 {
     Rect d; SetRect(&d, x, y, (short)(x + 1), (short)(y + h)); render_frame(u->r, &d);
+}
+
+/* Geometry shared by the list's draw + click: the two panes' visible-row windows
+ * (first index + row count) and the strip bounds, so a click lands on the same row
+ * the draw painted. */
+typedef struct {
+    short bTop, bBot, lstBot, rx, rw;
+    int   catRows, catTop;     /* categories pane: visible rows + first index */
+    int   itemRows, itemTop;   /* items pane: visible rows + first index      */
+    int   nItems;
+} ListLayout;
+
+static void list_layout(Ui *u, ListLayout *L)
+{
+    Model    *m = u->m;
+    ModelCat *cat = model_cur_cat(m);
+    int       W = win_w(u), H = win_h(u);
+    int       rows, top, n;
+    L->bTop   = (short)HEADER_H;
+    L->bBot   = (short)(H - HINT_H);
+    L->lstBot = (short)(L->bBot - LDET);
+    L->rx     = (short)(LPANE + 1);
+    L->rw     = (short)(W - LPANE - 1);
+    rows = (L->bBot - (L->bTop + 24)) / ROW_H; n = m->ncats;
+    top = m->curCat - rows / 2; if (top > n - rows) top = n - rows; if (top < 0) top = 0;
+    L->catRows = rows; L->catTop = top;
+    n = cat ? cat->count : 0;
+    rows = (L->lstBot - (L->bTop + 24)) / ROW_H;
+    top = m->curItem - rows / 2; if (top > n - rows) top = n - rows; if (top < 0) top = 0;
+    L->itemRows = rows; L->itemTop = top; L->nItems = n;
 }
 
 static void draw_listview(Ui *u)
@@ -1277,10 +1344,13 @@ static void draw_listview(Ui *u)
     ModelCat      *cat = model_cur_cat(m);
     const CatItem *cur = model_cur_item(m);
     Rect           full = u->win->portRect, rr;
-    int            W = win_w(u), H = win_h(u), i, DET = 90;
-    short          bTop = (short)(HEADER_H), bBot = (short)(H - HINT_H);
-    short          lstBot = (short)(bBot - DET), rx = (short)(LPANE + 1), rw = (short)(W - LPANE - 1);
+    int            W = win_w(u), i, DET = LDET;
+    ListLayout     L;
+    short          bTop, bBot, lstBot, rx, rw;
     char           num[16];
+
+    list_layout(u, &L);
+    bTop = L.bTop; bBot = L.bBot; lstBot = L.lstBot; rx = L.rx; rw = L.rw;
 
     render_fill(r, &full, FILL_BG);
     render_text_size(r, 12);
@@ -1288,24 +1358,20 @@ static void draw_listview(Ui *u)
     render_hline(r, 0, (short)W, (short)(HEADER_H - 1));
     vbar(u, LPANE, bTop, (short)(bBot - bTop));
 
-    /* left pane: categories (Left/Right change the current one) */
+    /* left pane: categories */
     render_text(r, 8, (short)(bTop + 15), "Categories", INK_TITLE);
     render_hline(r, 0, LPANE, (short)(bTop + 22));
-    {
-        int rows = (bBot - (bTop + 24)) / ROW_H, top, n = m->ncats;
-        top = m->curCat - rows / 2; if (top > n - rows) top = n - rows; if (top < 0) top = 0;
-        for (i = 0; i < rows && top + i < n; i++) {
-            int ci = top + i, sel = (ci == m->curCat);
-            short y0 = (short)(bTop + 26 + i * ROW_H);
-            char nm[ITEM_CAT_LEN];
-            if (sel) { SetRect(&rr, 1, y0, (short)(LPANE - 1), (short)(y0 + ROW_H)); render_fill(r, &rr, FILL_SEL); }
-            strncpy(nm, m->cats[ci].name, sizeof nm - 1); nm[sizeof nm - 1] = '\0';
-            while (nm[0] && render_text_width(r, nm) > LPANE - 14) nm[strlen(nm) - 1] = '\0';
-            render_text(r, 8, (short)(y0 + ROW_H - 5), nm, sel ? INK_SELECTED : INK_NORMAL);
-        }
+    for (i = 0; i < L.catRows && L.catTop + i < m->ncats; i++) {
+        int ci = L.catTop + i, sel = (ci == m->curCat);
+        short y0 = (short)(bTop + 26 + i * ROW_H);
+        char nm[ITEM_CAT_LEN];
+        if (sel) { SetRect(&rr, 1, y0, (short)(LPANE - 1), (short)(y0 + ROW_H)); render_fill(r, &rr, FILL_SEL); }
+        strncpy(nm, m->cats[ci].name, sizeof nm - 1); nm[sizeof nm - 1] = '\0';
+        while (nm[0] && render_text_width(r, nm) > LPANE - 14) nm[strlen(nm) - 1] = '\0';
+        render_text(r, 8, (short)(y0 + ROW_H - 5), nm, sel ? INK_SELECTED : INK_NORMAL);
     }
 
-    /* right pane: the category's items (Up/Down move the selection) */
+    /* right pane: the category's items */
     if (cat) {
         char hdr[ITEM_CAT_LEN + 24];
         strcpy(hdr, cat->name); strcat(hdr, "  -  ");
@@ -1314,10 +1380,8 @@ static void draw_listview(Ui *u)
     }
     render_hline(r, rx, (short)W, (short)(bTop + 22));
     if (cat && cat->count > 0) {
-        int rows = (lstBot - (bTop + 24)) / ROW_H, top, n = cat->count, sel = m->curItem;
-        top = sel - rows / 2; if (top > n - rows) top = n - rows; if (top < 0) top = 0;
-        for (i = 0; i < rows && top + i < n; i++) {
-            int idx = top + i, isSel = (idx == sel);
+        for (i = 0; i < L.itemRows && L.itemTop + i < L.nItems; i++) {
+            int idx = L.itemTop + i, isSel = (idx == m->curItem);
             const CatItem *it = &m->cat->items[cat->idx[idx]];
             short y0 = (short)(bTop + 26 + i * ROW_H);
             char nm[ITEM_NAME_LEN], g[16];
@@ -1330,7 +1394,7 @@ static void draw_listview(Ui *u)
             if (g[0]) render_text(r, (short)(W - SBW - 120), (short)(y0 + ROW_H - 5), g, isSel ? INK_SELECTED : INK_DIM);
             if (it->year > 0) { l2s(it->year, num); render_text(r, (short)(W - SBW - 40), (short)(y0 + ROW_H - 5), num, isSel ? INK_SELECTED : INK_DIM); }
         }
-        draw_scrollbar_v(u, (short)(W - SBW), (short)(bTop + 24), (short)(lstBot - (bTop + 24)), n, rows, top);
+        draw_scrollbar_v(u, (short)(W - SBW), (short)(bTop + 24), (short)(lstBot - (bTop + 24)), L.nItems, L.itemRows, L.itemTop);
     }
 
     /* bottom detail strip — SCREENSHOT (not box art) + meta */
@@ -1368,16 +1432,55 @@ static int listview_nav(Ui *u, char ch)
  * cover-box redraw is carousel-specific). */
 static int listview_idle(Ui *u) { return ensure_art_loaded(u) ? UI_IDLE_FULL : UI_IDLE_NONE; }
 
+/* Click in the List view: a click in the categories pane selects that category and
+ * focuses it; a click in the items pane selects that item and focuses the items
+ * pane (re-click the selected item launches it). */
+static int listview_click(Ui *u, Point pt, UiCommand *out)
+{
+    Model      *m = u->m;
+    ListLayout  L;
+    int         i;
+    list_layout(u, &L);
+    if (pt.h < LPANE) {                                  /* categories pane */
+        for (i = 0; i < L.catRows && L.catTop + i < m->ncats; i++) {
+            int   ci = L.catTop + i;
+            short y0 = (short)(L.bTop + 26 + i * ROW_H);
+            Rect  rr; SetRect(&rr, 1, y0, (short)(LPANE - 1), (short)(y0 + ROW_H));
+            if (PtInRect(pt, &rr)) {
+                u->listFocus = 0;
+                if (ci != m->curCat) model_move_cat(m, ci - m->curCat);
+                return 1;
+            }
+        }
+        return 0;
+    }
+    if (pt.v < L.lstBot) {                               /* items pane */
+        for (i = 0; i < L.itemRows && L.itemTop + i < L.nItems; i++) {
+            int   idx = L.itemTop + i;
+            short y0 = (short)(L.bTop + 26 + i * ROW_H);
+            Rect  rr; SetRect(&rr, L.rx, y0, (short)(win_w(u) - SBW), (short)(y0 + ROW_H));
+            if (PtInRect(pt, &rr)) {
+                u->listFocus = 1;
+                if (idx == m->curItem) { u->status[0] = '\0'; *out = UI_LAUNCH; }
+                else model_move_item(m, idx - m->curItem);
+                return 1;
+            }
+        }
+    }
+    return 0;
+}
+
 /* ---- browse views (MVC strategy) ----------------------------------------
  * Each view renders the shared Model (model.c) in the content area and maps the
  * arrow keys to model moves. The shared keys (Return / Esc / P / I / type-ahead)
- * and the chrome live in ui.c, so a view is just: how to draw + how arrows move.
- * List is added next; until then it falls back to the carousel. */
+ * and the chrome live in ui.c, so a view is just: draw + arrow-nav + mouse-click +
+ * deferred-art. */
 typedef struct {
     const char *name;
     void (*draw)(Ui *u);
-    int  (*nav)(Ui *u, char ch);   /* arrow key → model move; 1 = consumed */
-    int  (*idle)(Ui *u);           /* deferred art load → UI_IDLE_* */
+    int  (*nav)(Ui *u, char ch);              /* arrow key → model move; 1 = consumed */
+    int  (*idle)(Ui *u);                      /* deferred art load → UI_IDLE_* */
+    int  (*click)(Ui *u, Point pt, UiCommand *out); /* hit-test; 1 = handled (*out cmd) */
 } BrowseView;
 
 static int carousel_nav(Ui *u, char ch)
@@ -1392,9 +1495,44 @@ static int carousel_nav(Ui *u, char ch)
 }
 static int carousel_idle(Ui *u) { return ensure_art_loaded(u) ? UI_IDLE_ART : UI_IDLE_NONE; }
 
-static const BrowseView gCarouselView = { "Carousel",  draw_carousel, carousel_nav, carousel_idle };
-static const BrowseView gIconView     = { "Icon Grid", draw_iconview, iconview_nav, iconview_idle };
-static const BrowseView gListView     = { "List",      draw_listview, listview_nav, listview_idle };
+/* Click in the carousel: the "^ cat v" band changes category; the Launch button
+ * launches; the ◀▶ arrows and a visible side tile move the selection. (The shared
+ * gear is handled by ui_click before this.) */
+static int carousel_click(Ui *u, Point pt, UiCommand *out)
+{
+    CarLayout L;
+    carousel_layout(u, &L);
+    if (PtInRect(pt, &L.catBand)) {
+        model_move_cat(u->m, pt.h < L.catMidX ? -1 : +1);
+        return 1;
+    }
+    if (L.hasItems) {
+        if (PtInRect(pt, &L.launchBtn) && model_cur_item(u->m)) {
+            u->status[0] = '\0'; *out = UI_LAUNCH; return 1;
+        }
+        if (PtInRect(pt, &L.leftArrow))  { model_move_item(u->m, -1); return 1; }
+        if (PtInRect(pt, &L.rightArrow)) { model_move_item(u->m, +1); return 1; }
+        {   int k;
+            for (k = 1; k <= L.nside; k++) {
+                short off = (short)(L.half + L.sideGap + L.sideSz / 2 +
+                                    (k - 1) * (L.sideSz + L.sideGap));
+                short h = (short)(L.sideSz / 2);
+                Rect  lt, rt;
+                SetRect(&lt, (short)(L.cx - off - h), (short)(L.iconCy - h),
+                        (short)(L.cx - off + h), (short)(L.iconCy + h));
+                SetRect(&rt, (short)(L.cx + off - h), (short)(L.iconCy - h),
+                        (short)(L.cx + off + h), (short)(L.iconCy + h));
+                if (L.center - k >= 0 && PtInRect(pt, &lt)) { model_move_item(u->m, -k); return 1; }
+                if (L.center + k < L.count && PtInRect(pt, &rt)) { model_move_item(u->m, +k); return 1; }
+            }
+        }
+    }
+    return 0;
+}
+
+static const BrowseView gCarouselView = { "Carousel",  draw_carousel, carousel_nav, carousel_idle, carousel_click };
+static const BrowseView gIconView     = { "Icon Grid", draw_iconview, iconview_nav, iconview_idle, iconview_click };
+static const BrowseView gListView     = { "List",      draw_listview, listview_nav, listview_idle, listview_click };
 static const BrowseView *const gViews[VIEW_N] = {
     &gCarouselView,   /* VIEW_CAROUSEL */
     &gIconView,       /* VIEW_ICON */
@@ -2012,47 +2150,20 @@ UiCommand ui_click(Ui *u, Point pt)
 
     /* ---- browse screen (UI_MODE_LIST) ---- */
     {
-        CarLayout L;
-        carousel_layout(u, &L);
+        UiCommand cmd = UI_NONE;
+        Rect      gear;
+        SetRect(&gear, (short)(GEAR_X - 4), 3, (short)(GEAR_X + GEAR_W - 4), (short)(HEADER_H - 2));
         u->settingsFocus = 0;                        /* a click takes focus off the gear */
 
-        if (PtInRect(pt, &L.gear)) {                 /* gear -> the menu hub */
+        if (PtInRect(pt, &gear)) {                   /* shared: gear -> the menu hub */
             u->mode = UI_MODE_MENU; u->menuSel = 0;
             ui_draw(u);
             return UI_NONE;
         }
-        if (PtInRect(pt, &L.catBand)) {              /* "^ cat v": left half prev, right next */
-            model_move_cat(u->m, pt.h < L.catMidX ? -1 : +1);
-            ui_draw(u);
-            return UI_NONE;
-        }
-        if (L.hasItems) {
-            if (PtInRect(pt, &L.launchBtn) && model_cur_item(u->m)) {
-                u->status[0] = '\0';
-                ui_draw(u);
-                return UI_LAUNCH;
-            }
-            if (PtInRect(pt, &L.leftArrow))  { model_move_item(u->m, -1); ui_draw(u); return UI_NONE; }
-            if (PtInRect(pt, &L.rightArrow)) { model_move_item(u->m, +1); ui_draw(u); return UI_NONE; }
-            {   /* a visible side tile -> jump the selection to it */
-                int k;
-                for (k = 1; k <= L.nside; k++) {
-                    short off = (short)(L.half + L.sideGap + L.sideSz / 2 +
-                                        (k - 1) * (L.sideSz + L.sideGap));
-                    short h = (short)(L.sideSz / 2);
-                    Rect  lt, rt;
-                    SetRect(&lt, (short)(L.cx - off - h), (short)(L.iconCy - h),
-                            (short)(L.cx - off + h), (short)(L.iconCy + h));
-                    SetRect(&rt, (short)(L.cx + off - h), (short)(L.iconCy - h),
-                            (short)(L.cx + off + h), (short)(L.iconCy + h));
-                    if (L.center - k >= 0 && PtInRect(pt, &lt)) {
-                        model_move_item(u->m, -k); ui_draw(u); return UI_NONE;
-                    }
-                    if (L.center + k < L.count && PtInRect(pt, &rt)) {
-                        model_move_item(u->m, +k); ui_draw(u); return UI_NONE;
-                    }
-                }
-            }
+        /* The active view owns selection / launch / category hit-testing. */
+        if (cur_view(u)->click && cur_view(u)->click(u, pt, &cmd)) {
+            if (cmd != UI_LAUNCH) ui_draw(u);        /* a launch tears down the window */
+            return cmd;
         }
         ui_draw(u);
         return UI_NONE;
