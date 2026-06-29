@@ -739,10 +739,29 @@ int main(void)
                         sync_view_menu();          /* checkmark the live view first */
                         do_menu(MenuSelect(evt.where));
                     } else if (part == inContent && w == gWin) {
-                        Point p = evt.where;
+                        Point         p = evt.where;
+                        ControlHandle ctl;
+                        short         cp;
                         SetPort(gWin);
                         GlobalToLocal(&p);
-                        handle_ui_command(ui_click(&gUi, p));
+                        /* A real Control-Manager control under the click takes it
+                         * (hidden controls are skipped by FindControl); otherwise the
+                         * click is a normal UI hit-test. */
+                        cp = FindControl(p, gWin, &ctl);
+                        if (cp && ctl == gUi.launch) {
+                            if (TrackControl(ctl, p, (ControlActionUPP)0) == inButton)
+                                handle_ui_command(UI_LAUNCH);
+                        } else if (cp && ctl == gUi.scrollV) {
+                            if (cp == inThumb) {
+                                if (TrackControl(ctl, p, (ControlActionUPP)0))
+                                    ui_scroll_to(&gUi, GetControlValue(ctl));
+                            } else {
+                                short tp = TrackControl(ctl, p, (ControlActionUPP)0);
+                                if (tp) ui_scroll_step(&gUi, tp);
+                            }
+                        } else {
+                            handle_ui_command(ui_click(&gUi, p));
+                        }
                     } else if (part == inSysWindow) {
                         SystemClick(&evt, w);      /* a desk accessory's window */
                     } else {

@@ -59,6 +59,9 @@ typedef struct {
     int        lastDrawnTop;  /* in-page selection move can repaint just the changed */
     int        lastDrawnCat;  /* cells (else a scroll/category change -> full draw)   */
     int        lastDrawnFocus;/* List pane focus at the last full draw (focus change -> full) */
+    ControlHandle scrollV;    /* real Control-Manager vertical scroll bar (grid + list) */
+    ControlHandle launch;     /* real "Launch" push button                              */
+    int        controlsReady; /* 1 once the controls have been created                  */
     int        setupSel;      /* selected row on the first-run UI_MODE_SETUP screen */
     int        carousel;      /* carousel icons shown: odd 3..25, capped by fit */
     int        sndStartup;    /* 1 = play the startup sound on launch          */
@@ -100,6 +103,11 @@ void      ui_set_status(Ui *u, const char *msg);
 /* Menu-bar entry points (main.c owns the real System menu bar and calls these so
  * the UI layer stays draw + state only). Each sets the relevant mode/state and
  * repaints; the View switch + Settings changes are persisted by main (save_prefs). */
+/* Scroll-bar interaction (called by main.c after TrackControl): step the selection
+ * by an arrow/page part, or jump to the thumb's value. */
+void      ui_scroll_step(Ui *u, short part);
+void      ui_scroll_to(Ui *u, short val);
+
 void      ui_show_about(Ui *u);              /* Apple > About MacAtrium     */
 void      ui_show_settings(Ui *u);           /* View  > Settings…           */
 void      ui_show_info(Ui *u);               /* File  > Get Info            */
