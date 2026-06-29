@@ -276,6 +276,7 @@ fn harvest_one(
     apps_root: &str,
     into: Option<&Path>,
     warnings: &mut Vec<String>,
+    curated_id: Option<&str>,
 ) -> Result<Option<Harvested>> {
     let entries = rb
         .ls_exact(image, src_folder)
@@ -310,7 +311,12 @@ fn harvest_one(
 
     let (kind, genre) = infer_kind(src_folder);
     Ok(Some(Harvested {
-        id: app_slug,
+        // Prefer the SELECTED curated id (so the install reconnects to its curated
+        // record's metadata + categories) over the app-name slug. They differ when
+        // the launchable app is named differently from its folder/curated title —
+        // e.g. the folder `Oxyd 3.6` whose APPL is `Oxyd b/w` (id oxyd-3-6 vs the
+        // slug oxyd-b-w). append_to_dataset then just corrects that record's `app`.
+        id: curated_id.map(str::to_string).unwrap_or(app_slug),
         name: app.clone(),
         kind,
         year: infer_year(src_folder),
@@ -327,7 +333,7 @@ fn harvest_one(
 pub fn append_to_dataset(dataset: &Path, harvested: &[Harvested]) -> Result<(usize, usize)> {
     let existing = std::fs::read_to_string(dataset).unwrap_or_default();
     let (out, appended, skipped) = merge_stubs(&existing, harvested);
-    if appended > 0 {
+    if out != existing {
         std::fs::write(dataset, out)
             .with_context(|| format!("appending to {}", dataset.display()))?;
     }
@@ -335,37 +341,49 @@ pub fn append_to_dataset(dataset: &Path, harvested: &[Harvested]) -> Result<(usi
 }
 
 /// Pure merge: append stub lines for harvested apps whose `id` isn't already in
-/// `existing` (comments/blank lines ignored when collecting ids). Returns the new
-/// file text and (appended, skipped) counts.
+/// `existing`; for a harvested app whose `id` IS already present (a curated record),
+/// correct that record's `app` to the actual on-disk install path — leaving its
+/// metadata + categories untouched. This reconnects a sanitized install (e.g. the
+/// `/`-renamed `Oxyd b-w`) to its curated record. Comments/blank lines are kept
+/// verbatim. Returns the new file text and (appended, matched) counts.
 fn merge_stubs(existing: &str, harvested: &[Harvested]) -> (String, usize, usize) {
-    let have: std::collections::HashSet<String> = existing
-        .lines()
-        .map(str::trim)
-        .filter(|l| !l.is_empty() && !l.starts_with('#') && !l.starts_with("//"))
-        .filter_map(|l| serde_json::from_str::<serde_json::Value>(l).ok())
-        .filter_map(|v| v.get("id").and_then(|i| i.as_str()).map(String::from))
-        .collect();
-
+    use std::collections::{HashMap, HashSet};
+    let by_id: HashMap<&str, &Harvested> = harvested.iter().map(|h| (h.id.as_str(), h)).collect();
+    let mut have: HashSet<String> = HashSet::new();
+    let mut lines: Vec<String> = Vec::new();
+    for line in existing.lines() {
+        let t = line.trim();
+        if t.is_empty() || t.starts_with('#') || t.starts_with("//") {
+            lines.push(line.to_string());
+            continue;
+        }
+        let v: serde_json::Value = match serde_json::from_str(t) {
+            Ok(v) => v,
+            Err(_) => { lines.push(line.to_string()); continue; }
+        };
+        if let Some(id) = v.get("id").and_then(|i| i.as_str()) {
+            have.insert(id.to_string());
+            if let Some(h) = by_id.get(id) {
+                let cur = v.get("app").and_then(|a| a.as_str()).unwrap_or("");
+                if cur != h.app_path {            /* fix the install path in place */
+                    let mut v2 = v.clone();
+                    v2["app"] = serde_json::Value::String(h.app_path.clone());
+                    lines.push(serde_json::to_string(&v2).unwrap_or_else(|_| line.to_string()));
+                    continue;
+                }
+            }
+        }
+        lines.push(line.to_string());
+    }
     let mut appended = 0usize;
-    let mut skipped = 0usize;
-    let mut add = String::new();
     for h in harvested {
-        if have.contains(&h.id) {
-            skipped += 1;
-        } else {
-            add.push_str(&stub_line(h));
-            add.push('\n');
+        if !have.contains(&h.id) {
+            lines.push(stub_line(h));
             appended += 1;
         }
     }
-    let mut out = existing.to_string();
-    if appended > 0 {
-        if !out.is_empty() && !out.ends_with('\n') {
-            out.push('\n');
-        }
-        out.push_str(&add);
-    }
-    (out, appended, skipped)
+    let skipped = harvested.len() - appended;
+    (lines.join("\n") + "\n", appended, skipped)
 }
 
 /// JSON-encode a string. Rust's `{:?}` is almost-JSON but escapes control
@@ -393,6 +411,7 @@ fn stub_line(h: &Harvested) -> String {
 }
 
 #[allow(clippy::too_many_arguments)]
+#[allow(clippy::too_many_arguments)]
 pub fn run(
     rb_bin: &str,
     image: &Path,
@@ -402,6 +421,7 @@ pub fn run(
     into: Option<&Path>,
     apps_root: &str,
     append_to: Option<&Path>,
+    curated: Option<&std::collections::HashMap<String, String>>,
 ) -> Result<()> {
     let rb = RbCli::new(rb_bin);
     std::fs::create_dir_all(stage)?;
@@ -424,7 +444,8 @@ pub fn run(
         // A folder that can't be listed (a mistyped/odd name in a curated list) or
         // otherwise fails is skipped with a warning, not fatal — one bad path
         // shouldn't abort a 30-title build.
-        let res = match harvest_one(&rb, image, folder, stage, apps_root, into, &mut warnings) {
+        let cid = curated.and_then(|m| m.get(folder)).map(String::as_str);
+        let res = match harvest_one(&rb, image, folder, stage, apps_root, into, &mut warnings, cid) {
             Ok(r) => r,
             Err(e) => {
                 warnings.push(format!("{folder}: skipped ({e})"));

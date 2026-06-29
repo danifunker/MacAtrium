@@ -17,7 +17,7 @@ use crate::config::Selection;
 use crate::donors::Registry as Donors;
 use anyhow::{Context, Result};
 use serde_json::Value;
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, HashMap};
 use std::path::{Path, PathBuf};
 
 /// One dataset row, just the fields selection cares about.
@@ -178,27 +178,35 @@ fn resolve_donor(donor: &str, donors: &Donors, macpack_dir: Option<&Path>) -> Op
 /// `source` whose donor neither matches a registry alias nor a disk in the
 /// MacPack folder, are returned in `unresolved` (by id) so the caller can warn
 /// rather than silently skip.
+/// The third return value maps each donor app-path to the SELECTED record's id, so
+/// the harvester can keep the curated id on the produced stub (it otherwise derives
+/// an id from the launchable app's name, which can differ from the folder/curated
+/// title) — reconnecting the install to its curated metadata + categories.
 pub fn harvest_plan(
     dataset: &Path,
     sel: &Selection,
     base_os: Option<&str>,
     donors: &Donors,
     macpack_dir: Option<&Path>,
-) -> Result<(Vec<(PathBuf, Vec<String>)>, Vec<String>)> {
+) -> Result<(Vec<(PathBuf, Vec<String>)>, Vec<String>, HashMap<String, String>)> {
     let rows = rows(dataset)?;
     let (chosen, _missing) = select_rows(&rows, sel, base_os);
     let mut groups: BTreeMap<PathBuf, Vec<String>> = BTreeMap::new();
     let mut unresolved = Vec::new();
+    let mut path_id: HashMap<String, String> = HashMap::new();
     for r in chosen {
         match &r.source {
             Some((donor, path)) => match resolve_donor(donor, donors, macpack_dir) {
-                Some(img) => groups.entry(img).or_default().push(path.clone()),
+                Some(img) => {
+                    groups.entry(img).or_default().push(path.clone());
+                    path_id.insert(path.clone(), r.id.clone());
+                }
                 None => unresolved.push(r.id.clone()),
             },
             None => unresolved.push(r.id.clone()),
         }
     }
-    Ok((groups.into_iter().collect(), unresolved))
+    Ok((groups.into_iter().collect(), unresolved, path_id))
 }
 
 #[cfg(test)]

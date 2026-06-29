@@ -96,6 +96,10 @@ fn filter_present_apps(rb: &RbCli, image: &Path, src: &Path, dst: &Path) -> Resu
     let text = std::fs::read_to_string(src)?;
     let mut out = String::new();
     let mut dropped = Vec::new();
+    // De-dup by install path: the curated library can hold two records for one game
+    // (e.g. `dark-castle` + `dark-castle-1-2`) that resolve to the same installed
+    // app — keep the first so the catalog doesn't list it twice.
+    let mut seen_apps: std::collections::HashSet<String> = std::collections::HashSet::new();
     for line in text.lines() {
         let t = line.trim();
         let keep = if t.is_empty() || t.starts_with('#') || t.starts_with("//") {
@@ -104,13 +108,13 @@ fn filter_present_apps(rb: &RbCli, image: &Path, src: &Path, dst: &Path) -> Resu
             match v.get("app").and_then(Value::as_str) {
                 Some(a) if !a.is_empty() => {
                     let full = format!("/MacAtrium/{}", a.trim_start_matches('/'));
-                    if rb.exists(image, &full) {
-                        true
-                    } else {
+                    if !rb.exists(image, &full) {
                         dropped.push(
                             v.get("name").and_then(Value::as_str).unwrap_or(a).to_string(),
                         );
                         false
+                    } else {
+                        seen_apps.insert(a.to_string()) // false = a dup of a kept record
                     }
                 }
                 _ => true, // no app field — catalog::run will skip it
@@ -489,7 +493,7 @@ pub fn run(cfg: &BuildConfig) -> Result<()> {
     // registry) and the low-level explicit `harvest` list (manual override).
     if let Some(sel) = &cfg.selection {
         let donors = crate::donors::Registry::load_default();
-        let (plan, unresolved) = crate::selection::harvest_plan(
+        let (plan, unresolved, curated) = crate::selection::harvest_plan(
             &work,
             sel,
             cfg.base_os.as_deref(),
@@ -514,6 +518,7 @@ pub fn run(cfg: &BuildConfig) -> Result<()> {
                 Some(&cfg.out),
                 &cfg.apps_root,
                 Some(&work),
+                Some(&curated),       /* keep the selected curated id on each stub */
             )?;
         }
     }
@@ -529,6 +534,7 @@ pub fn run(cfg: &BuildConfig) -> Result<()> {
                 Some(&cfg.out),
                 &cfg.apps_root,
                 Some(&work),
+                None,                 /* explicit harvest: app-name id (no curated map) */
             )?;
         }
     }
@@ -753,7 +759,7 @@ pub fn add_to_disk(cfg: &BuildConfig) -> Result<()> {
     // Harvest the selected titles' apps into the disk + append harvested stubs to
     // the delta (selection plan + any explicit harvest sources).
     let donors = crate::donors::Registry::load_default();
-    let (plan, unresolved) = crate::selection::harvest_plan(
+    let (plan, unresolved, curated) = crate::selection::harvest_plan(
         &lib, sel, cfg.base_os.as_deref(), &donors, settings.macpack_dir.as_deref(),
     )?;
     if !unresolved.is_empty() {
@@ -761,10 +767,10 @@ pub fn add_to_disk(cfg: &BuildConfig) -> Result<()> {
     }
     eprintln!("[add] harvest {} donor group(s)", plan.len());
     for (image, apps) in &plan {
-        harvest::run(&rb_bin, image, apps, None, &stage.join("apps"), Some(&cfg.out), &cfg.apps_root, Some(&work))?;
+        harvest::run(&rb_bin, image, apps, None, &stage.join("apps"), Some(&cfg.out), &cfg.apps_root, Some(&work), Some(&curated))?;
     }
     for h in &cfg.harvest {
-        harvest::run(&rb_bin, &h.image, &h.apps, h.scan.as_deref(), &stage.join("apps"), Some(&cfg.out), &cfg.apps_root, Some(&work))?;
+        harvest::run(&rb_bin, &h.image, &h.apps, h.scan.as_deref(), &stage.join("apps"), Some(&cfg.out), &cfg.apps_root, Some(&work), None)?;
     }
 
     // Enrich (MG → LaunchBox) + compatibility overlay + art — on the delta only.
