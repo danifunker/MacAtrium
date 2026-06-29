@@ -1162,30 +1162,9 @@ static void draw_browse_header(Ui *u)
     render_hline(r, 0, (short)W, (short)(HEADER_H - 1));
 }
 
-/* A simple vertical scroll bar (track + fixed thumb + ^/v arrows). Classic dither
- * comes with the theme pass; this is the functional mouse-paging affordance. */
+/* Scroll-bar gutter width (the grid/list reserve this column for the real
+ * Control-Manager scroll bar; see ui_paint_controls). */
 #define SBW 16
-static void draw_scrollbar_v(Ui *u, short x, short y, short h, int total, int vis, int top)
-{
-    Render *r = u->r;
-    Rect    b;
-    SetRect(&b, x, y, (short)(x + SBW), (short)(y + h)); render_frame(r, &b);
-    SetRect(&b, x, y, (short)(x + SBW), (short)(y + SBW)); render_frame(r, &b);
-    render_text_size(r, 12);
-    render_text(r, (short)(x + 5), (short)(y + 12), "^", INK_NORMAL);
-    SetRect(&b, x, (short)(y + h - SBW), (short)(x + SBW), (short)(y + h)); render_frame(r, &b);
-    render_text(r, (short)(x + 5), (short)(y + h - SBW + 12), "v", INK_NORMAL);
-    if (total > vis) {
-        short trkY = (short)(y + SBW), trkH = (short)(h - 2 * SBW);
-        short thumb = (short)(trkH * vis / total); short pos;
-        if (thumb < 16) thumb = 16;
-        SetRect(&b, (short)(x + 1), trkY, (short)(x + SBW - 1), (short)(trkY + trkH));
-        render_fill(r, &b, FILL_PANEL);
-        pos = (short)((long)top * (trkH - thumb) / (total - vis));
-        SetRect(&b, (short)(x + 1), (short)(trkY + pos), (short)(x + SBW - 1), (short)(trkY + pos + thumb));
-        render_fill(r, &b, FILL_BG); render_frame(r, &b);
-    }
-}
 
 /* ---- Icon Grid view (Finder "by Icon"): a split pane — icons on the left ~2/3,
  * a detail panel (screenshot + info) on the right ~1/3. ---- */
@@ -1299,8 +1278,8 @@ static void draw_grid_detail(Ui *u, const GridLayout *g)
     }
     ty = (short)(ty + 6);
     if (u->status[0])      render_text(r, tx, ty, u->status, INK_NORMAL);
-    else if (cur->desc[0]) draw_wrapped(r, tx, ty, aw, ROW_H, cur->desc, INK_NORMAL, 8);
-    render_text(r, tx, (short)(d.bottom - 8), "Return  launch    P  box art", INK_DIM);
+    else if (cur->desc[0]) draw_wrapped(r, tx, ty, aw, ROW_H, cur->desc, INK_NORMAL, 6);
+    /* the bottom ~36px is reserved for the real Launch button (ui_paint_controls) */
 }
 
 static void draw_iconview(Ui *u)
@@ -1324,7 +1303,7 @@ static void draw_iconview(Ui *u)
             if (idx >= g.n) break;
             draw_grid_cell(u, &g, idx);
         }
-        draw_scrollbar_v(u, g.gridRight, (short)HEADER_H, (short)(H - HINT_H - HEADER_H), g.totRows, g.vis, g.scroll);
+        /* the scroll-bar gutter (g.gridRight..+SBW) is owned by the real control */
     }
     draw_grid_detail(u, &g);
     u->lastDrawnItem = u->m->curItem;
@@ -1574,8 +1553,7 @@ static void draw_listview(Ui *u)
     if (cat && cat->count > 0) {
         for (i = 0; i < L.itemRows && L.itemTop + i < L.nItems; i++)
             draw_list_item_row(u, &L, i);
-        draw_scrollbar_v(u, (short)(W - SBW), (short)(L.bTop + 24),
-                         (short)(L.lstBot - (L.bTop + 24)), L.nItems, L.itemRows, L.itemTop);
+        /* the scroll-bar gutter (W-SBW..W) is owned by the real control */
     }
     draw_list_detail(u, &L);
 
@@ -1775,6 +1753,78 @@ static const BrowseView *cur_view(Ui *u)
     return gViews[v];
 }
 
+/* ---- real Control-Manager controls (docs/28) ----------------------------------
+ * Per Apple's HIG + Inside Macintosh: real scroll bars (scrollBarProc) + push
+ * buttons (pushButProc). They live in the window port and are (re)drawn AFTER the
+ * off-screen GWorld is blitted (Decision A) — a fixed pair, created once and
+ * repositioned per view (Decision C). The grid + list show them; the carousel hides
+ * them (it keeps its own pager for now). */
+static void ensure_controls(Ui *u)
+{
+    Rect z;
+    if (u->controlsReady || !u->win) return;
+    SetRect(&z, 0, 0, SBW, 100);
+    u->scrollV = NewControl(u->win, &z, "\p", false, 0, 0, 0, scrollBarProc, 0L);
+    SetRect(&z, 0, 0, 84, 20);
+    u->launch  = NewControl(u->win, &z, "\pLaunch", false, 1, 0, 1, pushButProc, 0L);
+    u->controlsReady = (u->scrollV && u->launch) ? 1 : 0;
+}
+
+/* Reposition a control only when its rect actually changed, so a per-frame repaint
+ * doesn't erase+redraw (flicker) a control that hasn't moved. */
+static void place_control(ControlHandle c, const Rect *want)
+{
+    Rect cur = (**c).contrlRect;
+    if (cur.left != want->left || cur.top != want->top)
+        MoveControl(c, want->left, want->top);
+    if ((cur.right - cur.left) != (want->right - want->left) ||
+        (cur.bottom - cur.top) != (want->bottom - want->top))
+        SizeControl(c, (short)(want->right - want->left), (short)(want->bottom - want->top));
+}
+
+/* Position + value + show + repaint the controls over the freshly-blitted content.
+ * Hidden (so FindControl ignores them) outside the grid/list browse screens. */
+static void ui_paint_controls(Ui *u)
+{
+    Rect sb, lb;
+    int  n, vis, val, max, canLaunch;
+    ensure_controls(u);
+    if (!u->controlsReady) return;
+    if (u->safe || u->mode != UI_MODE_LIST ||
+        (u->view != VIEW_ICON && u->view != VIEW_LIST)) {
+        HideControl(u->scrollV);
+        HideControl(u->launch);
+        return;
+    }
+    if (u->view == VIEW_ICON) {
+        GridLayout g; grid_layout(u, &g);
+        SetRect(&sb, g.gridRight, (short)HEADER_H, (short)(g.gridRight + SBW), (short)(win_h(u) - HINT_H));
+        n = g.n; vis = g.vis * g.cols;
+        SetRect(&lb, (short)(g.detail.left + MARGIN + 24), (short)(g.detail.bottom - 30),
+                (short)(g.detail.right - MARGIN - 24), (short)(g.detail.bottom - 8));
+    } else {  /* VIEW_LIST */
+        ListLayout L; list_layout(u, &L);
+        SetRect(&sb, (short)(win_w(u) - SBW), (short)(L.bTop + 24), (short)win_w(u), L.lstBot);
+        n = L.nItems; vis = L.itemRows;
+        SetRect(&lb, (short)(win_w(u) - 96), (short)(L.lstBot + 46), (short)(win_w(u) - 12), (short)(L.lstBot + 66));
+    }
+    /* The scroll bar reflects the selection's position in the category; inactive
+     * (max == min) when everything fits, per HIG. */
+    max = (n > vis) ? (n - 1) : 0;
+    val = (n > vis) ? u->m->curItem : 0;
+    place_control(u->scrollV, &sb);
+    SetControlMaximum(u->scrollV, (short)max);
+    SetControlValue(u->scrollV, (short)val);
+    ShowControl(u->scrollV);
+    Draw1Control(u->scrollV);
+
+    canLaunch = (model_cur_item(u->m) != 0);
+    place_control(u->launch, &lb);
+    HiliteControl(u->launch, (short)(canLaunch ? 0 : 255));
+    ShowControl(u->launch);
+    Draw1Control(u->launch);
+}
+
 void ui_draw(Ui *u)
 {
     /* Keep the colour backend matched to the live screen depth on *every* repaint,
@@ -1833,6 +1883,7 @@ void ui_draw(Ui *u)
             draw_ctlpanels(u);
     }
     render_end(u->r, u->win);
+    ui_paint_controls(u);          /* real scroll bar + Launch button, over the blit */
 }
 
 int ui_idle(Ui *u)
@@ -1869,19 +1920,56 @@ int ui_idle(Ui *u)
 void ui_draw_art(Ui *u)
 {
     if (u->safe || u->mode != UI_MODE_LIST) return;
-    if (cur_view(u)->draw_art) cur_view(u)->draw_art(u);
+    if (cur_view(u)->draw_art) { cur_view(u)->draw_art(u); ui_paint_controls(u); }
 }
 
 /* Repaint after a browse-view selection move: an incremental redraw of just the
  * changed cells/detail when the view offers one and is already on-screen, else a
  * full ui_draw (a scroll/category change, an overlay, a non-list mode). This is the
- * Mac update model — redraw only what changed instead of the whole window. */
+ * Mac update model — redraw only what changed instead of the whole window. The
+ * sub-rect blit can clip the scroll bar / button, so repaint the controls after. */
 static void browse_redraw(Ui *u)
 {
     if (u->mode == UI_MODE_LIST && !u->safe && u->bgValid &&
-        cur_view(u)->draw_sel && cur_view(u)->draw_sel(u))
+        cur_view(u)->draw_sel && cur_view(u)->draw_sel(u)) {
+        ui_paint_controls(u);
         return;
+    }
     ui_draw(u);
+}
+
+/* Step the selection by a scroll-bar arrow/page part (called by main.c after
+ * TrackControl). The scroll bar tracks the selection's position in the category. */
+void ui_scroll_step(Ui *u, short part)
+{
+    ModelCat *cat = model_cur_cat(u->m);
+    int       n = cat ? cat->count : 0, page = 1, step = 0, target;
+    if (n <= 0) return;
+    if (u->view == VIEW_ICON) { GridLayout g; grid_layout(u, &g); page = g.vis * g.cols; }
+    else                      { ListLayout L; list_layout(u, &L); page = L.itemRows; }
+    if (page < 1) page = 1;
+    switch (part) {
+        case inUpButton:   step = -1;    break;
+        case inDownButton: step = +1;    break;
+        case inPageUp:     step = -page; break;
+        case inPageDown:   step = +page; break;
+        default: return;
+    }
+    target = u->m->curItem + step;
+    if (target < 0) target = 0;
+    if (target >= n) target = n - 1;
+    if (target != u->m->curItem) { model_move_item(u->m, target - u->m->curItem); browse_redraw(u); }
+}
+
+/* Jump the selection to the thumb's value (called after a thumb drag). */
+void ui_scroll_to(Ui *u, short val)
+{
+    ModelCat *cat = model_cur_cat(u->m);
+    int       n = cat ? cat->count : 0, target = val;
+    if (n <= 0) return;
+    if (target < 0) target = 0;
+    if (target >= n) target = n - 1;
+    if (target != u->m->curItem) { model_move_item(u->m, target - u->m->curItem); browse_redraw(u); }
 }
 
 /* ---- input ---------------------------------------------------------------- */
