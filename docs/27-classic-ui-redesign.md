@@ -72,3 +72,19 @@ keyboard-first carousel — while opening the door to the more Finder-like views
   the mouse paging is native; arrows page the carousel / scroll the grid.
 - Theme: drop the current "light" palette; use white/​black/​50%-dither and a pale
   highlight (colour) or invert (B&W). Wire the Chicago bitmap font for chrome.
+
+## Decision (chosen direction)
+
+- **View menu, user-configurable**, offering **by Carousel (default)** and **by
+  List / two-pane browser** (wireframe 3); icon grid (2) optional later. The
+  choice persists. (See `wireframes/3b-view-menu-and-esc.png`.)
+- **Iterating on the two-pane (wireframe 3):** the detail strip focuses on the
+  **screenshot**, not box art — box art moves to the `P` key (consistent with the
+  current launcher). See the updated `wireframes/3-two-pane-browser.png`.
+- **Keyboard selection works in every view** (arrows move the selection — shown as
+  the inverted/pale row; Return launches). Shortcuts live in the menus (⌘) the
+  classic way.
+- **The ESC quick-menu stays** (Settings / About / Show Finder / Restart / Shut
+  Down) for keyboard + controller use, coexisting with the real menu bar — a
+  deliberate, slightly-non-classic concession for the appliance/controller model.
+- Build the **full layout in one go** once the wireframe is settled.
