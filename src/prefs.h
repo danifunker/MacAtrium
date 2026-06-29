@@ -30,6 +30,8 @@ typedef struct {
     int  haveCatList;              /* 1 if `catList` was loaded                 */
     int  carousel;                 /* carousel icon count (odd 3..25)           */
     int  haveCarousel;             /* 1 if `carousel` was loaded                */
+    int  view;                     /* browse view (VIEW_CAROUSEL/ICON/LIST)     */
+    int  haveView;                 /* 1 if set; 0 = first run (show the chooser) */
     int  depth;                    /* saved colour depth in bits (0 = unset)    */
     int  haveDepth;                /* 1 if `depth` was loaded                   */
     char category[ITEM_CAT_LEN];   /* last category name ("" if none)          */

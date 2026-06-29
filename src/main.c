@@ -334,6 +334,7 @@ static void save_prefs(void)
     p.sndShutdown = gUi.sndShutdown; p.haveSndShutdown = 1;
     p.catList = gUi.catList;         p.haveCatList = 1;
     p.carousel = gUi.carousel;       p.haveCarousel = 1;
+    p.view = gUi.view;               p.haveView = 1;
     p.depth = display_current_depth();  p.haveDepth = (p.depth > 0);  /* boot-depth pref */
 
     p.category[0] = '\0';
@@ -609,6 +610,8 @@ int main(void)
     if (gPrefs.haveSndShutdown) gUi.sndShutdown = gPrefs.sndShutdown;
     if (gPrefs.haveCatList)     gUi.catList     = gPrefs.catList;      /* restore cat-list view */
     if (gPrefs.haveCarousel)    gUi.carousel    = gPrefs.carousel;    /* restore carousel size */
+    if (gPrefs.haveView)        gUi.view        = gPrefs.view;        /* restore browse view */
+    else if (loaded)            gUi.mode        = UI_MODE_SETUP;      /* first run: ask how to browse */
 
     bring_self_front();
     SetPort(gWin);
