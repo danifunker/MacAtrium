@@ -1186,21 +1186,29 @@ static void draw_scrollbar_v(Ui *u, short x, short y, short h, int total, int vi
     }
 }
 
-/* ---- Icon Grid view (Finder "by Icon") ---- */
-/* Geometry shared by the grid's draw + click (the carousel_layout pattern), so a
- * click maps to the same cell the draw painted. `scroll` is derived from the
- * selection (keeps it centred/visible). */
+/* ---- Icon Grid view (Finder "by Icon"): a split pane — icons on the left ~2/3,
+ * a detail panel (screenshot + info) on the right ~1/3. ---- */
+/* Geometry shared by the grid's draw + click + incremental redraw, so a click and
+ * a partial repaint land on the same cell the full draw painted. `scroll` is
+ * derived from the selection (keeps it centred/visible). */
 typedef struct {
-    int cols, cw, chh, top, vis, n, totRows, scroll, gx0;
+    int   cols, cw, chh, top, vis, n, totRows, scroll, gx0;
+    short gridRight;   /* x of the scroll bar (right edge of the icon area) */
+    Rect  detail;      /* the right detail panel                            */
 } GridLayout;
 
 static void grid_layout(Ui *u, GridLayout *g)
 {
     Model    *m = u->m;
     ModelCat *cat = model_cur_cat(m);
-    int       W = win_w(u), H = win_h(u), selRow;
-    g->cw = 108; g->chh = 84;
-    g->cols = (W - 2 * MARGIN - SBW) / g->cw; if (g->cols < 1) g->cols = 1;
+    int       W = win_w(u), H = win_h(u), gridW, selRow;
+    short     detW = 208;
+    if (detW > (short)(W / 2)) detW = (short)(W / 2);
+    SetRect(&g->detail, (short)(W - detW), (short)HEADER_H, (short)W, (short)(H - HINT_H));
+    g->gridRight = (short)(W - detW - SBW);
+    g->cw = 78; g->chh = 62;
+    gridW   = g->gridRight - MARGIN;
+    g->cols = gridW / g->cw; if (g->cols < 1) g->cols = 1;
     g->top  = HEADER_H + 8;
     g->vis  = (H - HINT_H - g->top) / g->chh; if (g->vis < 1) g->vis = 1;
     g->n    = cat ? cat->count : 0;
@@ -1209,45 +1217,118 @@ static void grid_layout(Ui *u, GridLayout *g)
     g->scroll = selRow - g->vis / 2;
     if (g->scroll > g->totRows - g->vis) g->scroll = g->totRows - g->vis;
     if (g->scroll < 0) g->scroll = 0;
-    g->gx0 = (W - SBW - g->cols * g->cw) / 2; if (g->gx0 < MARGIN) g->gx0 = MARGIN;
+    g->gx0 = (short)(MARGIN + (gridW - g->cols * g->cw) / 2);
+}
+
+/* The cell rect for item `idx`, or 0 if it isn't on the visible page. */
+static int grid_cell_rect(const GridLayout *g, int idx, Rect *cell)
+{
+    int   vis, rrow, ccol;
+    short cx, cy;
+    if (idx < 0 || idx >= g->n) return 0;
+    vis = idx - g->scroll * g->cols;
+    if (vis < 0 || vis >= g->vis * g->cols) return 0;
+    rrow = vis / g->cols; ccol = vis % g->cols;
+    cx = (short)(g->gx0 + ccol * g->cw);
+    cy = (short)(g->top + rrow * g->chh);
+    SetRect(cell, cx, cy, (short)(cx + g->cw - 4), (short)(cy + g->chh - 4));
+    return 1;
+}
+
+/* One grid cell (icon + name), selected highlight or normal. A non-selected fill
+ * is FILL_BG so repainting a previously-selected cell erases its highlight. */
+static void draw_grid_cell(Ui *u, const GridLayout *g, int idx)
+{
+    Render        *r = u->r;
+    Model         *m = u->m;
+    ModelCat      *cat = model_cur_cat(m);
+    const CatItem *it;
+    Art           *ic;
+    Rect           cell, ir;
+    char           nm[ITEM_NAME_LEN];
+    short          isz = 32, ix, nameW;
+    int            isSel;
+    if (!cat || !grid_cell_rect(g, idx, &cell)) return;
+    it = &m->cat->items[cat->idx[idx]]; isSel = (idx == m->curItem);
+    render_fill(r, &cell, isSel ? FILL_SEL : FILL_BG);
+    ix = (short)(cell.left + (g->cw - 4 - isz) / 2);
+    ic = row_icon(u, cat->idx[idx], it);
+    SetRect(&ir, ix, (short)(cell.top + 6), (short)(ix + isz), (short)(cell.top + 6 + isz));
+    if (ic) art_draw_fit(ic, &ir); else render_frame(r, &ir);
+    strncpy(nm, it->name, sizeof nm - 1); nm[sizeof nm - 1] = '\0';
+    while (nm[0] && render_text_width(r, nm) > g->cw - 8) nm[strlen(nm) - 1] = '\0';
+    nameW = render_text_width(r, nm);
+    render_text(r, (short)(cell.left + (g->cw - 4 - nameW) / 2), (short)(cell.bottom - 6), nm,
+                isSel ? INK_SELECTED : INK_NORMAL);
+}
+
+/* The right detail panel: a left divider, the selected item's screenshot, then its
+ * name / year-vendor / genre / blurb (mirrors the carousel's detail band). */
+static void draw_grid_detail(Ui *u, const GridLayout *g)
+{
+    Render        *r = u->r;
+    const CatItem *cur = model_cur_item(u->m);
+    Rect           d = g->detail, art, dv;
+    short          pad = MARGIN, aw, ah, tx, ty;
+    char           num[16];
+
+    render_fill(r, &d, FILL_BG);
+    SetRect(&dv, d.left, d.top, (short)(d.left + 1), d.bottom);
+    render_frame(r, &dv);
+    render_text_size(r, 12);
+
+    aw = (short)((d.right - d.left) - 2 * pad);
+    ah = (short)(aw * 3 / 4);
+    SetRect(&art, (short)(d.left + pad), (short)(d.top + pad),
+            (short)(d.left + pad + aw), (short)(d.top + pad + ah));
+    draw_detail_art(u, &art);
+    if (!cur) return;
+
+    tx = (short)(d.left + pad);
+    ty = (short)(art.bottom + 16);
+    render_text(r, tx, ty, cur->name, INK_TITLE); ty = (short)(ty + ROW_H + 3);
+    {   char buf[ITEM_VENDOR_LEN + 24]; buf[0] = '\0';
+        if (cur->year > 0) { l2s(cur->year, num); strcat(buf, num); }
+        if (cur->vendor[0]) { if (buf[0]) strcat(buf, " - "); strncat(buf, cur->vendor, sizeof buf - strlen(buf) - 1); }
+        if (buf[0]) { render_text(r, tx, ty, buf, INK_DIM); ty = (short)(ty + ROW_H); }
+    }
+    if (cur->genre[0]) {
+        char gg[ITEM_GENRE_LEN + 8]; strcpy(gg, "Genre: "); strncat(gg, cur->genre, ITEM_GENRE_LEN);
+        render_text(r, tx, ty, gg, INK_DIM); ty = (short)(ty + ROW_H);
+    }
+    ty = (short)(ty + 6);
+    if (u->status[0])      render_text(r, tx, ty, u->status, INK_NORMAL);
+    else if (cur->desc[0]) draw_wrapped(r, tx, ty, aw, ROW_H, cur->desc, INK_NORMAL, 8);
+    render_text(r, tx, (short)(d.bottom - 8), "Return  launch    P  box art", INK_DIM);
 }
 
 static void draw_iconview(Ui *u)
 {
     Render     *r = u->r;
-    Model      *m = u->m;
-    ModelCat   *cat = model_cur_cat(m);
-    Rect        full = u->win->portRect, rr;
-    int         W = win_w(u), H = win_h(u), i;
+    ModelCat   *cat = model_cur_cat(u->m);
+    Rect        full = u->win->portRect;
+    int         H = win_h(u), i;
     GridLayout  g;
 
     render_fill(r, &full, FILL_BG);
     draw_browse_header(u);
+    grid_layout(u, &g);
+    if (u->r->useOffscreen) ensure_art_loaded(u);   /* detail screenshot, fast path */
     if (!cat || cat->count == 0) {
         const char *t = "(no items in this category)";
-        render_text(r, (short)((W - render_text_width(r, t)) / 2), (short)(H / 2), t, INK_DIM);
-        return;
+        render_text(r, (short)((g.gridRight - render_text_width(r, t)) / 2), (short)(H / 2), t, INK_DIM);
+    } else {
+        for (i = 0; i < g.vis * g.cols; i++) {
+            int idx = g.scroll * g.cols + i;
+            if (idx >= g.n) break;
+            draw_grid_cell(u, &g, idx);
+        }
+        draw_scrollbar_v(u, g.gridRight, (short)HEADER_H, (short)(H - HINT_H - HEADER_H), g.totRows, g.vis, g.scroll);
     }
-    grid_layout(u, &g);
-    for (i = 0; i < g.vis * g.cols; i++) {
-        int idx = g.scroll * g.cols + i, rrow = i / g.cols, ccol = i % g.cols, isSel;
-        short cx, cy, isz = 38, ix, nameW;
-        const CatItem *it; Art *ic; char nm[ITEM_NAME_LEN];
-        if (idx >= g.n) break;
-        cx = (short)(g.gx0 + ccol * g.cw); cy = (short)(g.top + rrow * g.chh);
-        it = &m->cat->items[cat->idx[idx]]; isSel = (idx == m->curItem);
-        if (isSel) { SetRect(&rr, cx, cy, (short)(cx + g.cw - 6), (short)(cy + g.chh - 4)); render_fill(r, &rr, FILL_SEL); }
-        ix = (short)(cx + (g.cw - 6 - isz) / 2);
-        ic = row_icon(u, cat->idx[idx], it);
-        SetRect(&rr, ix, (short)(cy + 8), (short)(ix + isz), (short)(cy + 8 + isz));
-        if (ic) art_draw_fit(ic, &rr); else render_frame(r, &rr);
-        strncpy(nm, it->name, sizeof nm - 1); nm[sizeof nm - 1] = '\0';
-        while (nm[0] && render_text_width(r, nm) > g.cw - 12) nm[strlen(nm) - 1] = '\0';
-        nameW = render_text_width(r, nm);
-        render_text(r, (short)(cx + (g.cw - 6 - nameW) / 2), (short)(cy + g.chh - 12), nm,
-                    isSel ? INK_SELECTED : INK_NORMAL);
-    }
-    draw_scrollbar_v(u, (short)(W - SBW), (short)HEADER_H, (short)(H - HINT_H - HEADER_H), g.totRows, g.vis, g.scroll);
+    draw_grid_detail(u, &g);
+    u->lastDrawnItem = u->m->curItem;
+    u->lastDrawnTop  = g.scroll;
+    u->lastDrawnCat  = u->m->curCat;
 }
 
 static int iconview_nav(Ui *u, char ch)
@@ -1275,28 +1356,70 @@ static int iconview_nav(Ui *u, char ch)
  * (so a double-click = select-then-launch, the native open-on-double-click feel). */
 static int iconview_click(Ui *u, Point pt, UiCommand *out)
 {
-    Model      *m = u->m;
-    GridLayout  g;
-    int         i;
+    GridLayout g;
+    int        i, W = win_w(u);
+    short      midX = (short)(W / 2);
+    Rect       band;
+    SetRect(&band, (short)(midX - CATBAND_HALF), 2, (short)(midX + CATBAND_HALF), (short)(HEADER_H - 2));
+    if (PtInRect(pt, &band)) {                        /* "^ Category v" header band */
+        model_move_cat(u->m, pt.h < midX ? -1 : +1);
+        return 1;
+    }
     grid_layout(u, &g);
     if (g.n == 0) return 0;
     for (i = 0; i < g.vis * g.cols; i++) {
-        int   idx = g.scroll * g.cols + i, rrow = i / g.cols, ccol = i % g.cols;
-        short cx, cy;
-        Rect  cell;
+        int  idx = g.scroll * g.cols + i;
+        Rect cell;
         if (idx >= g.n) break;
-        cx = (short)(g.gx0 + ccol * g.cw); cy = (short)(g.top + rrow * g.chh);
-        SetRect(&cell, cx, cy, (short)(cx + g.cw - 6), (short)(cy + g.chh - 4));
-        if (PtInRect(pt, &cell)) {
-            if (idx == m->curItem) { u->status[0] = '\0'; *out = UI_LAUNCH; }
-            else model_move_item(m, idx - m->curItem);
+        if (grid_cell_rect(&g, idx, &cell) && PtInRect(pt, &cell)) {
+            if (idx == u->m->curItem) { u->status[0] = '\0'; *out = UI_LAUNCH; }
+            else model_move_item(u->m, idx - u->m->curItem);
             return 1;
         }
     }
     return 0;
 }
 
-static int iconview_idle(Ui *u) { (void)u; return UI_IDLE_NONE; }   /* icons load in draw */
+/* Incremental selection redraw: if the move stayed on the drawn page (same scroll +
+ * category), repaint just the old + new cell + the detail panel and blit that union
+ * — not the whole window + every icon. Returns 0 (caller does a full draw) when the
+ * page scrolled or the category changed. */
+static int iconview_draw_sel(Ui *u)
+{
+    GridLayout g;
+    Rect       old, neu, dirty, hdr;
+    if (!u->bgValid) return 0;
+    grid_layout(u, &g);
+    if (g.scroll != u->lastDrawnTop || u->m->curCat != u->lastDrawnCat) return 0;
+    render_begin(u->r, u->win);
+    SetRect(&hdr, 0, 0, (short)win_w(u), (short)HEADER_H);   /* refresh the N / M counter */
+    render_fill(u->r, &hdr, FILL_BG);
+    draw_browse_header(u);
+    draw_grid_cell(u, &g, u->lastDrawnItem);    /* old -> deselected */
+    draw_grid_cell(u, &g, u->m->curItem);       /* new -> selected   */
+    draw_grid_detail(u, &g);
+    if (!grid_cell_rect(&g, u->lastDrawnItem, &old)) old = g.detail;
+    if (!grid_cell_rect(&g, u->m->curItem, &neu)) neu = g.detail;
+    UnionRect(&old, &neu, &dirty);
+    UnionRect(&dirty, &g.detail, &dirty);
+    UnionRect(&dirty, &hdr, &dirty);
+    render_end_rect(u->r, u->win, &dirty);
+    u->lastDrawnItem = u->m->curItem;
+    return 1;
+}
+
+/* Deferred screenshot settled: repaint only the detail panel. */
+static void iconview_draw_art(Ui *u)
+{
+    GridLayout g;
+    if (!u->bgValid) return;
+    grid_layout(u, &g);
+    render_begin(u->r, u->win);
+    draw_grid_detail(u, &g);
+    render_end_rect(u->r, u->win, &g.detail);
+}
+
+static int iconview_idle(Ui *u) { return ensure_art_loaded(u) ? UI_IDLE_ART : UI_IDLE_NONE; }
 
 /* ---- List / two-pane browser view ---- */
 #define LPANE 152   /* categories pane width */
@@ -1481,6 +1604,8 @@ typedef struct {
     int  (*nav)(Ui *u, char ch);              /* arrow key → model move; 1 = consumed */
     int  (*idle)(Ui *u);                      /* deferred art load → UI_IDLE_* */
     int  (*click)(Ui *u, Point pt, UiCommand *out); /* hit-test; 1 = handled (*out cmd) */
+    int  (*draw_sel)(Ui *u);                  /* incremental selection redraw; 1 = done */
+    void (*draw_art)(Ui *u);                  /* targeted detail-art repaint (UI_IDLE_ART) */
 } BrowseView;
 
 static int carousel_nav(Ui *u, char ch)
@@ -1494,6 +1619,19 @@ static int carousel_nav(Ui *u, char ch)
     return 0;
 }
 static int carousel_idle(Ui *u) { return ensure_art_loaded(u) ? UI_IDLE_ART : UI_IDLE_NONE; }
+
+/* Carousel deferred cover settled: repaint only the detail cover box (the direct-
+ * draw path; the off-screen path already loaded it in draw_carousel). */
+static void carousel_draw_art(Ui *u)
+{
+    CarLayout L;
+    Rect      ar;
+    render_begin(u->r, u->win);
+    carousel_layout(u, &L);
+    detail_art_rect(&L, &ar);
+    draw_detail_art(u, &ar);
+    render_end(u->r, u->win);
+}
 
 /* Click in the carousel: the "^ cat v" band changes category; the Launch button
  * launches; the ◀▶ arrows and a visible side tile move the selection. (The shared
@@ -1530,9 +1668,9 @@ static int carousel_click(Ui *u, Point pt, UiCommand *out)
     return 0;
 }
 
-static const BrowseView gCarouselView = { "Carousel",  draw_carousel, carousel_nav, carousel_idle, carousel_click };
-static const BrowseView gIconView     = { "Icon Grid", draw_iconview, iconview_nav, iconview_idle, iconview_click };
-static const BrowseView gListView     = { "List",      draw_listview, listview_nav, listview_idle, listview_click };
+static const BrowseView gCarouselView = { "Carousel",  draw_carousel, carousel_nav, carousel_idle, carousel_click, 0,                 carousel_draw_art };
+static const BrowseView gIconView     = { "Icon Grid", draw_iconview, iconview_nav, iconview_idle, iconview_click, iconview_draw_sel, iconview_draw_art };
+static const BrowseView gListView     = { "List",      draw_listview, listview_nav, listview_idle, listview_click, 0,                 0 };
 static const BrowseView *const gViews[VIEW_N] = {
     &gCarouselView,   /* VIEW_CAROUSEL */
     &gIconView,       /* VIEW_ICON */
@@ -1633,18 +1771,25 @@ int ui_idle(Ui *u)
     return cur_view(u)->idle(u);
 }
 
-/* Repaint only the detail cover box (the deferred-load target). On the off-screen
- * path the cover is already in draw_carousel, so this isn't reached for art. */
+/* Repaint only the detail cover/screenshot box (the deferred-load target) — the
+ * current view's targeted art repaint. On the off-screen path the cover is loaded
+ * synchronously in the view's draw, so this is the direct-path / settle refresh. */
 void ui_draw_art(Ui *u)
 {
-    CarLayout L;
-    Rect      ar;
     if (u->safe || u->mode != UI_MODE_LIST) return;
-    render_begin(u->r, u->win);
-    carousel_layout(u, &L);
-    detail_art_rect(&L, &ar);
-    draw_detail_art(u, &ar);
-    render_end(u->r, u->win);
+    if (cur_view(u)->draw_art) cur_view(u)->draw_art(u);
+}
+
+/* Repaint after a browse-view selection move: an incremental redraw of just the
+ * changed cells/detail when the view offers one and is already on-screen, else a
+ * full ui_draw (a scroll/category change, an overlay, a non-list mode). This is the
+ * Mac update model — redraw only what changed instead of the whole window. */
+static void browse_redraw(Ui *u)
+{
+    if (u->mode == UI_MODE_LIST && !u->safe && u->bgValid &&
+        cur_view(u)->draw_sel && cur_view(u)->draw_sel(u))
+        return;
+    ui_draw(u);
 }
 
 /* ---- input ---------------------------------------------------------------- */
@@ -1975,7 +2120,7 @@ UiCommand ui_key(Ui *u, char ch)
     /* list / safe mode — the current browse view owns arrow navigation; the
      * shared keys (Esc / Return / P / I / type-ahead) below apply to every view. */
     if (!u->safe && cur_view(u)->nav(u, ch)) {
-        ui_draw(u);
+        browse_redraw(u);           /* incremental when the move stayed on-page */
         return cmd;                 /* cmd == UI_NONE here */
     }
     switch (ch) {
@@ -2162,7 +2307,7 @@ UiCommand ui_click(Ui *u, Point pt)
         }
         /* The active view owns selection / launch / category hit-testing. */
         if (cur_view(u)->click && cur_view(u)->click(u, pt, &cmd)) {
-            if (cmd != UI_LAUNCH) ui_draw(u);        /* a launch tears down the window */
+            if (cmd != UI_LAUNCH) browse_redraw(u);  /* a launch tears down the window */
             return cmd;
         }
         ui_draw(u);

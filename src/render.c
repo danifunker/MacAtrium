@@ -129,6 +129,29 @@ void render_end(Render *r, WindowPtr w)
     /* direct-to-window path: nothing to blit */
 }
 
+void render_end_rect(Render *r, WindowPtr w, const Rect *dirty)
+{
+    if (r->useOffscreen && r->offscreen) {
+        PixMapHandle pm = GetGWorldPixMap(r->offscreen);
+        BitMap      *dst;
+        Rect         d;
+        SetGWorld(r->savePort, r->saveGD);
+        SetPort(w);
+        ForeColor(blackColor);
+        BackColor(whiteColor);
+        if ((unsigned short)((GrafPtr)w)->portBits.rowBytes & 0x8000)
+            dst = (BitMap *)*(((CGrafPtr)w)->portPixMap);
+        else
+            dst = &((GrafPtr)w)->portBits;
+        /* The GWorld bounds == the window portRect (render_begin), so a window-local
+         * dirty rect maps 1:1; clip to the bounds and blit just that. */
+        if (SectRect(dirty, &r->bounds, &d))
+            CopyBits((BitMap *)*pm, dst, &d, &d, srcCopy, 0L);
+        UnlockPixels(pm);
+    }
+    /* direct-to-window path: nothing to blit (drawing already hit the window) */
+}
+
 void render_fill(Render *r, const Rect *rr, int kind)
 {
     if (r->color) cqd_set_fill(r, kind);

@@ -50,6 +50,10 @@ int   render_toggle_theme(Render *r);           /* flip; returns new theme */
 
 void  render_begin(Render *r, WindowPtr w);     /* SetPort + Chicago font */
 void  render_end(Render *r, WindowPtr w);
+/* Like render_end but blits only `dirty` (window-local) — the Mac update model
+ * (copy just the changed region) for incremental redraws. No-op on the direct
+ * path (drawing already hit the window). */
+void  render_end_rect(Render *r, WindowPtr w, const Rect *dirty);
 
 void  render_fill(Render *r, const Rect *rr, int kind);
 void  render_frame(Render *r, const Rect *rr);          /* 1px accentless frame */

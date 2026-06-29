@@ -55,6 +55,9 @@ typedef struct {
     int        artPref;       /* 0 = Box Art, 1 = Screenshot (the `shot` field) */
     int        view;          /* current browse view (VIEW_CAROUSEL/ICON/LIST)  */
     int        listFocus;     /* List view: 0 = categories pane, 1 = items pane  */
+    int        lastDrawnItem; /* selection at the last FULL browse-view draw, so an */
+    int        lastDrawnTop;  /* in-page selection move can repaint just the changed */
+    int        lastDrawnCat;  /* cells (else a scroll/category change -> full draw)   */
     int        setupSel;      /* selected row on the first-run UI_MODE_SETUP screen */
     int        carousel;      /* carousel icons shown: odd 3..25, capped by fit */
     int        sndStartup;    /* 1 = play the startup sound on launch          */
