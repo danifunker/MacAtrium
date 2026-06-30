@@ -95,6 +95,7 @@ void prefs_load(Prefs *p)
     p->hideTitleBar = 0; p->haveHideTitleBar = 0;
     p->textSize = 0; p->haveTextSize = 0;
     p->gridStyle = 0; p->haveGridStyle = 0;
+    p->sortMode = 0; p->sortDesc = 0; p->haveSort = 0;
     p->carousel = 7; p->haveCarousel = 0;
     p->view = 0; p->haveView = 0;
     p->depth = 0; p->haveDepth = 0;
@@ -156,6 +157,11 @@ void prefs_load(Prefs *p)
         } else if (strcmp(key, "gridstyle") == 0) {
             p->gridStyle = (strcmp(val, "tiles") == 0) ? 1 : 0;
             p->haveGridStyle = 1;
+        } else if (strcmp(key, "sortmode") == 0) {
+            int v = parse_int(val);
+            if (v >= 0 && v <= 3) { p->sortMode = v; p->haveSort = 1; }
+        } else if (strcmp(key, "sortdesc") == 0) {
+            p->sortDesc = (parse_int(val) != 0) ? 1 : 0;
         } else if (strcmp(key, "carousel") == 0) {
             int v = parse_int(val);
             if (v >= 3) {
@@ -264,6 +270,14 @@ OSErr prefs_save(const Prefs *p)
     if (p->haveGridStyle) {
         append_str(body, &n, sizeof body, "gridstyle=");
         append_str(body, &n, sizeof body, p->gridStyle ? "tiles" : "finder");
+        append_str(body, &n, sizeof body, "\r");
+    }
+    if (p->haveSort) {
+        append_str(body, &n, sizeof body, "sortmode=");
+        append_int(body, &n, sizeof body, p->sortMode);
+        append_str(body, &n, sizeof body, "\r");
+        append_str(body, &n, sizeof body, "sortdesc=");
+        append_int(body, &n, sizeof body, p->sortDesc);
         append_str(body, &n, sizeof body, "\r");
     }
     if (p->haveCarousel) {

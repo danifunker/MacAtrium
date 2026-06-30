@@ -113,6 +113,45 @@ static void sort_cat(Model *m, ModelCat *c)
     }
 }
 
+/* Compare two catalog items by the sort key (SORT_NAME/TYPE/YEAR); name is the
+ * tie-breaker so the order is stable. <0 means a sorts before b. */
+static int item_cmp(Model *m, int a, int b, int mode)
+{
+    const CatItem *ia = &m->cat->items[a], *ib = &m->cat->items[b];
+    int c;
+    switch (mode) {
+        case SORT_YEAR: c = ia->year - ib->year; break;
+        case SORT_TYPE: c = ci_cmp(ia->genre, ib->genre); break;
+        default:        c = 0; break;                       /* SORT_NAME falls through */
+    }
+    if (c == 0) c = ci_cmp(ia->name, ib->name);
+    return c;
+}
+
+/* Re-order the current category's item indices by `mode` (SORT_NONE = leave the
+ * dataset order), ascending or descending, keeping the cursor on the same item.
+ * Applied after each page load and when the user clicks a List-view column header. */
+void model_sort_page(Model *m, int mode, int desc)
+{
+    ModelCat *c = model_cur_cat(m);
+    int       i, j, sel;
+    if (!c || mode == SORT_NONE || c->count < 2) return;
+    sel = (m->curItem >= 0 && m->curItem < c->count) ? c->idx[m->curItem] : -1;
+    for (i = 1; i < c->count; i++) {
+        int key = c->idx[i];
+        for (j = i - 1; j >= 0; j--) {
+            int cmp = item_cmp(m, c->idx[j], key, mode);
+            if (desc) cmp = -cmp;
+            if (cmp <= 0) break;
+            c->idx[j + 1] = c->idx[j];
+        }
+        c->idx[j + 1] = key;
+    }
+    if (sel >= 0)
+        for (i = 0; i < c->count; i++)
+            if (c->idx[i] == sel) { m->curItem = i; break; }
+}
+
 /* Sort the category list (slots 1..n) alphabetically; "All" stays at 0. */
 static void sort_cat_list(Model *m)
 {
