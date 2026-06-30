@@ -167,6 +167,14 @@ void render_frame(Render *r, const Rect *rr)
     FrameRect(rr);
 }
 
+void render_round_frame(Render *r, const Rect *rr)
+{
+    if (r->color) cqd_set_line(r);
+    else          qd_set_line(r);
+    PenSize(1, 1);
+    FrameRoundRect(rr, 6, 6);          /* gentle key-cap corners */
+}
+
 void render_hline(Render *r, short x0, short x1, short y)
 {
     if (r->color) cqd_set_line(r);
@@ -174,6 +182,50 @@ void render_hline(Render *r, short x0, short x1, short y)
     PenSize(1, 1);
     MoveTo(x0, y);
     LineTo(x1, y);
+}
+
+/* A small filled triangle centred in `box`, in the frame ink. dir: 0=left, 1=right,
+ * 2=up, 3=down. Drawn (not a glyph) because the system font has no arrow keys. */
+void render_arrow(Render *r, const Rect *box, int dir)
+{
+    PolyHandle poly;
+    short cx = (short)((box->left + box->right) / 2);
+    short cy = (short)((box->top + box->bottom) / 2);
+    short s  = 3;
+    if (r->color) cqd_set_line(r);
+    else          qd_set_line(r);
+    poly = OpenPoly();
+    switch (dir) {
+        case 0:  MoveTo((short)(cx - s), cy); LineTo((short)(cx + s), (short)(cy - s)); LineTo((short)(cx + s), (short)(cy + s)); break;
+        case 1:  MoveTo((short)(cx + s), cy); LineTo((short)(cx - s), (short)(cy - s)); LineTo((short)(cx - s), (short)(cy + s)); break;
+        case 2:  MoveTo(cx, (short)(cy - s)); LineTo((short)(cx - s), (short)(cy + s)); LineTo((short)(cx + s), (short)(cy + s)); break;
+        default: MoveTo(cx, (short)(cy + s)); LineTo((short)(cx - s), (short)(cy - s)); LineTo((short)(cx + s), (short)(cy - s)); break;
+    }
+    ClosePoly();
+    PaintPoly(poly);
+    KillPoly(poly);
+}
+
+/* The "return" hook (a down-then-left arrow) centred in `box`, in the frame ink. */
+void render_return(Render *r, const Rect *box)
+{
+    PolyHandle poly;
+    short cx = (short)((box->left + box->right) / 2);
+    short cy = (short)((box->top + box->bottom) / 2);
+    short s  = 3;
+    if (r->color) cqd_set_line(r);
+    else          qd_set_line(r);
+    PenSize(1, 1);
+    MoveTo((short)(cx + s + 1), (short)(cy - s));   /* short down-stroke at the right */
+    LineTo((short)(cx + s + 1), cy);
+    LineTo((short)(cx - s), cy);                    /* left along the middle          */
+    poly = OpenPoly();                              /* left-pointing arrowhead        */
+    MoveTo((short)(cx - s - 2), cy);
+    LineTo((short)(cx - s + 1), (short)(cy - 2));
+    LineTo((short)(cx - s + 1), (short)(cy + 2));
+    ClosePoly();
+    PaintPoly(poly);
+    KillPoly(poly);
 }
 
 void render_text(Render *r, short x, short y, const char *s, int ink)
