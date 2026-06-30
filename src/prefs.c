@@ -91,6 +91,8 @@ void prefs_load(Prefs *p)
     p->sndStartup = 0; p->haveSndStartup = 0;
     p->sndShutdown = 0; p->haveSndShutdown = 0;
     p->catList = 0; p->haveCatList = 0;
+    p->hideMenuBar = 0; p->haveHideMenuBar = 0;
+    p->hideTitleBar = 0; p->haveHideTitleBar = 0;
     p->carousel = 7; p->haveCarousel = 0;
     p->view = 0; p->haveView = 0;
     p->depth = 0; p->haveDepth = 0;
@@ -140,6 +142,12 @@ void prefs_load(Prefs *p)
         } else if (strcmp(key, "categorieslist") == 0) {
             p->catList = (strcmp(val, "on") == 0) ? 1 : 0;
             p->haveCatList = 1;
+        } else if (strcmp(key, "menubar") == 0) {
+            p->hideMenuBar = (strcmp(val, "hidden") == 0) ? 1 : 0;
+            p->haveHideMenuBar = 1;
+        } else if (strcmp(key, "titlebar") == 0) {
+            p->hideTitleBar = (strcmp(val, "hidden") == 0) ? 1 : 0;
+            p->haveHideTitleBar = 1;
         } else if (strcmp(key, "carousel") == 0) {
             int v = parse_int(val);
             if (v >= 3) {
@@ -228,6 +236,16 @@ OSErr prefs_save(const Prefs *p)
     if (p->haveCatList) {
         append_str(body, &n, sizeof body, "categorieslist=");
         append_str(body, &n, sizeof body, p->catList ? "on" : "off");
+        append_str(body, &n, sizeof body, "\r");
+    }
+    if (p->haveHideMenuBar) {
+        append_str(body, &n, sizeof body, "menubar=");
+        append_str(body, &n, sizeof body, p->hideMenuBar ? "hidden" : "shown");
+        append_str(body, &n, sizeof body, "\r");
+    }
+    if (p->haveHideTitleBar) {
+        append_str(body, &n, sizeof body, "titlebar=");
+        append_str(body, &n, sizeof body, p->hideTitleBar ? "hidden" : "shown");
         append_str(body, &n, sizeof body, "\r");
     }
     if (p->haveCarousel) {

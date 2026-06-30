@@ -692,8 +692,10 @@ static const char *kViewDesc[VIEW_N] = {
     "Categories + a list with screenshots. Best for big libraries."
 };
 
-#define SET_N 10
+#define SET_N 12
 #define SET_ROW_VIEW      6             /* browse view: Carousel / Icon / List      */
+#define SET_ROW_MENUBAR   9             /* System menu bar: Shown / Hidden          */
+#define SET_ROW_TITLEBAR  10            /* window title bar: Shown / Hidden         */
 #define SET_ROW_CTLPANELS (SET_N - 1)   /* the action row (opens the cdev list)     */
 
 static void set_row_text(Ui *u, int row, char *out)
@@ -747,6 +749,16 @@ static void set_row_text(Ui *u, int row, char *out)
             strcpy(out, "Carousel");
             while (strlen(out) < 16) strcat(out, " ");
             l2s(u->carousel, num); strcat(out, num); strcat(out, " icons");
+            break;
+        case SET_ROW_MENUBAR:
+            strcpy(out, "Menu Bar");
+            while (strlen(out) < 16) strcat(out, " ");
+            strcat(out, u->hideMenuBar ? "Hidden" : "Shown");
+            break;
+        case SET_ROW_TITLEBAR:
+            strcpy(out, "Title Bar");
+            while (strlen(out) < 16) strcat(out, " ");
+            strcat(out, u->hideTitleBar ? "Hidden" : "Shown");
             break;
         default:
             strcpy(out, "Control Panels");
@@ -2224,6 +2236,14 @@ static int settings_adjust(Ui *u, int dir)
             u->bgValid = 0;                         /* carousel layout changes */
             return 1;
         }
+        case SET_ROW_MENUBAR:                      /* System menu bar Shown/Hidden */
+            u->hideMenuBar = u->hideMenuBar ? 0 : 1;
+            u->chromeDirty = 1;                     /* main re-lays out the window + bar */
+            return 1;
+        case SET_ROW_TITLEBAR:                     /* window title bar Shown/Hidden */
+            u->hideTitleBar = u->hideTitleBar ? 0 : 1;
+            u->chromeDirty = 1;
+            return 1;
         default:                                   /* Control Panels (action row, intercepted) */
             return 0;
     }
@@ -2299,6 +2319,9 @@ UiCommand ui_key(Ui *u, char ch)
             case kCharEnter: dirty = settings_adjust(u, +1); break;
             case kCharEscape: u->mode = UI_MODE_LIST; break;   /* gear stays focused */
         }
+        /* A *bar toggle re-lays out the window: let main rebuild + repaint (don't
+         * draw into the about-to-be-disposed window here). */
+        if (u->chromeDirty) { u->chromeDirty = 0; return UI_CHROME_DIRTY; }
         ui_draw(u);
         return dirty ? UI_PREFS_DIRTY : UI_NONE;
     }
@@ -2532,6 +2555,7 @@ UiCommand ui_click(Ui *u, Point pt)
                 break;
             }
         }
+        if (u->chromeDirty) { u->chromeDirty = 0; return UI_CHROME_DIRTY; }  /* main re-lays out */
         ui_draw(u);
         return dirty ? UI_PREFS_DIRTY : UI_NONE;
     }

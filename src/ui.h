@@ -21,7 +21,9 @@ typedef enum {
     UI_SHUTDOWN,
     UI_OPEN_CDEV,    /* open the selected control panel via the Finder */
     UI_QUIT,         /* quit the launcher entirely, back to the Finder        */
-    UI_PREFS_DIRTY   /* a persisted setting (theme/volume) changed; main saves */
+    UI_PREFS_DIRTY,  /* a persisted setting (theme/volume) changed; main saves */
+    UI_CHROME_DIRTY  /* menu-bar / title-bar visibility changed; main re-lays
+                      * out the window + menu bar (rebuild_window) AND saves    */
 } UiCommand;
 
 enum { UI_MODE_LIST = 0, UI_MODE_MENU, UI_MODE_PREVIEW, UI_MODE_SETTINGS,
@@ -83,6 +85,10 @@ typedef struct {
                               * full repaint so a switched/closed overlay clears  */
     int        catList;       /* 1 = show the categories list panel on the browse
                               * screen (toggled in Settings)                      */
+    int        hideMenuBar;   /* 1 = hide the System menu bar (Settings; main applies) */
+    int        hideTitleBar;  /* 1 = hide the window's WM title bar (plainDBox)        */
+    int        chromeDirty;   /* set by settings_adjust when a *bar toggle changed, so
+                              * ui_key/ui_click return UI_CHROME_DIRTY (main re-lays out) */
     int        overlayDrawn;  /* 1 = the menu/settings panel is fully drawn, so a
                               * selection move repaints only the changed rows     */
     int        lastSel;       /* overlay row last drawn selected (-1 = none)      */
