@@ -73,6 +73,43 @@ static int ci_cmp(const char *a, const char *b)
     }
 }
 
+/* 1 if `needle` is a case-insensitive substring of `hay` (empty needle matches). */
+static int ci_substr(const char *hay, const char *needle)
+{
+    int hn = (int)strlen(hay), nn = (int)strlen(needle), i, j;
+    if (nn == 0) return 1;
+    for (i = 0; i + nn <= hn; i++) {
+        for (j = 0; j < nn; j++) {
+            unsigned char a = (unsigned char)hay[i + j], b = (unsigned char)needle[j];
+            if (a >= 'A' && a <= 'Z') a += 32;
+            if (b >= 'A' && b <= 'Z') b += 32;
+            if (a != b) break;
+        }
+        if (j == nn) return 1;
+    }
+    return 0;
+}
+
+/* Narrow the current category to items whose name contains `q` (case-insensitive),
+ * compacting idx[] and updating count; keeps the cursor on the selected item if it
+ * survives. To widen/clear, re-load the page (model_set_page) then re-apply. */
+void model_filter_page(Model *m, const char *q)
+{
+    ModelCat *c = model_cur_cat(m);
+    int       i, w = 0, sel;
+    if (!c || !q || !q[0]) return;
+    sel = (m->curItem >= 0 && m->curItem < c->count) ? c->idx[m->curItem] : -1;
+    for (i = 0; i < c->count; i++) {
+        if (ci_substr(m->cat->items[c->idx[i]].name, q)) {
+            if (c->idx[i] == sel) m->curItem = w;
+            c->idx[w++] = c->idx[i];
+        }
+    }
+    c->count = w;
+    if (m->curItem >= c->count) m->curItem = c->count > 0 ? c->count - 1 : 0;
+    if (m->curItem < 0) m->curItem = 0;
+}
+
 int model_is_list_ordered(const char *name)
 {
     return ci_cmp(name, "Recommended") == 0 ||

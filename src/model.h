@@ -78,6 +78,10 @@ enum { SORT_NONE = 0, SORT_NAME, SORT_TYPE, SORT_YEAR };
  * cursor on the same item. NONE / a 1-item page is a no-op. */
 void model_sort_page(Model *m, int mode, int desc);
 
+/* Narrow the current category to items whose name contains `q` (case-insensitive).
+ * Compacts idx[] + count; re-load the page (model_set_page) to widen/clear. */
+void model_filter_page(Model *m, const char *q);
+
 /* Navigation (clamp + keep selection valid). Return 1 if something changed. */
 int model_move_item(Model *m, int delta);   /* up/down within category */
 int model_move_cat(Model *m, int delta);    /* left/right between categories */
