@@ -70,6 +70,9 @@ typedef struct {
     ControlHandle catNext;    /* header category stepper: next                          */
     int        controlsReady; /* 1 once the controls have been created                  */
     int        setupSel;      /* selected row on the first-run UI_MODE_SETUP screen */
+    int        setupDrawn;    /* 1 = chooser fully drawn, so a Up/Down repaints just the
+                              * two affected rows (not the whole welcome screen)        */
+    int        lastSetupSel;  /* chooser row last drawn selected (-1 = none)            */
     int        carousel;      /* carousel icons shown: odd 3..25, capped by fit */
     int        sndStartup;    /* 1 = play the startup sound on launch          */
     int        sndShutdown;   /* 1 = play the shutdown sound on Shut Down      */
@@ -92,6 +95,9 @@ typedef struct {
     int        overlayDrawn;  /* 1 = the menu/settings panel is fully drawn, so a
                               * selection move repaints only the changed rows     */
     int        lastSel;       /* overlay row last drawn selected (-1 = none)      */
+    Rect       panelRect;     /* the overlay panel's window rect, so ui_draw can blit
+                              * just that region (not the whole window) when only the
+                              * overlay changed — and erase it on an overlay switch  */
 } Ui;
 
 void      ui_init(Ui *u, Env *env, Render *r, Model *m, WindowPtr win, int safe);
