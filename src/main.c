@@ -914,7 +914,11 @@ int main(void)
                         if (TrackGoAway(w, evt.where))
                             ui_confirm_quit(&gUi);
                     } else if (part == inDrag && w == gWin) {
-                        /* Immovable appliance window: ignore drags. */
+                        /* The window is immovable, so a click on its title bar opens
+                         * the menu hub instead — a way to reach the menu from the
+                         * title bar, especially when the System menu bar is hidden. */
+                        gUi.mode = UI_MODE_MENU; gUi.menuSel = 0;
+                        ui_draw(&gUi);
                     } else if (part == inSysWindow) {
                         SystemClick(&evt, w);      /* a desk accessory's window */
                     } else {
