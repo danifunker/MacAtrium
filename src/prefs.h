@@ -28,6 +28,10 @@ typedef struct {
     int  haveSndShutdown;          /* 1 if `sndShutdown` was loaded            */
     int  catList;                  /* 1 = show the categories list panel        */
     int  haveCatList;              /* 1 if `catList` was loaded                 */
+    int  hideMenuBar;              /* 1 = hide the System menu bar              */
+    int  haveHideMenuBar;          /* 1 if `menubar` was loaded                 */
+    int  hideTitleBar;             /* 1 = hide the window's WM title bar        */
+    int  haveHideTitleBar;         /* 1 if `titlebar` was loaded                */
     int  carousel;                 /* carousel icon count (odd 3..25)           */
     int  haveCarousel;             /* 1 if `carousel` was loaded                */
     int  view;                     /* browse view (VIEW_CAROUSEL/ICON/LIST)     */

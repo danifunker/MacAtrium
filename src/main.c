@@ -176,12 +176,31 @@ static void sync_view_menu(void)
         CheckItem(gViewMenu, (short)(i + 1), (Boolean)(i == gUi.view));
 }
 
+/* Hand the system menu bar back to the Finder / a desk accessory regardless of our
+ * hide setting: real height + reclaim the GrayRgn strip we may have ceded. Used
+ * before fronting the Finder (Show Finder / Open Control Panel) and before quitting,
+ * so it comes up with its menus even when we've been running with the bar hidden. */
+static void restore_system_menu_bar(void)
+{
+    RgnHandle strip = NewRgn();
+    if (strip) {
+        RgnHandle gray = LMGetGrayRgn();
+        Rect      mb   = gEnv.screen;
+        mb.bottom = (short)(mb.top + gEnv.mbarHeight);
+        RectRgn(strip, &mb);
+        if (gray) DiffRgn(gray, strip, gray);
+        DisposeRgn(strip);
+    }
+    LMSetMBarHeight(gEnv.mbarHeight);
+}
+
 /* Quit the launcher entirely and hand the machine back to the Finder (the
- * resident boot shell) — Cmd-Option-Q or File > Quit. The menu bar is already at
- * full height (we no longer hide it), and the Finder redraws its own bar when it
- * comes front. Does not return. */
+ * resident boot shell) — Cmd-Option-Q or File > Quit. Restore the menu bar first
+ * (we may have been running with it hidden) so the Finder comes up with its menus.
+ * Does not return. */
 static void quit_to_finder(void)
 {
+    restore_system_menu_bar();
     (void)sysctl_show_finder();   /* front the Finder (best-effort) */
     ExitToShell();                /* terminate us; the Finder becomes the shell */
 }
@@ -218,22 +237,87 @@ static void install_ae_handlers(void)
  * region, above the content portRect). */
 #define kTitleBarH 19
 
-static WindowPtr make_window(const Env *e)
+static WindowPtr make_window(const Env *e, int hideMenu, int hideTitle)
 {
-    /* A real titled, immovable, full-screen window: the content sits below the menu
-     * bar AND the title bar (so the bar lands just under the menu bar), inset 1px so
-     * the window's side/bottom frame shows. noGrowDocProc = title bar + close box,
-     * no grow box; goAwayFlag = the close box. We never DragWindow it (immovable). */
-    Rect b = e->screen;
-    b.top    = (short)(b.top + e->mbarHeight + kTitleBarH);
+    /* An immovable, full-screen window whose content sits below whatever chrome is
+     * shown. With the title bar shown it's a noGrowDocProc (real WM title bar + close
+     * box); hidden, it's a plainDBox (no title bar, no close box — quit via the Esc
+     * menu / Cmd-Opt-Q). The content top drops the menu-bar strip and/or the title-
+     * bar height as each is hidden, so the reclaimed space becomes browse area. Inset
+     * 1px so the side/bottom frame shows. We never DragWindow it (immovable). */
+    short   mbar   = (short)(hideMenu  ? 0 : e->mbarHeight);
+    short   titleH = (short)(hideTitle ? 0 : kTitleBarH);
+    short   proc   = (short)(hideTitle ? plainDBox : noGrowDocProc);
+    Boolean goAway = hideTitle ? false : true;       /* plainDBox has no close box */
+    Rect    b = e->screen;
+    b.top    = (short)(b.top + mbar + titleH);
     b.left   = (short)(b.left + 1);
     b.right  = (short)(b.right - 1);
     b.bottom = (short)(b.bottom - 1);
     /* A colour window (CGrafPort) when Color QD is present, so the off-screen GWorld
      * blits correctly at >1-bit depths; a plain B&W window otherwise. */
     if (e->hasColorQD)
-        return NewCWindow(0L, &b, "\pMacAtrium", true, noGrowDocProc, (WindowPtr)-1L, true, 0);
-    return NewWindow(0L, &b, "\pMacAtrium", true, noGrowDocProc, (WindowPtr)-1L, true, 0);
+        return NewCWindow(0L, &b, "\pMacAtrium", true, proc, (WindowPtr)-1L, goAway, 0);
+    return NewWindow(0L, &b, "\pMacAtrium", true, proc, (WindowPtr)-1L, goAway, 0);
+}
+
+/* Set the System menu bar to the current hide state. Hiding it isn't just
+ * MBarHeight=0: the Window Manager keeps clipping that strip out of every window's
+ * visible region, so a window over it can't paint there and stale menu pixels show
+ * through. So we also cede the strip to the desktop (GrayRgn) when hiding and
+ * reclaim it when showing — idempotent (Union/Diff), matched by a CalcVis on the
+ * window so its visRgn picks up the change. (The proven full-screen recipe from
+ * before the real-menu-bar redesign, now gated on the user's setting.) */
+static void set_menu_bar_state(void)
+{
+    RgnHandle strip = NewRgn();
+    if (strip) {
+        RgnHandle gray = LMGetGrayRgn();
+        Rect      mb   = gEnv.screen;
+        mb.bottom = (short)(mb.top + gEnv.mbarHeight);
+        RectRgn(strip, &mb);
+        if (gray) {
+            if (gUi.hideMenuBar) UnionRgn(gray, strip, gray);  /* cede strip to desktop */
+            else                 DiffRgn(gray, strip, gray);   /* reclaim as menu bar  */
+        }
+        DisposeRgn(strip);
+    }
+    LMSetMBarHeight((short)(gUi.hideMenuBar ? 0 : gEnv.mbarHeight));
+}
+
+/* Re-assert the menu-bar state + repaint it after a sub-launched app drew its own
+ * bar (it may have changed MBarHeight): honor the hide setting, and CalcVis so the
+ * existing window owns (or releases) the reclaimed strip. */
+static void show_menu_bar(void)
+{
+    set_menu_bar_state();
+    if (gWin) CalcVis((WindowPeek)gWin);
+    if (!gUi.hideMenuBar) DrawMenuBar();
+}
+
+/* Re-lay out the launcher window for the current chrome state (menu bar / title bar
+ * shown or hidden). The window's procID + top edge depend on both flags, so this
+ * disposes and rebuilds it. The scroll bar / push buttons live in the window port
+ * (freed with it by DisposeWindow), so clear our handles for ensure_controls to
+ * recreate them in the new window; drop the off-screen GWorld so it re-fits the new
+ * content size; then repaint. Called at startup (to apply the saved state) and on a
+ * Settings *bar toggle (UI_CHROME_DIRTY). */
+static void rebuild_window(void)
+{
+    if (gWin) DisposeWindow(gWin);
+    set_menu_bar_state();                 /* MBarHeight + GrayRgn BEFORE the new window
+                                           * so its visRgn is computed for the new top */
+    gWin = make_window(&gEnv, gUi.hideMenuBar, gUi.hideTitleBar);
+    gUi.win = gWin;
+    gUi.controlsReady = 0;                /* the controls belonged to the old port */
+    gUi.scrollV = gUi.launch = gUi.quitBtn = gUi.cancelBtn = gUi.catPrev = gUi.catNext = 0;
+    render_reset_for_depth(&gRender, &gEnv, display_current_depth());  /* GWorld re-fits */
+    gUi.bgValid = 0;                      /* the fresh GWorld is blank: repaint the
+                                           * whole browse screen, not just the overlay */
+    CalcVis((WindowPeek)gWin);            /* claim/release the reclaimed top strip */
+    SetPort(gWin);
+    if (!gUi.hideMenuBar) DrawMenuBar();
+    ui_draw(&gUi);
 }
 
 /* Returns 1 if a non-empty catalog loaded; 0 -> safe screen. */
@@ -385,6 +469,8 @@ static void save_prefs(void)
     p.sndStartup = gUi.sndStartup;   p.haveSndStartup = 1;
     p.sndShutdown = gUi.sndShutdown; p.haveSndShutdown = 1;
     p.catList = gUi.catList;         p.haveCatList = 1;
+    p.hideMenuBar = gUi.hideMenuBar; p.haveHideMenuBar = 1;
+    p.hideTitleBar = gUi.hideTitleBar; p.haveHideTitleBar = 1;
     p.carousel = gUi.carousel;       p.haveCarousel = 1;
     p.view = gUi.view;               p.haveView = 1;
     p.depth = display_current_depth();  p.haveDepth = (p.depth > 0);  /* boot-depth pref */
@@ -508,7 +594,7 @@ static void do_launch(void)
         render_reset_for_depth(&gRender, &gEnv, savedDepth);
     }
     bring_self_front();
-    DrawMenuBar();                    /* the child drew its own bar; repaint ours */
+    show_menu_bar();                  /* the child drew its own bar; repaint ours */
     SelectWindow(gWin);
     SetPort(gWin);
 
@@ -544,9 +630,10 @@ static void handle_ui_command(UiCommand cmd)
         case UI_SHOW_FINDER:
             /* Front the Finder; it draws its own menu bar (we get suspended and, on
              * resume, repaint ours). If no Finder is resident we stayed front. */
+            restore_system_menu_bar();    /* hand it our bar (we may have hidden it) */
             if (!sysctl_show_finder()) {
                 ui_set_status(&gUi, "Finder not resident - use Restart.");
-                DrawMenuBar();
+                show_menu_bar();
                 ui_draw(&gUi);
             }
             break;
@@ -559,6 +646,7 @@ static void handle_ui_command(UiCommand cmd)
                 OSErr oe;
                 oe = ctlpanels_open(cp);
                 if (oe == noErr) {
+                    restore_system_menu_bar();   /* the Finder shows the cdev with menus */
                     (void)sysctl_show_finder();
                 } else {
                     char m[48];
@@ -567,7 +655,7 @@ static void handle_ui_command(UiCommand cmd)
                     append_long(m, oe);
                     strcat(m, ")");
                     ui_set_status(&gUi, m);
-                    DrawMenuBar();
+                    show_menu_bar();
                     ui_draw(&gUi);
                 }
             }
@@ -583,6 +671,10 @@ static void handle_ui_command(UiCommand cmd)
             sysctl_shutdown();
             break;
         case UI_PREFS_DIRTY: save_prefs(); break;
+        case UI_CHROME_DIRTY:                 /* a menu-bar / title-bar toggle */
+            rebuild_window();                 /* re-lay out the window + bar, repaint */
+            save_prefs();
+            break;
         default: break;
     }
 }
@@ -644,7 +736,8 @@ int main(void)
     if (gHasWNE) install_ae_handlers();
     prefs_load(&gPrefs);              /* saved theme / volume / selection */
 
-    gWin = make_window(&gEnv);         /* full screen below the menu bar */
+    gWin = make_window(&gEnv, 0, 0);   /* full screen below the bars; rebuild_window
+                                        * re-lays out for the saved hide state below */
     render_init(&gRender, &gEnv);
     install_menus();                   /* real System menu bar (docs/28) */
 
@@ -694,13 +787,19 @@ int main(void)
     if (gPrefs.haveSndStartup)  gUi.sndStartup  = gPrefs.sndStartup;   /* restore sound prefs */
     if (gPrefs.haveSndShutdown) gUi.sndShutdown = gPrefs.sndShutdown;
     if (gPrefs.haveCatList)     gUi.catList     = gPrefs.catList;      /* restore cat-list view */
+    if (gPrefs.haveHideMenuBar)  gUi.hideMenuBar  = gPrefs.hideMenuBar;  /* restore chrome */
+    if (gPrefs.haveHideTitleBar) gUi.hideTitleBar = gPrefs.hideTitleBar;
     if (gPrefs.haveCarousel)    gUi.carousel    = gPrefs.carousel;    /* restore carousel size */
     if (gPrefs.haveView)        gUi.view        = gPrefs.view;        /* restore browse view */
     else if (loaded)            gUi.mode        = UI_MODE_SETUP;      /* first run: ask how to browse */
 
     bring_self_front();
-    SetPort(gWin);
-    ui_draw(&gUi);
+    if (gUi.hideMenuBar || gUi.hideTitleBar) {
+        rebuild_window();          /* apply the saved hide state (re-lays out + repaints) */
+    } else {
+        SetPort(gWin);
+        ui_draw(&gUi);
+    }
 
     /* Startup chime (async so it overlaps the UI coming up); off by default,
      * a no-op if no sound was baked into the image. */
@@ -829,7 +928,7 @@ int main(void)
                         if (evt.message & resumeFlag) {
                             ShowWindow(gWin);
                             SelectWindow(gWin);
-                            DrawMenuBar();
+                            show_menu_bar();      /* honor the hide-menu-bar setting */
                             SetPort(gWin);
                             /* A depth-capped game just quit: put our depth back now
                              * that we're front again (ui_draw re-fits the backend to
