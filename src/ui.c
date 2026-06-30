@@ -1234,8 +1234,11 @@ static void grid_layout(Ui *u, GridLayout *g)
     g->n    = cat ? cat->count : 0;
     g->totRows = (g->n + g->cols - 1) / g->cols;
     selRow  = m->curItem / g->cols;
-    g->scroll = selRow - g->vis / 2;
-    if (g->scroll > g->totRows - g->vis) g->scroll = g->totRows - g->vis;
+    /* Page-based scroll (like the carousel): the visible page is selRow's screenful,
+     * so moving WITHIN a page leaves scroll unchanged -> the incremental redraw kicks
+     * in; only crossing a page edge scrolls (a full draw). Re-centering on every move
+     * (the old behavior) changed scroll each step -> a full redraw every time. */
+    g->scroll = (g->vis > 0) ? (selRow / g->vis) * g->vis : 0;
     if (g->scroll < 0) g->scroll = 0;
     g->gx0 = (short)(MARGIN + (gridW - g->cols * g->cw) / 2);
 }
@@ -1521,7 +1524,12 @@ static void list_layout(Ui *u, ListLayout *L)
     L->catRows = rows; L->catTop = top;
     n = cat ? cat->count : 0;
     rows = (L->lstBot - (L->bTop + 24)) / ROW_H;
-    top = m->curItem - rows / 2; if (top > n - rows) top = n - rows; if (top < 0) top = 0;
+    /* Page-based scroll (like the carousel + grid): moving within a screenful leaves
+     * itemTop unchanged so the items pane redraws incrementally; only crossing a page
+     * edge scrolls. The old re-centre-every-move changed itemTop each step -> a full
+     * redraw of the whole list on every game switch. */
+    top = (rows > 0) ? (m->curItem / rows) * rows : 0;
+    if (top < 0) top = 0;
     L->itemRows = rows; L->itemTop = top; L->nItems = n;
 }
 
@@ -2677,6 +2685,7 @@ UiCommand ui_key(Ui *u, char ch)
     /* First-run chooser is modal: Up/Down pick, Return/Esc confirm + persist. */
     if (u->mode == UI_MODE_SETUP) {
         UiCommand sc = UI_NONE;
+        int       old = u->setupSel;
         switch (ch) {
             case kCharUp:    if (u->setupSel > 0) u->setupSel--; break;
             case kCharDown:  if (u->setupSel < VIEW_N - 1) u->setupSel++; break;
@@ -2686,10 +2695,10 @@ UiCommand ui_key(Ui *u, char ch)
                 u->view = u->setupSel;
                 u->mode = UI_MODE_LIST;
                 u->bgValid = 0;
-                sc = UI_PREFS_DIRTY;        /* persist the view + mark first-run done */
-                break;
+                ui_draw(u);                 /* draw the chosen browse view */
+                return UI_PREFS_DIRTY;       /* persist the view + mark first-run done */
         }
-        ui_draw(u);                         /* redraw the chooser (or the carousel on confirm) */
+        if (u->setupSel != old) ui_draw(u);  /* only repaint when the selection moved */
         return sc;
     }
 
