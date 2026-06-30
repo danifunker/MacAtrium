@@ -301,11 +301,9 @@ static int art_pane_w(int W)
 #define GEAR_W 24               /* ...and reserved width (title starts after) */
 
 /* Mouse affordances on the browse screen (docs/07). The Launch button and the
- * ◀▶ pager are now real Control-Manager controls (drawn by ui_paint_controls);
- * ARROW_W is kept only as the per-edge breathing room the side tiles leave so
- * they never crowd the pager's end arrows. Sizes are fixed so hit-testing in
+ * ◀▶ pager are real Control-Manager controls (drawn by ui_paint_controls); the
+ * filmstrip tiles are fixed-size columns. Sizes are fixed so hit-testing in
  * ui_click() needs no font metrics (which aren't reliable outside a draw pass). */
-#define ARROW_W  26
 #define LAUNCH_W 84
 #define LAUNCH_H 22
 #define CAR_PAGER_H 16          /* carousel horizontal scroll bar height (== SBW)  */
@@ -389,9 +387,10 @@ typedef struct {
     int   W, H;
     short clx;                       /* content left edge (cat list or 0)        */
     short carTop, carBot, detTop, detBot;
-    int   hasItems, count, center;
-    short cx, iconCy, centSz, half, sideSz, sideGap, nameBase;
-    int   nside;
+    int   hasItems, count;
+    int   nTiles;                    /* equal-size tiles shown in the strip       */
+    int   page, first, selOnPage;    /* page = curItem/nTiles; first = page*nTiles */
+    short stripX0, iconCy, tileW, tileSz, nameBase;
     Rect  gear, catBand, launchBtn, pager;   /* pager = horizontal scroll bar (band bottom) */
     short catMidX;                   /* split: click < = prev cat, >= = next cat */
 } CarLayout;
@@ -411,7 +410,6 @@ static void carousel_layout(Ui *u, CarLayout *L)
     L->detTop = (short)(L->carBot + 1);
     L->detBot = (short)(H - HINT_H);
     L->count  = cat ? cat->count : 0;
-    L->center = u->m->curItem;
     L->hasItems = (cat && cat->count > 0);
 
     SetRect(&L->gear, (short)(GEAR_X - 4), 3,
@@ -422,14 +420,16 @@ static void carousel_layout(Ui *u, CarLayout *L)
 
     SetRect(&L->launchBtn, 0, 0, 0, 0);
     SetRect(&L->pager,     0, 0, 0, 0);
-    L->cx = L->iconCy = L->centSz = L->half = L->sideSz = L->nameBase = 0;
-    L->sideGap = 8; L->nside = 0;
+    L->nTiles = L->page = L->first = L->selOnPage = 0;
+    L->stripX0 = L->iconCy = L->tileW = L->tileSz = L->nameBase = 0;
 
     if (L->hasItems) {
-        /* Budget the chrome below the tiles from the band bottom up: the ◀▶ pager
+        /* Budget the chrome below the strip from the band bottom up: the ◀▶ pager
          * (horizontal scroll bar) along the bottom edge, the centred item name above
-         * it, then the Launch button; the tiles centre in whatever's left. The pager
-         * + Launch are real controls (ui_paint_controls); only the name is drawn. */
+         * it, then the Launch button; the equal-size tiles fill what's left. The pager
+         * + Launch are real controls (ui_paint_controls); only the name is drawn. A
+         * fixed strip (no re-centring hero) lets an in-page move repaint just the two
+         * affected tiles; crossing the page edge scrolls a full screenful. */
         short cx        = (short)((L->clx + W) / 2);
         short pagerTop  = (short)(L->carBot - CAR_PAGER_H);
         short nameBase  = (short)(pagerTop - 5);
@@ -437,35 +437,62 @@ static void carousel_layout(Ui *u, CarLayout *L)
         short launchTop = (short)(launchBot - LAUNCH_H);
         short tileBot   = (short)(launchTop - 6);
         short tileTop   = (short)(L->carTop + 4);
-        short iconCy    = (short)((tileTop + tileBot) / 2);
-        short centSz    = (short)(tileBot - tileTop - 4);
-        short sideSz, half;
-        int   nside;
-        if (centSz > 76) centSz = 76;
-        if (centSz < 40) centSz = 40;
-        sideSz = (short)(centSz * 9 / 16);
-        half   = (short)(centSz / 2);
-        /* leave room for the pager's end arrows so tiles never sit under them */
-        nside  = ((W - L->clx) / 2 - half - MARGIN - ARROW_W) / (sideSz + L->sideGap);
-        {   /* user cap: `carousel` is an odd icon count 3..25 -> 1..12 per side. The
-             * fit formula above already scales nside down to the screen width, so the
-             * effective count is min(fits, user) and auto-grows on bigger screens. */
-            int maxSide = (u->carousel - 1) / 2;
-            if (maxSide < 1)  maxSide = 1;
-            if (maxSide > 12) maxSide = 12;
-            if (nside > maxSide) nside = maxSide;
-        }
-        if (nside < 1) nside = 1;
+        short tileSz    = (short)(tileBot - tileTop - 8);
+        short tileW;
+        int   stripL    = L->clx + MARGIN, stripR = W - MARGIN;
+        int   stripW    = stripR - stripL, nTiles, userMax;
+        if (tileSz > 64) tileSz = 64;
+        if (tileSz < 36) tileSz = 36;
+        tileW  = (short)(tileSz + 18);             /* equal column = icon + gap */
+        nTiles = stripW / tileW;
+        /* `carousel` is the user's odd 3..25 count -> here the strip's tile count,
+         * capped by what fits (auto-grows on a wider screen). */
+        userMax = u->carousel;
+        if (userMax < 3)  userMax = 3;
+        if (userMax > 25) userMax = 25;
+        if (nTiles > userMax) nTiles = userMax;
+        if (nTiles < 1) nTiles = 1;
 
-        L->cx = cx; L->iconCy = iconCy; L->centSz = centSz;
-        L->half = half; L->sideSz = sideSz; L->nside = nside;
-        L->nameBase = nameBase;
+        L->nTiles    = nTiles;
+        L->page      = u->m->curItem / nTiles;
+        L->first     = L->page * nTiles;
+        L->selOnPage = u->m->curItem - L->first;
+        L->tileSz    = tileSz;
+        L->tileW     = tileW;
+        L->stripX0   = (short)(stripL + (stripW - nTiles * tileW) / 2);
+        L->iconCy    = (short)((tileTop + tileBot) / 2);
+        L->nameBase  = nameBase;
 
         SetRect(&L->launchBtn, (short)(cx - LAUNCH_W / 2), launchTop,
                 (short)(cx + LAUNCH_W / 2), launchBot);
         SetRect(&L->pager, (short)(L->clx + MARGIN), pagerTop,
                 (short)(W - MARGIN), L->carBot);
     }
+}
+
+/* The icon box (and optionally the full erase/highlight column) for visible strip
+ * slot s (0..nTiles-1). Shared by draw + click + the incremental redraw so the drawn
+ * pixels and the clickable/dirty rects can never drift apart. */
+static int carousel_tile_box(const CarLayout *L, int slot, Rect *icon, Rect *col)
+{
+    short x0, cx, h;
+    if (slot < 0 || slot >= L->nTiles) return 0;
+    x0 = (short)(L->stripX0 + slot * L->tileW);
+    cx = (short)(x0 + L->tileW / 2);
+    h  = (short)(L->tileSz / 2);
+    if (icon) SetRect(icon, (short)(cx - h), (short)(L->iconCy - h),
+                      (short)(cx + h), (short)(L->iconCy + h));
+    if (col)  SetRect(col, x0, L->carTop,
+                      (short)(x0 + L->tileW), (short)(L->iconCy + h + 8));
+    return 1;
+}
+
+/* The centred selected-item name strip, just above the pager — its own rect so the
+ * incremental redraw can erase + redraw only the name when the selection changes. */
+static void carousel_name_band(const CarLayout *L, Rect *nb)
+{
+    SetRect(nb, (short)(L->clx + MARGIN), (short)(L->nameBase - ROW_H + 1),
+            (short)(L->W - MARGIN), (short)(L->nameBase + 3));
 }
 
 /* The framed detail-cover rect, from the shared layout — so draw_carousel and the
@@ -568,6 +595,95 @@ static void draw_keyhints(Ui *u, const HintGroup *g, int n)
     }
 }
 
+/* Draw one fixed strip slot: erase its column (handles deselect + the empty trailing
+ * slots on the last page), the item's app icon, and a 2px selection box when selected. */
+static void draw_carousel_tile(Ui *u, const CarLayout *L, int slot)
+{
+    Model    *m   = u->m;
+    ModelCat *cat = model_cur_cat(m);
+    int       idx = L->first + slot;
+    Rect      icon, col;
+    if (!cat || !carousel_tile_box(L, slot, &icon, &col)) return;
+    render_fill(u->r, &col, FILL_BG);                 /* erase: deselect / empty slot */
+    if (idx < 0 || idx >= cat->count) return;
+    draw_tile(u, cat->idx[idx], &m->cat->items[cat->idx[idx]],
+              (short)((icon.left + icon.right) / 2), L->iconCy, L->tileSz);
+    if (idx == m->curItem) {                          /* 2px selection box */
+        Rect f = icon;
+        InsetRect(&f, -6, -6); render_frame(u->r, &f);
+        InsetRect(&f,  1,  1); render_frame(u->r, &f);
+    }
+}
+
+/* The detail band below the strip: the framed cover (left) + name / year-developer /
+ * genre / blurb / tags (right). Shared by the full draw and the incremental redraw,
+ * which blits this same band rect; the leading fill lets a shorter blurb / changed
+ * meta replace the previous item's text cleanly. */
+static void draw_carousel_detail(Ui *u, const CarLayout *L)
+{
+    Render        *r   = u->r;
+    const CatItem *cur = model_cur_item(u->m);
+    int            W = L->W;
+    short          detTop = L->detTop, detBot = L->detBot;
+    char           num[16];
+    Rect           ar, band;
+
+    SetRect(&band, L->clx, detTop, (short)W, detBot);
+    render_fill(r, &band, FILL_BG);
+    render_base_text(r);
+    detail_art_rect(L, &ar);
+    draw_detail_art(u, &ar);
+    if (!cur) return;
+    {
+        short tx   = (short)(ar.right + 2 * MARGIN);
+        short ty   = (short)(detTop + 18);
+        short maxw = (short)(W - tx - MARGIN);
+        char  buf[ITEM_VENDOR_LEN + 24];
+
+        /* title */
+        render_text(r, tx, ty, cur->name, INK_TITLE);
+        ty = (short)(ty + ROW_H + 3);
+
+        /* year - developer */
+        buf[0] = '\0';
+        if (cur->year > 0) { l2s(cur->year, num); strcat(buf, num); }
+        if (cur->vendor[0]) {
+            if (buf[0]) strcat(buf, " - ");
+            strncat(buf, cur->vendor, sizeof buf - strlen(buf) - 1);
+        }
+        if (buf[0]) { render_text(r, tx, ty, buf, INK_DIM); ty = (short)(ty + ROW_H); }
+
+        /* genre on its own line */
+        if (cur->genre[0]) {
+            char g[ITEM_GENRE_LEN + 8];
+            strcpy(g, "Genre: ");
+            strncat(g, cur->genre, ITEM_GENRE_LEN);
+            render_text(r, tx, ty, g, INK_DIM);
+            ty = (short)(ty + ROW_H);
+        }
+        ty = (short)(ty + 6);
+
+        /* description (a transient status line wins) */
+        if (u->status[0])
+            render_text(r, tx, ty, u->status, INK_NORMAL);
+        else if (cur->desc[0])
+            draw_wrapped(r, tx, ty, maxw, ROW_H, cur->desc, INK_NORMAL, 7);
+
+        /* tags: the navigational categories, along the panel's last line */
+        if (cur->ncats > 0) {
+            char tags[ITEM_CAT_LEN * 5];
+            int  ci;
+            tags[0] = '\0';
+            for (ci = 0; ci < cur->ncats; ci++) {
+                if (strlen(tags) + strlen(cur->cats[ci]) + 4 >= sizeof tags) break;
+                if (tags[0]) strcat(tags, " - ");
+                strcat(tags, cur->cats[ci]);
+            }
+            if (tags[0]) render_text(r, tx, (short)(detBot - 8), tags, INK_DIM);
+        }
+    }
+}
+
 static void draw_carousel(Ui *u)
 {
     Render        *r   = u->r;
@@ -578,11 +694,11 @@ static void draw_carousel(Ui *u)
     char           num[16];
     CarLayout      L;
     int            W, H;
-    short          clx, carTop, carBot, detTop, detBot;
+    short          clx, carTop, carBot;
 
     carousel_layout(u, &L);
     W = L.W; H = L.H; clx = L.clx;
-    carTop = L.carTop; carBot = L.carBot; detTop = L.detTop; detBot = L.detBot;
+    carTop = L.carTop; carBot = L.carBot;
 
     render_fill(r, &full, FILL_BG);
 
@@ -644,64 +760,19 @@ static void draw_carousel(Ui *u)
     }
     render_hline(r, 0, (short)W, (short)(HEADER_H - 1));
 
-    /* ---- carousel band (in the content area to the right of any cat list) ---- */
+    /* ---- carousel band: a fixed strip of equal tiles (no re-centring hero) ----
+     * The page = curItem / nTiles; the strip shows [first, first+nTiles), the
+     * selected tile boxed at selOnPage. ←/→ move the selection by one (carousel_nav);
+     * crossing the page edge scrolls in the next screenful (a full draw). The ◀▶
+     * pager + Launch are real controls (ui_paint_controls); only the centred name is
+     * drawn here, just above the pager. */
     if (!cat || cat->count == 0) {
         const char *t = "(no items in this category)";
         render_text(r, (short)(clx + (W - clx - render_text_width(r, t)) / 2),
                     (short)((carTop + carBot) / 2), t, INK_DIM);
     } else {
-        int   center  = L.center;
-        short cx      = L.cx;
-        short iconCy  = L.iconCy;
-        short centSz  = L.centSz;
-        short sideSz  = L.sideSz, sideGap = L.sideGap, half = L.half;
-        int   nside   = L.nside, k;
-
-        /* side tiles, WRAPPING so the carousel always looks full and continuous:
-         * the slots before the first item show the category's LAST items (and
-         * vice versa), so the default view reads as a carousel you can scroll
-         * either way. A `seen` guard stops a small category (fewer items than
-         * slots) from drawing the same item twice. Inner slots fill first. */
-        {
-            char seen[MAX_CAT_ITEMS];
-            int  cnt = cat->count;
-            memset(seen, 0, sizeof seen);
-            if (center >= 0 && center < cnt) seen[center] = 1;
-            for (k = 1; k <= nside; k++) {
-                short off = (short)(half + sideGap + sideSz / 2 + (k - 1) * (sideSz + sideGap));
-                int   li  = ((center - k) % cnt + cnt) % cnt;
-                int   ri  = (center + k) % cnt;
-                if (!seen[li]) {
-                    seen[li] = 1;
-                    draw_tile(u, cat->idx[li], &m->cat->items[cat->idx[li]],
-                              (short)(cx - off), iconCy, sideSz);
-                }
-                if (!seen[ri]) {
-                    seen[ri] = 1;
-                    draw_tile(u, cat->idx[ri], &m->cat->items[cat->idx[ri]],
-                              (short)(cx + off), iconCy, sideSz);
-                }
-            }
-        }
-        /* centre tile: ALWAYS the app's own icon at the current screen depth — it
-         * never swaps to the box art. The hero cover lives only in the detail pane
-         * below; drawing it here too made the centre flip icon->cover when ui_idle
-         * finished loading (and, on the direct-draw 6.0.8 path, painted the cover
-         * twice per repaint — the "multiple passes"). A stable icon column avoids
-         * both. */
-        draw_tile(u, cat->idx[center], cur, cx, iconCy, centSz);
-        {   /* 2px square selection box around the centred (selected) icon */
-            Rect f;
-            short pad = (short)(half + 5);
-            SetRect(&f, (short)(cx - pad), (short)(iconCy - pad),
-                    (short)(cx + pad), (short)(iconCy + pad));
-            render_frame(r, &f);
-            InsetRect(&f, 1, 1);
-            render_frame(r, &f);
-        }
-        /* The ◀▶ pager (a horizontal scroll bar) and the Launch button are real
-         * Control-Manager controls drawn by ui_paint_controls after the blit; only
-         * the centred item name is drawn here, just above the pager. */
+        int s;
+        for (s = 0; s < L.nTiles; s++) draw_carousel_tile(u, &L, s);
         if (cur) {
             short nw = render_text_width(r, cur->name);
             render_text(r, (short)(clx + (W - clx - nw) / 2), L.nameBase,
@@ -710,63 +781,16 @@ static void draw_carousel(Ui *u)
     }
     render_hline(r, clx, (short)W, carBot);
 
-    /* ---- detail band: art (left) + name / meta / blurb (right) ---- */
-    {
-        /* Cover is loaded synchronously above (off-screen path) or by ui_idle once
-         * the selection settles (direct-draw path); on that path the deferred load
-         * repaints ONLY this cover box (ui_draw_art), not the whole screen. */
-        Rect ar;
-        detail_art_rect(&L, &ar);
-        draw_detail_art(u, &ar);
-        if (cur) {
-            short tx   = (short)(ar.right + 2 * MARGIN);
-            short ty   = (short)(detTop + 18);
-            short maxw = (short)(W - tx - MARGIN);
-            char  buf[ITEM_VENDOR_LEN + 24];
+    /* ---- detail band: cover (left) + name / meta / blurb (right). The cover is
+     * loaded synchronously above (off-screen path) or by ui_idle once the selection
+     * settles (direct-draw path; that load repaints ONLY the cover box). ---- */
+    draw_carousel_detail(u, &L);
 
-            /* title */
-            render_text(r, tx, ty, cur->name, INK_TITLE);
-            ty = (short)(ty + ROW_H + 3);
-
-            /* year - developer */
-            buf[0] = '\0';
-            if (cur->year > 0) { l2s(cur->year, num); strcat(buf, num); }
-            if (cur->vendor[0]) {
-                if (buf[0]) strcat(buf, " - ");
-                strncat(buf, cur->vendor, sizeof buf - strlen(buf) - 1);
-            }
-            if (buf[0]) { render_text(r, tx, ty, buf, INK_DIM); ty = (short)(ty + ROW_H); }
-
-            /* genre on its own line */
-            if (cur->genre[0]) {
-                char g[ITEM_GENRE_LEN + 8];
-                strcpy(g, "Genre: ");
-                strncat(g, cur->genre, ITEM_GENRE_LEN);
-                render_text(r, tx, ty, g, INK_DIM);
-                ty = (short)(ty + ROW_H);
-            }
-            ty = (short)(ty + 6);
-
-            /* description (a transient status line wins) */
-            if (u->status[0])
-                render_text(r, tx, ty, u->status, INK_NORMAL);
-            else if (cur->desc[0])
-                draw_wrapped(r, tx, ty, maxw, ROW_H, cur->desc, INK_NORMAL, 7);
-
-            /* tags: the navigational categories, along the panel's last line */
-            if (cur->ncats > 0) {
-                char tags[ITEM_CAT_LEN * 5];
-                int  ci;
-                tags[0] = '\0';
-                for (ci = 0; ci < cur->ncats; ci++) {
-                    if (strlen(tags) + strlen(cur->cats[ci]) + 4 >= sizeof tags) break;
-                    if (tags[0]) strcat(tags, " - ");
-                    strcat(tags, cur->cats[ci]);
-                }
-                if (tags[0]) render_text(r, tx, (short)(detBot - 8), tags, INK_DIM);
-            }
-        }
-    }
+    /* remember the page + selection this full draw painted, so an in-page ←/→ move
+     * (carousel_draw_sel) can repaint just the two affected tiles + detail */
+    u->lastDrawnItem = u->m->curItem;
+    u->lastDrawnTop  = L.page;
+    u->lastDrawnCat  = u->m->curCat;
 
     /* ---- footer: control key-caps ---- */
     render_hline(r, 0, (short)W, (short)(H - HINT_H));
@@ -2037,39 +2061,86 @@ static void carousel_draw_art(Ui *u)
     render_end(u->r, u->win);
 }
 
-/* Click in the carousel: the "^ cat v" band changes category; a visible side tile
- * moves the selection to it. The Launch button and the ◀▶ pager are real controls
- * caught by FindControl in main.c before this runs; the shared gear is handled by
- * ui_click before this. */
+/* Incremental selection redraw: an in-page ←/→ move repaints only the old + new
+ * tile, the centred name strip, the header counter, and the detail band — and blits
+ * that union, not the whole window. Returns 0 (the caller does a full draw) when the
+ * page or category changed, i.e. a full screenful scrolls in. */
+static int carousel_draw_sel(Ui *u)
+{
+    CarLayout L;
+    Rect      oldB, newB, nameBand, hdr, det, dirty;
+    int       oldSlot;
+    if (!u->bgValid) return 0;
+    carousel_layout(u, &L);
+    if (!L.hasItems) return 0;
+    if (u->m->curCat != u->lastDrawnCat) return 0;
+    if (L.page != u->lastDrawnTop)        return 0;   /* paged -> full draw */
+    oldSlot = u->lastDrawnItem - L.first;
+    if (oldSlot < 0 || oldSlot >= L.nTiles) return 0; /* belt + braces */
+
+    render_begin(u->r, u->win);
+    SetRect(&hdr, 0, 0, (short)win_w(u), (short)HEADER_H);   /* refresh the N / M counter */
+    render_fill(u->r, &hdr, FILL_BG);
+    draw_browse_header(u);                                   /* identical to the inline header */
+
+    draw_carousel_tile(u, &L, oldSlot);        /* old -> deselected */
+    draw_carousel_tile(u, &L, L.selOnPage);    /* new -> selected   */
+
+    carousel_name_band(&L, &nameBand);
+    render_fill(u->r, &nameBand, FILL_BG);
+    {
+        const CatItem *cur = model_cur_item(u->m);
+        if (cur) {
+            short nw = render_text_width(u->r, cur->name);
+            render_text(u->r, (short)(L.clx + (win_w(u) - L.clx - nw) / 2),
+                        L.nameBase, cur->name, INK_TITLE);
+        }
+    }
+
+    if (u->r->useOffscreen) ensure_art_loaded(u);   /* land the cover in this same pass */
+    draw_carousel_detail(u, &L);
+
+    carousel_tile_box(&L, oldSlot,     0, &oldB);   /* col rects bound the selection box */
+    carousel_tile_box(&L, L.selOnPage, 0, &newB);
+    SetRect(&det, L.clx, L.detTop, (short)win_w(u), L.detBot);
+    UnionRect(&oldB, &newB, &dirty);
+    UnionRect(&dirty, &nameBand, &dirty);
+    UnionRect(&dirty, &hdr, &dirty);
+    UnionRect(&dirty, &det, &dirty);
+    render_end_rect(u->r, u->win, &dirty);
+    u->lastDrawnItem = u->m->curItem;
+    return 1;
+}
+
+/* Click in the carousel: the "^ cat v" band changes category; a visible tile selects
+ * it (re-clicking the selected tile launches it — the native open-on-double-click
+ * feel). The Launch button + the ◀▶ pager are real controls caught by FindControl in
+ * main.c before this runs; the shared gear is handled by ui_click before this. */
 static int carousel_click(Ui *u, Point pt, UiCommand *out)
 {
     CarLayout L;
-    (void)out;
+    int       s;
     carousel_layout(u, &L);
     if (PtInRect(pt, &L.catBand)) {
         model_move_cat(u->m, pt.h < L.catMidX ? -1 : +1);
         return 1;
     }
-    if (L.hasItems) {
-        {   int k;
-            for (k = 1; k <= L.nside; k++) {
-                short off = (short)(L.half + L.sideGap + L.sideSz / 2 +
-                                    (k - 1) * (L.sideSz + L.sideGap));
-                short h = (short)(L.sideSz / 2);
-                Rect  lt, rt;
-                SetRect(&lt, (short)(L.cx - off - h), (short)(L.iconCy - h),
-                        (short)(L.cx - off + h), (short)(L.iconCy + h));
-                SetRect(&rt, (short)(L.cx + off - h), (short)(L.iconCy - h),
-                        (short)(L.cx + off + h), (short)(L.iconCy + h));
-                if (L.center - k >= 0 && PtInRect(pt, &lt)) { model_move_item(u->m, -k); return 1; }
-                if (L.center + k < L.count && PtInRect(pt, &rt)) { model_move_item(u->m, +k); return 1; }
-            }
+    if (!L.hasItems) return 0;
+    for (s = 0; s < L.nTiles; s++) {
+        Rect col;
+        int  idx = L.first + s;
+        if (idx >= L.count) break;
+        carousel_tile_box(&L, s, 0, &col);
+        if (PtInRect(pt, &col)) {
+            if (idx == u->m->curItem) { u->status[0] = '\0'; *out = UI_LAUNCH; }
+            else model_move_item(u->m, idx - u->m->curItem);
+            return 1;
         }
     }
     return 0;
 }
 
-static const BrowseView gCarouselView = { "Carousel",  draw_carousel, carousel_nav, carousel_idle, carousel_click, 0,                 carousel_draw_art };
+static const BrowseView gCarouselView = { "Carousel",  draw_carousel, carousel_nav, carousel_idle, carousel_click, carousel_draw_sel, carousel_draw_art };
 static const BrowseView gIconView     = { "Icon Grid", draw_iconview, iconview_nav, iconview_idle, iconview_click, iconview_draw_sel, iconview_draw_art };
 static const BrowseView gListView     = { "List",      draw_listview, listview_nav, listview_idle, listview_click, listview_draw_sel, listview_draw_art };
 static const BrowseView *const gViews[VIEW_N] = {
@@ -2183,8 +2254,8 @@ static void ui_paint_controls(Ui *u)
     if (u->view == VIEW_CAROUSEL) {
         CarLayout L; carousel_layout(u, &L);
         sb = L.pager;          /* horizontal scroll bar along the band bottom */
-        lb = L.launchBtn;      /* Launch button below the centred icon        */
-        n = L.count; vis = 2 * L.nside + 1;   /* tiles visible at once         */
+        lb = L.launchBtn;      /* Launch button below the strip                */
+        n = L.count; vis = L.nTiles;          /* tiles visible at once         */
     } else if (u->view == VIEW_ICON) {
         GridLayout g; grid_layout(u, &g);
         SetRect(&sb, g.gridRight, (short)HEADER_H, (short)(g.gridRight + SBW), (short)(win_h(u) - HINT_H));
@@ -2409,7 +2480,7 @@ void ui_scroll_step(Ui *u, short part)
     if (n <= 0) return;
     if (u->view == VIEW_ICON)      { GridLayout g; grid_layout(u, &g); page = g.vis * g.cols; }
     else if (u->view == VIEW_LIST) { ListLayout L; list_layout(u, &L); page = L.itemRows; }
-    else                           { CarLayout L; carousel_layout(u, &L); page = 2 * L.nside + 1; }
+    else                           { CarLayout L; carousel_layout(u, &L); page = L.nTiles; }
     if (page < 1) page = 1;
     switch (part) {
         case inUpButton:   step = -1;    break;
