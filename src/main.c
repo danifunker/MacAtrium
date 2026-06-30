@@ -943,6 +943,123 @@ static SettingsResult run_settings_dialog(int *chromeChanged)
     return res;
 }
 
+/* ---- the Quick-Launch menu (docs/33; the ESC menu, now a real window) ---------
+ * A movable modal window of standard push buttons (one per menu action) with the
+ * same focus-ring keyboard model as the Settings dialog: ↑/↓ move the highlight,
+ * Space/Return activate, Esc cancels, the mouse clicks a button. Returns the chosen
+ * UiCommand (UI_NONE if cancelled) for main to dispatch. */
+#define QL_CW    240
+#define QL_LM    24
+#define QL_BTNH  24
+#define QL_PITCH 30
+#define QL_TOP   16
+#define QL_MAXITEMS 8
+
+static void ql_btn_rect(int i, Rect *r)
+{ short y = (short)(QL_TOP + i * QL_PITCH); SetRect(r, QL_LM, y, (short)(QL_CW - QL_LM), (short)(y + QL_BTNH)); }
+
+static void ql_focus_frame(int i, int on)
+{
+    Rect r; ql_btn_rect(i, &r); InsetRect(&r, -4, -4);
+    PenPat(on ? &qd.black : &qd.white);
+    FrameRect(&r);
+    PenPat(&qd.black);
+}
+
+static void ql_draw(WindowPtr dlg, int focus)
+{
+    Rect content = dlg->portRect;
+    SetPort(dlg);
+    EraseRect(&content);
+    DrawControls(dlg);
+    ql_focus_frame(focus, 1);
+}
+
+static void ql_set_focus(int *focus, int nf)
+{
+    if (nf == *focus) return;
+    ql_focus_frame(*focus, 0);
+    *focus = nf;
+    ql_focus_frame(*focus, 1);
+}
+
+static UiCommand run_quicklaunch_menu(void)
+{
+    WindowPtr     dlg;
+    Rect          bounds, sb = qd.screenBits.bounds;
+    int           n = ui_menu_count(&gUi), i, focus = 0, running = 1;
+    short         CH;
+    UiCommand     result = UI_NONE;
+    ControlHandle btn[QL_MAXITEMS];
+
+    if (n < 1) return UI_NONE;
+    if (n > QL_MAXITEMS) n = QL_MAXITEMS;
+    CH = (short)(QL_TOP + n * QL_PITCH + 14);
+    {
+        short L = (short)(sb.left + ((sb.right - sb.left) - QL_CW) / 2);
+        short T = (short)(sb.top  + ((sb.bottom - sb.top) - CH) / 2);
+        if (T < (short)(sb.top + 44)) T = (short)(sb.top + 44);
+        SetRect(&bounds, L, T, (short)(L + QL_CW), (short)(T + CH));
+    }
+    dlg = NewWindow(0L, &bounds, "\pQuick-Launch Menu", true, movableDBoxProc, (WindowPtr)-1L, false, 0L);
+    if (!dlg) return UI_NONE;
+    SetPort(dlg);
+    TextFont(0); TextSize(12);
+    for (i = 0; i < n; i++) {
+        Rect r; Str255 t;
+        ql_btn_rect(i, &r);
+        c2p255(ui_menu_label(&gUi, i), t);
+        btn[i] = NewControl(dlg, &r, t, true, 0, 0, 0, pushButProc, 0L);
+    }
+    ql_draw(dlg, focus);
+    ValidRect(&dlg->portRect);
+
+    while (running) {
+        EventRecord evt;
+        if (!next_event(&evt)) continue;
+        switch (evt.what) {
+            case updateEvt: {
+                WindowPtr w = (WindowPtr)evt.message;
+                if (w == dlg) { BeginUpdate(w); ql_draw(dlg, focus); EndUpdate(w); }
+                else { BeginUpdate(w); SetPort(w); ui_draw(&gUi); EndUpdate(w); SetPort(dlg); }
+                break;
+            }
+            case mouseDown: {
+                WindowPtr w; short part = FindWindow(evt.where, &w);
+                if (part == inDrag && w == dlg) { DragWindow(w, evt.where, &sb); SetPort(dlg); }
+                else if (part == inContent && w == dlg) {
+                    Point p = evt.where; ControlHandle ctl; short cp;
+                    SetPort(dlg); GlobalToLocal(&p);
+                    cp = FindControl(p, dlg, &ctl);
+                    if (cp && ctl && TrackControl(ctl, p, (ControlActionUPP)0))
+                        for (i = 0; i < n; i++)
+                            if (ctl == btn[i]) { result = ui_menu_command(&gUi, i); running = 0; break; }
+                } else if (w != dlg) {
+                    SysBeep(1);
+                }
+                break;
+            }
+            case keyDown:
+            case autoKey: {
+                char c = (char)(evt.message & charCodeMask);
+                if (evt.modifiers & cmdKey) { if (c == '.') running = 0; break; }
+                switch (c) {
+                    case kCharEscape: running = 0; break;
+                    case kCharUp:     ql_set_focus(&focus, (focus - 1 + n) % n); break;
+                    case '\t':
+                    case kCharDown:   ql_set_focus(&focus, (focus + 1) % n); break;
+                    case ' ':
+                    case kCharReturn:
+                    case kCharEnter:  result = ui_menu_command(&gUi, focus); running = 0; break;
+                }
+                break;
+            }
+        }
+    }
+    DisposeWindow(dlg);
+    return result;
+}
+
 static void handle_ui_command(UiCommand cmd)
 {
     switch (cmd) {
@@ -1002,9 +1119,8 @@ static void handle_ui_command(UiCommand cmd)
             if (chromeChanged) {
                 rebuild_window();             /* a menu/title-bar toggle: re-lay out + repaint */
             } else {
-                gUi.bgValid = 0;              /* the dialog applied theme/depth/view/… changes */
                 SetPort(gWin);
-                ui_draw(&gUi);                /* repaint the browse behind the closed dialog */
+                ui_reblit(&gUi);              /* re-blit the browse (or re-render if a setting changed it) */
                 ValidRect(&gWin->portRect);   /* swallow the dispose-exposed updateEvt */
             }
             save_prefs();
@@ -1014,6 +1130,15 @@ static void handle_ui_command(UiCommand cmd)
                 gUi.mode = UI_MODE_CTLPANELS;
                 ui_draw(&gUi);
             }
+            break;
+        }
+        case UI_OPEN_MENU: {                  /* the real Quick-Launch menu window */
+            UiCommand mc = run_quicklaunch_menu();
+            gUi.mode = UI_MODE_LIST;
+            SetPort(gWin);
+            ui_reblit(&gUi);                  /* the menu window never touched the buffer */
+            ValidRect(&gWin->portRect);
+            if (mc != UI_NONE) handle_ui_command(mc);   /* dispatch the chosen action */
             break;
         }
         default: break;

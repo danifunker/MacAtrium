@@ -897,75 +897,6 @@ static void draw_ctlpanels(Ui *u)
     }
 }
 
-/* Draw one Menu row (selection highlight + label). Shared by the full-panel draw
- * and the partial (selection-moved) redraw so navigating the menu repaints only
- * the two affected rows instead of re-filling — and flashing — the whole panel. */
-static void draw_menu_row(Ui *u, short px, short py, int pw, int i)
-{
-    Render *r = u->r;
-    short   y0   = (short)(py + 36 + i * (ROW_H + 4));
-    short   base = (short)(y0 + ROW_H - 5);
-    int     sel  = (i == u->menuSel);
-    Rect    rr;
-    SetRect(&rr, (short)(px + 4), y0, (short)(px + pw - 4), (short)(y0 + ROW_H));
-    render_fill(r, &rr, sel ? FILL_SEL : FILL_PANEL);
-    render_text(r, (short)(px + MARGIN), base, kMenuLabel[u->menuRows[i]],
-                sel ? INK_SELECTED : INK_NORMAL);
-}
-
-static void draw_menu(Ui *u)
-{
-    Render *r = u->r;
-    int     W = win_w(u), H = win_h(u);
-    int     pw = 240;
-    int     ph = u->nmenu * (ROW_H + 4) + 84;   /* room for a key-cap nav line + stamp */
-    short   px = (short)((W - pw) / 2);
-    short   py = (short)((H - ph) / 2);
-    Rect    panel;
-    int     i;
-
-    SetRect(&u->panelRect, px, py, (short)(px + pw), (short)(py + ph));   /* blit/erase region */
-
-    /* Selection-only move: repaint just the previously- and newly-selected rows.
-     * The panel is already on screen (overlayDrawn) and the carousel behind it is
-     * untouched, so re-filling the whole panel would only flash. */
-    if (u->overlayDrawn && u->lastSel != u->menuSel) {
-        if (u->lastSel >= 0 && u->lastSel < u->nmenu)
-            draw_menu_row(u, px, py, pw, u->lastSel);
-        draw_menu_row(u, px, py, pw, u->menuSel);
-        u->lastSel = u->menuSel;
-        return;
-    }
-
-    SetRect(&panel, px, py, (short)(px + pw), (short)(py + ph));
-    render_fill(r, &panel, FILL_PANEL);
-    render_frame(r, &panel);
-
-    render_text(r, (short)(px + MARGIN), (short)(py + 22), "MacAtrium  Menu", INK_TITLE);
-    render_hline(r, px, (short)(px + pw), (short)(py + 30));
-
-    for (i = 0; i < u->nmenu; i++)
-        draw_menu_row(u, px, py, pw, i);
-
-    /* nav key-caps (consistent with the browse footer + Settings), then the build stamp */
-    render_hline(r, px, (short)(px + pw), (short)(py + ph - 42));
-    {
-        static const HintGroup g[] = { {"^", "v", "Select"}, {"ret", 0, "Open"}, {"esc", 0, "Back"} };
-        draw_keyhints_box(u, g, 3, (short)(px + 4), (short)(px + pw - 4), (short)(py + ph - 38));
-    }
-    {   /* build stamp (git commit) so the running build is identifiable */
-        char  ver[40];
-        short vw;
-        strcpy(ver, "build ");
-        strcat(ver, MACATRIUM_VERSION);
-        vw = render_text_width(r, ver);
-        render_text(r, (short)(px + (pw - vw) / 2), (short)(py + ph - 9), ver, INK_DIM);
-    }
-
-    u->overlayDrawn = 1;
-    u->lastSel = u->menuSel;
-}
-
 static void draw_preview(Ui *u)
 {
     Render *r = u->r;
@@ -2188,8 +2119,7 @@ static void draw_quitconfirm(Ui *u)
 
 static int is_overlay_mode(int mode)
 {
-    return mode == UI_MODE_MENU ||
-           mode == UI_MODE_CTLPANELS || mode == UI_MODE_QUITCONFIRM;
+    return mode == UI_MODE_CTLPANELS || mode == UI_MODE_QUITCONFIRM;
 }
 
 /* The window rect an overlay panel occupies, by mode (centred) — mirrors the panel
@@ -2200,7 +2130,6 @@ static int overlay_panel_rect(Ui *u, int mode, Rect *p)
     int   W = win_w(u), H = win_h(u), pw, ph;
     short px, py;
     switch (mode) {
-        case UI_MODE_MENU:        pw = 240;   ph = u->nmenu * (ROW_H + 4) + 84; break;
         case UI_MODE_CTLPANELS:   pw = 320;   ph = 9 * (ROW_H + 2) + 56;        break;
         case UI_MODE_QUITCONFIRM: pw = QC_PW; ph = QC_PH;                       break;
         default: SetRect(p, 0, 0, 0, 0); return 0;
@@ -2279,9 +2208,7 @@ void ui_draw(Ui *u)
             u->overlayDrawn = 0;           /* the repaint erased any overlay panel */
             carouselRepainted = 1;
         }
-        if (u->mode == UI_MODE_MENU)
-            draw_menu(u);
-        else if (u->mode == UI_MODE_CTLPANELS)
+        if (u->mode == UI_MODE_CTLPANELS)
             draw_ctlpanels(u);
         else if (u->mode == UI_MODE_QUITCONFIRM)
             draw_quitconfirm(u);
@@ -2294,6 +2221,19 @@ void ui_draw(Ui *u)
     else
         render_end(u->r, u->win);
     ui_paint_controls(u, 0);       /* full: real scroll bar + Launch + category steppers */
+}
+
+/* Re-blit the browse screen from the off-screen buffer without re-rendering it — used
+ * when a real modal window (Quick-Launch menu / Settings) closes and the buffer still
+ * holds the clean browse (the window never touched it). Far cheaper than ui_draw and
+ * avoids the full-screen repaint flash. Falls back to a full draw on the direct-draw
+ * path (no buffer to blit) or when a setting in the dialog invalidated the buffer. */
+void ui_reblit(Ui *u)
+{
+    if (!u->r->useOffscreen || !u->bgValid || u->mode != UI_MODE_LIST) { ui_draw(u); return; }
+    render_begin(u->r, u->win);        /* no drawing between begin/end == just re-blit */
+    render_end(u->r, u->win);
+    ui_paint_controls(u, 0);
 }
 
 int ui_idle(Ui *u)
@@ -2389,20 +2329,29 @@ void ui_step_category(Ui *u, short dir)
     if (model_move_cat(u->m, dir)) browse_redraw(u);
 }
 
-/* ---- input ---------------------------------------------------------------- */
+/* ---- Quick-Launch menu model (the real menu window in main.c renders these) ---- */
+int ui_menu_count(Ui *u) { return u->nmenu; }
 
-static UiCommand menu_select(Ui *u)
+const char *ui_menu_label(Ui *u, int i)
 {
-    switch (u->menuRows[u->menuSel]) {
-        case MROW_SETTINGS:    u->mode = UI_MODE_LIST; return UI_OPEN_SETTINGS;
-        case MROW_SHOW_FINDER: u->mode = UI_MODE_LIST; return UI_SHOW_FINDER;
-        case MROW_EXIT:        u->mode = UI_MODE_LIST; return UI_QUIT;
-        case MROW_RESTART:     u->mode = UI_MODE_LIST; return UI_RESTART;
-        case MROW_SHUTDOWN:    u->mode = UI_MODE_LIST; return UI_SHUTDOWN;
+    if (i < 0 || i >= u->nmenu) return "";
+    return kMenuLabel[u->menuRows[i]];
+}
+
+UiCommand ui_menu_command(Ui *u, int i)
+{
+    if (i < 0 || i >= u->nmenu) return UI_NONE;
+    switch (u->menuRows[i]) {
+        case MROW_SETTINGS:    return UI_OPEN_SETTINGS;
+        case MROW_SHOW_FINDER: return UI_SHOW_FINDER;
+        case MROW_EXIT:        return UI_QUIT;
+        case MROW_RESTART:     return UI_RESTART;
+        case MROW_SHUTDOWN:    return UI_SHUTDOWN;
     }
-    u->mode = UI_MODE_LIST;
     return UI_NONE;
 }
+
+/* ---- input ---------------------------------------------------------------- */
 
 /* Build "<base>.<depth>.<ext>" into buf (depth is 1/4/8/16). */
 static void art_variant_path(char *buf, const char *base, int depth, const char *ext)
@@ -2764,7 +2713,7 @@ UiCommand ui_key(Ui *u, char ch)
         switch (ch) {
             case kCharReturn:
             case kCharEnter:  u->settingsFocus = 0; return UI_OPEN_SETTINGS;
-            case kCharEscape: u->settingsFocus = 0; u->mode = UI_MODE_MENU; u->menuSel = 0; break;
+            case kCharEscape: u->settingsFocus = 0; return UI_OPEN_MENU;
             default:          u->settingsFocus = 0; break;   /* any other key unfocuses */
         }
         ui_draw(u);
@@ -2801,18 +2750,6 @@ UiCommand ui_key(Ui *u, char ch)
         return UI_NONE;
     }
 
-    if (u->mode == UI_MODE_MENU) {
-        switch (ch) {
-            case kCharUp:    if (u->menuSel > 0) u->menuSel--; break;
-            case kCharDown:  if (u->menuSel < u->nmenu - 1) u->menuSel++; break;
-            case kCharReturn:
-            case kCharEnter: cmd = menu_select(u); break;
-            case kCharEscape: u->mode = UI_MODE_LIST; break;
-        }
-        ui_draw(u);
-        return cmd;
-    }
-
     /* Per-item launch hotkey: a printable key mapped to a title launches it
      * immediately (doubles as a gamepad button via MiSTer's button->key map).
      * Checked before navigation/type-ahead; restricted to printable keys so it
@@ -2837,8 +2774,7 @@ UiCommand ui_key(Ui *u, char ch)
             if (u->view == VIEW_LIST && u->filter[0]) {   /* Esc clears the filter first */
                 ui_filter_clear(u);
             } else {
-                u->mode = UI_MODE_MENU;
-                u->menuSel = 0;
+                return UI_OPEN_MENU;                       /* open the Quick-Launch window */
             }
             break;
         case kCharReturn:
@@ -2922,37 +2858,9 @@ UiCommand ui_click(Ui *u, Point pt)
         return UI_NONE;
     }
 
-    /* Safe (no-catalog) screen: a click opens the Esc menu so Restart / Shut Down
-     * stay reachable with the mouse. */
-    if (u->safe) {
-        u->mode = UI_MODE_MENU; u->menuSel = 0;
-        ui_draw(u);
-        return UI_NONE;
-    }
-
-    if (u->mode == UI_MODE_MENU) {
-        int   W = win_w(u), H = win_h(u);
-        int   pw = 240, ph = u->nmenu * (ROW_H + 4) + 44;
-        short px = (short)((W - pw) / 2), py = (short)((H - ph) / 2);
-        Rect  panel;
-        int   i;
-        SetRect(&panel, px, py, (short)(px + pw), (short)(py + ph));
-        if (!PtInRect(pt, &panel)) { u->mode = UI_MODE_LIST; ui_draw(u); return UI_NONE; }
-        for (i = 0; i < u->nmenu; i++) {
-            short y0 = (short)(py + 36 + i * (ROW_H + 4));
-            Rect  rr;
-            SetRect(&rr, (short)(px + 4), y0, (short)(px + pw - 4), (short)(y0 + ROW_H));
-            if (PtInRect(pt, &rr)) {
-                UiCommand c;
-                u->menuSel = i;
-                c = menu_select(u);
-                ui_draw(u);
-                return c;
-            }
-        }
-        ui_draw(u);
-        return UI_NONE;
-    }
+    /* Safe (no-catalog) screen: a click opens the Quick-Launch menu so Restart /
+     * Shut Down stay reachable with the mouse. */
+    if (u->safe) return UI_OPEN_MENU;
 
     if (u->mode == UI_MODE_CTLPANELS) {
         int   W = win_w(u), H = win_h(u);
@@ -2994,10 +2902,9 @@ UiCommand ui_click(Ui *u, Point pt)
         SetRect(&gear, (short)(GEAR_X - 4), 3, (short)(GEAR_X + GEAR_W - 4), (short)(HEADER_H - 2));
         u->settingsFocus = 0;                        /* a click takes focus off the gear */
 
-        if (PtInRect(pt, &gear)) {                   /* shared: gear -> the menu hub */
-            u->mode = UI_MODE_MENU; u->menuSel = 0;
-            ui_draw(u);
-            return UI_NONE;
+        if (PtInRect(pt, &gear)) {                   /* the pop-up affordance -> Quick-Launch menu */
+            if (wasFocus) ui_draw(u);                /* clear any focus frame first */
+            return UI_OPEN_MENU;
         }
         /* The active view owns selection / launch / category hit-testing. */
         if (cur_view(u)->click && cur_view(u)->click(u, pt, &cmd)) {
