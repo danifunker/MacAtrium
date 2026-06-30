@@ -295,3 +295,14 @@ void render_base_text(Render *r)
     TextSize(r->textSize);
     TextFace(normal);
 }
+
+/* Chicago (the system font) at its native 12pt — for headings like the category
+ * name, so they read as bold system chrome rather than Geneva body text. Callers
+ * restore the body face with render_base_text afterward. */
+void render_sys_text(Render *r)
+{
+    (void)r;
+    TextFont(systemFont);   /* 0 = Chicago */
+    TextSize(12);
+    TextFace(normal);
+}

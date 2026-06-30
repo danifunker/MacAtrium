@@ -13,8 +13,8 @@
 #include <Quickdraw.h>
 #include "env.h"
 
-/* Fill kinds (background, list panel, selection highlight). */
-enum { FILL_BG = 0, FILL_PANEL, FILL_SEL };
+/* Fill kinds (background, list panel, selection highlight, At Ease tile face). */
+enum { FILL_BG = 0, FILL_PANEL, FILL_SEL, FILL_TILE };
 
 /* Text ink roles. */
 enum { INK_NORMAL = 0, INK_DIM, INK_SELECTED, INK_TITLE };
@@ -79,5 +79,6 @@ short render_text_width(Render *r, const char *s);
 void  render_text_size(Render *r, int points);          /* explicit one-off size */
 void  render_set_text_size(Render *r, int points);      /* set the content size (S/M/L) */
 void  render_base_text(Render *r);                      /* re-assert content font + size */
+void  render_sys_text(Render *r);                       /* Chicago (system font) for headings */
 
 #endif /* MACATRIUM_RENDER_H */

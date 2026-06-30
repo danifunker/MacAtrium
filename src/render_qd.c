@@ -9,6 +9,12 @@
 void qd_set_fill(const Render *r, int kind)
 {
     int dark = (r->theme != THEME_LIGHT);
+    if (kind == FILL_TILE) {           /* At Ease tile face: a 50% grey dither */
+        PenPat(&qd.gray);
+        ForeColor(dark ? whiteColor : blackColor);
+        BackColor(dark ? blackColor : whiteColor);
+        return;
+    }
     PenPat(&qd.black);                 /* solid; patCopy fills with foreColor */
     if (kind == FILL_SEL)
         ForeColor(dark ? whiteColor : blackColor);   /* highlight bar */

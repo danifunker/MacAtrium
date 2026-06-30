@@ -15,6 +15,7 @@ typedef struct {
     RGBColor dim;       /* dimmed (years, hints, desc)  */
     RGBColor selText;   /* text over the selection fill */
     RGBColor line;      /* frames + divider hlines      */
+    RGBColor tile;      /* At Ease tile button face (raised grey) */
 } ThemePalette;
 
 /* Dark (default): near-black desktop, a slightly-raised charcoal panel, an azure
@@ -27,7 +28,8 @@ static ThemePalette kDark = {
     { 0xECEC, 0xECEC, 0xECEC },   /* text    #ececec off-white   */
     { 0x9C9C, 0x9C9C, 0x9C9C },   /* dim     #9c9c9c             */
     { 0xFFFF, 0xFFFF, 0xFFFF },   /* selText white               */
-    { 0x5555, 0x5555, 0x5555 }    /* line    #555555 grey rule   */
+    { 0x5555, 0x5555, 0x5555 },   /* line    #555555 grey rule   */
+    { 0x4444, 0x4444, 0x4444 }    /* tile    #444444 raised face  */
 };
 
 /* Light (authentic System 7): white window interiors, black-on-white chrome, a
@@ -41,7 +43,8 @@ static ThemePalette kLight = {
     { 0x0000, 0x0000, 0x0000 },   /* text    black                        */
     { 0x7878, 0x7878, 0x7878 },   /* dim     #787878 mid grey             */
     { 0x0000, 0x0000, 0x0000 },   /* selText black (dark on the pale tint)*/
-    { 0x0000, 0x0000, 0x0000 }    /* line    black 1px rules + frames      */
+    { 0x0000, 0x0000, 0x0000 },   /* line    black 1px rules + frames      */
+    { 0xCCCC, 0xCCCC, 0xCCCC }    /* tile    #cccccc platinum button face  */
 };
 
 static ThemePalette *pal(const Render *r)
@@ -56,6 +59,7 @@ void cqd_set_fill(const Render *r, int kind)
     switch (kind) {
         case FILL_SEL:   RGBForeColor(&p->sel);   break;
         case FILL_PANEL: RGBForeColor(&p->panel); break;
+        case FILL_TILE:  RGBForeColor(&p->tile);  break;
         default:         RGBForeColor(&p->bg);    break;
     }
 }

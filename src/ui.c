@@ -756,12 +756,14 @@ static void draw_carousel(Ui *u)
     if (cat) {
         char  cl[ITEM_CAT_LEN + 8];
         short cw, maxw = (short)(2 * (CATBAND_HALF - 28));
-        /* just the category name; the prev/next stepper buttons (ui_paint_controls)
-         * flank it where the "^ v" arrows used to be */
+        /* the category name in Chicago (the system heading face); the prev/next
+         * steppers (ui_paint_controls) flank it */
+        render_sys_text(r);
         strncpy(cl, cat->name, sizeof cl - 1); cl[sizeof cl - 1] = '\0';
         while (cl[0] && render_text_width(r, cl) > maxw) cl[strlen(cl) - 1] = '\0';
         cw = render_text_width(r, cl);
         render_text(r, (short)((W - cw) / 2), 20, cl, INK_NORMAL);
+        render_base_text(r);                          /* counter back in the body face */
         {
             char line[24];
             l2s(m->curItem + 1, num); strcpy(line, num);
@@ -1101,12 +1103,14 @@ static void draw_browse_header(Ui *u)
     if (cat) {
         char  cl[ITEM_CAT_LEN + 8];
         short cw, maxw = (short)(2 * (CATBAND_HALF - 28));
-        /* just the category name; the prev/next stepper buttons (ui_paint_controls)
-         * flank it where the "^ v" arrows used to be */
+        /* the category name in Chicago (the system heading face) — bolder than the
+         * Geneva body text; the prev/next steppers (ui_paint_controls) flank it */
+        render_sys_text(r);
         strncpy(cl, cat->name, sizeof cl - 1); cl[sizeof cl - 1] = '\0';
         while (cl[0] && render_text_width(r, cl) > maxw) cl[strlen(cl) - 1] = '\0';
         cw = render_text_width(r, cl);
         render_text(r, (short)((W - cw) / 2), 20, cl, INK_NORMAL);
+        render_base_text(r);                          /* counter back in the body face */
         {
             char line[24];
             l2s(m->curItem + 1, num); strcpy(line, num); strcat(line, " / ");
@@ -1248,10 +1252,14 @@ static void draw_grid_cell(Ui *u, const GridLayout *g, int idx)
     render_fill(r, &cell, FILL_BG);                        /* erase (handles deselect) */
 
     if (u->gridStyle == GRID_TILES) {
-        /* At Ease tile: a rounded button; the whole tile highlights when selected. */
-        Rect tile = cell;
+        /* At Ease tile: a raised rounded button — a grey (platinum) face with a 1px
+         * drop shadow, so it reads as a button, not a white box (Mac HIG button look).
+         * The whole tile highlights when selected. */
+        Rect tile = cell, sh;
         InsetRect(&tile, 1, 1);
-        render_fill(r, &tile, isSel ? FILL_SEL : FILL_PANEL);
+        sh = tile; OffsetRect(&sh, 1, 1);
+        render_round_frame(r, &sh);                            /* drop shadow (behind) */
+        render_fill(r, &tile, isSel ? FILL_SEL : FILL_TILE);
         render_round_frame(r, &tile);
         ix = (short)(cell.left + (cw - isz) / 2);
         SetRect(&ir, ix, (short)(cell.top + 8), (short)(ix + isz), (short)(cell.top + 8 + isz));
