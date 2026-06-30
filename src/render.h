@@ -57,7 +57,13 @@ void  render_end_rect(Render *r, WindowPtr w, const Rect *dirty);
 
 void  render_fill(Render *r, const Rect *rr, int kind);
 void  render_frame(Render *r, const Rect *rr);          /* 1px accentless frame */
+void  render_round_frame(Render *r, const Rect *rr);    /* 1px rounded frame (key-cap) */
 void  render_hline(Render *r, short x0, short x1, short y);
+
+/* Small drawn key glyphs for the key-cap hints — Chicago has no arrow / return /
+ * escape glyphs (only Apple/command at 0x11-0x14), so we draw them in the ink. */
+void  render_arrow(Render *r, const Rect *box, int dir);  /* filled triangle: 0=L 1=R 2=U 3=D */
+void  render_return(Render *r, const Rect *box);          /* the return hook glyph */
 void  render_text(Render *r, short x, short y, const char *s, int ink);
 
 short render_text_width(Render *r, const char *s);

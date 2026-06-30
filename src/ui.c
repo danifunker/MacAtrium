@@ -466,6 +466,75 @@ static void draw_detail_art(Ui *u, const Rect *ar)
     }
 }
 
+/* ---- key-cap hints ----------------------------------------------------------
+ * The browse footer shows the controls as little key-caps — a rounded frame with
+ * the key's glyph, then the action it performs — instead of a console-style text
+ * strip. Evokes the Key Caps desk accessory + the HIG way of showing keys. Chicago
+ * has no arrow/return/escape glyphs (only Apple/command at 0x11-0x14), so those are
+ * drawn (render_arrow/render_return); letter keys use the font. */
+#define KEYCAP_H    14            /* key-cap height                            */
+#define KEYCAP_ARW  14            /* width of an arrow / single-symbol cap     */
+#define KEYCAP_RET  18            /* width of the return cap                   */
+#define KEYCAP_GAP  16            /* space between hint groups                 */
+
+/* A hint group: one or two key-caps then an action label. A key spec is "<" ">"
+ * "^" "v" (arrows), "ret" (return hook), or a short literal ("esc"/"I"/"P"). */
+typedef struct { const char *k1, *k2, *label; } HintGroup;
+
+static short keycap_w(Ui *u, const char *spec)
+{
+    if (!strcmp(spec, "<") || !strcmp(spec, ">") ||
+        !strcmp(spec, "^") || !strcmp(spec, "v")) return KEYCAP_ARW;
+    if (!strcmp(spec, "ret"))                     return KEYCAP_RET;
+    return (short)(render_text_width(u->r, spec) + 9);
+}
+
+/* Draw one key-cap at (x, top); returns its width. */
+static short draw_keycap(Ui *u, short x, short top, const char *spec)
+{
+    Render *r = u->r;
+    short   w = keycap_w(u, spec);
+    Rect    cap;
+    int     dir = !strcmp(spec, "<") ? 0 : !strcmp(spec, ">") ? 1 :
+                  !strcmp(spec, "^") ? 2 : !strcmp(spec, "v") ? 3 : -1;
+    SetRect(&cap, x, top, (short)(x + w), (short)(top + KEYCAP_H));
+    render_round_frame(r, &cap);
+    if (dir >= 0)                 render_arrow(r, &cap, dir);
+    else if (!strcmp(spec, "ret")) render_return(r, &cap);
+    else {
+        short tw = render_text_width(r, spec);
+        render_text(r, (short)(x + (w - tw) / 2), (short)(top + KEYCAP_H - 4), spec, INK_NORMAL);
+    }
+    return w;
+}
+
+/* Lay out a centred row of hint groups along the footer band. */
+static void draw_keyhints(Ui *u, const HintGroup *g, int n)
+{
+    Render *r = u->r;
+    int     W = win_w(u), H = win_h(u), i;
+    short   top = (short)(H - HINT_H + 5);
+    short   total = 0, x;
+    for (i = 0; i < n; i++) {
+        total = (short)(total + keycap_w(u, g[i].k1));
+        if (g[i].k2)    total = (short)(total + 2 + keycap_w(u, g[i].k2));
+        if (g[i].label) total = (short)(total + 5 + render_text_width(r, g[i].label));
+        if (i < n - 1)  total = (short)(total + KEYCAP_GAP);
+    }
+    x = (short)((W - total) / 2);
+    if (x < MARGIN) x = MARGIN;
+    for (i = 0; i < n; i++) {
+        x = (short)(x + draw_keycap(u, x, top, g[i].k1));
+        if (g[i].k2) { x = (short)(x + 2); x = (short)(x + draw_keycap(u, x, top, g[i].k2)); }
+        if (g[i].label) {
+            x = (short)(x + 5);
+            render_text(r, x, (short)(top + KEYCAP_H - 3), g[i].label, INK_DIM);
+            x = (short)(x + render_text_width(r, g[i].label));
+        }
+        x = (short)(x + KEYCAP_GAP);
+    }
+}
+
 static void draw_carousel(Ui *u)
 {
     Render        *r   = u->r;
@@ -666,15 +735,17 @@ static void draw_carousel(Ui *u)
         }
     }
 
-    /* ---- hint bar ---- */
+    /* ---- footer: control key-caps ---- */
     render_hline(r, 0, (short)W, (short)(H - HINT_H));
-    {
-        const char *hint = u->settingsFocus
-            ? "Settings:   Return  open       v  back"
-            : "<- ->  game    ^ v  category    Return  play    I  info   P  box art   Esc  menu";
-        short x = (short)((W - render_text_width(r, hint)) / 2);
-        if (x < MARGIN) x = MARGIN;
-        render_text(r, x, (short)(H - 7), hint, INK_DIM);
+    if (u->settingsFocus) {
+        static const HintGroup g[] = { {"ret", 0, "Settings"}, {"v", 0, "Back"} };
+        draw_keyhints(u, g, 2);
+    } else {
+        static const HintGroup g[] = {
+            {"<", ">", "Game"}, {"^", "v", "Category"}, {"ret", 0, "Play"},
+            {"I", 0, "Info"}, {"P", 0, "Box Art"}, {"esc", 0, "Menu"}
+        };
+        draw_keyhints(u, g, 6);
     }
 }
 
