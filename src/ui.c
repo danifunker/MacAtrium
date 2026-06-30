@@ -146,6 +146,7 @@ void ui_init(Ui *u, Env *env, Render *r, Model *m, WindowPtr win, int safe)
     u->view = VIEW_CAROUSEL;                   /* default browse view (first-run chooser may change) */
     u->gridStyle = GRID_FINDER;                /* Icon Grid default: Finder layout      */
     u->listFocus = 1;                          /* List view starts focused on the items pane */
+    u->sortMode = SORT_NONE; u->sortDesc = 0;  /* List view: curated order until a header click */
     u->setupSel = 0;
     u->carousel = 7;                           /* icons shown: 7 by default (odd 3..25), fit-capped */
     u->sndStartup = 0;                                       /* sounds off by default */
@@ -896,7 +897,18 @@ static void draw_settings_row(Ui *u, short px, short py, int pw, int i)
     SetRect(&rr, (short)(px + 4), y0, (short)(px + pw - 4), (short)(y0 + ROW_H));
     render_fill(r, &rr, sel ? FILL_SEL : FILL_PANEL);
     set_row_text(u, i, line);
-    render_text(r, (short)(px + MARGIN), base, line, sel ? INK_SELECTED : INK_NORMAL);
+    {   /* set_row_text space-pads the label to 16 chars then appends the value;
+         * split there and draw the value at a fixed column so values line up under a
+         * proportional font instead of trailing ragged padding. */
+        char  label[18];
+        char *value = (int)strlen(line) > 16 ? line + 16 : line + strlen(line);
+        int   k;
+        for (k = 0; k < 16 && line[k]; k++) label[k] = line[k];
+        while (k > 0 && label[k - 1] == ' ') k--;
+        label[k] = '\0';
+        render_text(r, (short)(px + MARGIN), base, label, sel ? INK_SELECTED : INK_NORMAL);
+        render_text(r, (short)(px + 128),    base, value, sel ? INK_SELECTED : INK_NORMAL);
+    }
 }
 
 /* The contextual bottom hint (clip-length note on the sound rows, the open hint on
@@ -1731,15 +1743,46 @@ static void draw_list_detail(Ui *u, const ListLayout *L)
     }
 }
 
+/* The clickable column-header positions (X of Name / Type / Year) — shared by the
+ * header draw and the click hit-test so they can't drift. */
+static void list_col_x(int W, short *nameX, short *typeX, short *yearX)
+{
+    *nameX = (short)(LPANE + 1 + 8);
+    *typeX = (short)(W - SBW - 120);
+    *yearX = (short)(W - SBW - 40);
+}
+
+/* Sortable column headers (Name / Type / Year); the active sort column is titled +
+ * carries an asc/desc arrow. */
+static void draw_list_headers(Ui *u, const ListLayout *L)
+{
+    Render *r = u->r;
+    int     W = win_w(u), i;
+    short   y = (short)(L->bTop + 15);
+    short   xs[3];
+    const char *lbl[3] = { "Name", "Type", "Year" };
+    int     modes[3] = { SORT_NAME, SORT_TYPE, SORT_YEAR };
+    list_col_x(W, &xs[0], &xs[1], &xs[2]);
+    for (i = 0; i < 3; i++) {
+        int active = (u->sortMode == modes[i]);
+        render_text(r, xs[i], y, lbl[i], active ? INK_TITLE : INK_DIM);
+        if (active) {
+            short aw = render_text_width(r, lbl[i]);
+            Rect  ab;
+            SetRect(&ab, (short)(xs[i] + aw + 3), (short)(y - 9), (short)(xs[i] + aw + 11), (short)(y - 1));
+            render_arrow(r, &ab, u->sortDesc ? 3 : 2);       /* 2 = asc (up), 3 = desc (down) */
+        }
+    }
+}
+
 static void draw_listview(Ui *u)
 {
     Render        *r = u->r;
     Model         *m = u->m;
     ModelCat      *cat = model_cur_cat(m);
-    Rect           full = u->win->portRect;
     int            W = win_w(u), i;
     ListLayout     L;
-    char           num[16];
+    Rect           full = u->win->portRect;
 
     list_layout(u, &L);
     render_fill(r, &full, FILL_BG);
@@ -1753,12 +1796,7 @@ static void draw_listview(Ui *u)
     for (i = 0; i < L.catRows && L.catTop + i < m->ncats; i++)
         draw_list_cat_row(u, &L, i);
 
-    if (cat) {
-        char hdr[ITEM_CAT_LEN + 24];
-        strcpy(hdr, cat->name); strcat(hdr, "  -  ");
-        l2s(cat->count, num); strcat(hdr, num); strcat(hdr, " items");
-        render_text(r, (short)(L.rx + 8), (short)(L.bTop + 15), hdr, INK_NORMAL);
-    }
+    draw_list_headers(u, &L);
     render_hline(r, L.rx, (short)W, (short)(L.bTop + 22));
     if (cat && cat->count > 0) {
         for (i = 0; i < L.itemRows && L.itemTop + i < L.nItems; i++)
@@ -1809,6 +1847,17 @@ static int listview_click(Ui *u, Point pt, UiCommand *out)
     ListLayout  L;
     int         i;
     list_layout(u, &L);
+    if (pt.h >= L.rx && pt.v >= L.bTop && pt.v < (short)(L.bTop + 24)) {  /* column header → sort */
+        short nameX, typeX, yearX;
+        int   mode;
+        list_col_x(win_w(u), &nameX, &typeX, &yearX);
+        mode = (pt.h >= yearX) ? SORT_YEAR : (pt.h >= typeX) ? SORT_TYPE : SORT_NAME;
+        if (u->sortMode == mode) u->sortDesc = !u->sortDesc;   /* same column: flip direction */
+        else { u->sortMode = mode; u->sortDesc = 0; }
+        model_sort_page(m, u->sortMode, u->sortDesc);
+        u->lastDrawnCat = -1;                                  /* force a full list redraw */
+        return 1;
+    }
     if (pt.h < LPANE) {                                  /* categories pane */
         for (i = 0; i < L.catRows && L.catTop + i < m->ncats; i++) {
             int   ci = L.catTop + i;

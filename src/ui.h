@@ -59,6 +59,8 @@ typedef struct {
     int        view;          /* current browse view (VIEW_CAROUSEL/ICON/LIST)  */
     int        gridStyle;     /* Icon Grid layout: 0 = Finder (2-line names), 1 = At Ease tiles */
     int        listFocus;     /* List view: 0 = categories pane, 1 = items pane  */
+    int        sortMode;      /* List view sort: SORT_NONE/NAME/TYPE/YEAR (model.h) */
+    int        sortDesc;      /* 1 = descending                                     */
     int        lastDrawnItem; /* selection at the last FULL browse-view draw, so an */
     int        lastDrawnTop;  /* in-page selection move can repaint just the changed */
     int        lastDrawnCat;  /* cells (else a scroll/category change -> full draw)   */

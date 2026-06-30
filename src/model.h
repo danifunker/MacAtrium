@@ -71,6 +71,13 @@ void model_set_page(Model *m, Catalog *page);
 ModelCat       *model_cur_cat(Model *m);
 const CatItem  *model_cur_item(Model *m);
 
+/* List-view sort modes (by item field). NONE keeps the dataset/curated order. */
+enum { SORT_NONE = 0, SORT_NAME, SORT_TYPE, SORT_YEAR };
+
+/* Sort the current category's items by `mode`, asc (desc=0) or desc; keeps the
+ * cursor on the same item. NONE / a 1-item page is a no-op. */
+void model_sort_page(Model *m, int mode, int desc);
+
 /* Navigation (clamp + keep selection valid). Return 1 if something changed. */
 int model_move_item(Model *m, int delta);   /* up/down within category */
 int model_move_cat(Model *m, int delta);    /* left/right between categories */

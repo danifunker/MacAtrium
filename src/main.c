@@ -432,6 +432,7 @@ static int load_page(Model *m, int catIdx)
         DisposePtr(buf);
     }
     model_set_page(m, &gCat);
+    model_sort_page(m, gUi.sortMode, gUi.sortDesc);   /* keep the chosen List sort on cat change */
     /* The page's items array was just refilled; drop caches that key off it. */
     ui_page_changed(&gUi);
     return 1;
@@ -473,6 +474,7 @@ static void save_prefs(void)
     p.hideTitleBar = gUi.hideTitleBar; p.haveHideTitleBar = 1;
     p.textSize = gRender.textSize;   p.haveTextSize = 1;
     p.gridStyle = gUi.gridStyle;     p.haveGridStyle = 1;
+    p.sortMode = gUi.sortMode; p.sortDesc = gUi.sortDesc; p.haveSort = 1;
     p.carousel = gUi.carousel;       p.haveCarousel = 1;
     p.view = gUi.view;               p.haveView = 1;
     p.depth = display_current_depth();  p.haveDepth = (p.depth > 0);  /* boot-depth pref */
@@ -793,6 +795,8 @@ int main(void)
     if (gPrefs.haveHideTitleBar) gUi.hideTitleBar = gPrefs.hideTitleBar;
     if (gPrefs.haveTextSize)     ui_set_text_size(&gUi, gPrefs.textSize);  /* restore Text Size */
     if (gPrefs.haveGridStyle)    gUi.gridStyle    = gPrefs.gridStyle;      /* restore Grid Style */
+    if (gPrefs.haveSort) { gUi.sortMode = gPrefs.sortMode; gUi.sortDesc = gPrefs.sortDesc;
+                           model_sort_page(&gModel, gUi.sortMode, gUi.sortDesc); }  /* sort the loaded page */
     if (gPrefs.haveCarousel)    gUi.carousel    = gPrefs.carousel;    /* restore carousel size */
     if (gPrefs.haveView)        gUi.view        = gPrefs.view;        /* restore browse view */
     else if (loaded)            gUi.mode        = UI_MODE_SETUP;      /* first run: ask how to browse */
