@@ -127,6 +127,8 @@ void ui_init(Ui *u, Env *env, Render *r, Model *m, WindowPtr win, int safe)
     u->bgValid = 0;                                          /* force a full first paint */
     u->lastMode = -1;
     u->overlayDrawn = 0; u->lastSel = -1;                    /* overlay partial-redraw state */
+    SetRect(&u->panelRect, 0, 0, 0, 0);                      /* no overlay panel shown yet */
+    u->setupDrawn = 0; u->lastSetupSel = -1;                 /* chooser partial-redraw state */
     u->catList = 0;                                          /* categories list hidden */
     {
         int i;
@@ -891,6 +893,7 @@ static void draw_settings(Ui *u)
     Rect    panel;
     int     i;
 
+    SetRect(&u->panelRect, px, py, (short)(px + pw), (short)(py + ph));   /* blit/erase region */
     render_text_size(r, 12);
 
     /* Selection/value-only change: the panel is already on screen (overlayDrawn)
@@ -941,6 +944,7 @@ static void draw_ctlpanels(Ui *u)
     int     i;
 
     SetRect(&panel, px, py, (short)(px + pw), (short)(py + ph));
+    u->panelRect = panel;                                    /* blit/erase region */
     render_fill(r, &panel, FILL_PANEL);
     render_frame(r, &panel);
 
@@ -1009,6 +1013,8 @@ static void draw_menu(Ui *u)
     short   py = (short)((H - ph) / 2);
     Rect    panel;
     int     i;
+
+    SetRect(&u->panelRect, px, py, (short)(px + pw), (short)(py + ph));   /* blit/erase region */
 
     /* Selection-only move: repaint just the previously- and newly-selected rows.
      * The panel is already on screen (overlayDrawn) and the carousel behind it is
@@ -1177,13 +1183,42 @@ static void setup_row_rect(Ui *u, int i, Rect *rr)
     SetRect(rr, bx, y0, (short)(bx + bw), (short)(y0 + 56));
 }
 
-static void draw_setup(Ui *u)
+static void draw_setup_row(Ui *u, int i)
+{
+    Render *r = u->r;
+    Rect    rr;
+    int     sel = (i == u->setupSel);
+    setup_row_rect(u, i, &rr);
+    render_fill(r, &rr, sel ? FILL_SEL : FILL_PANEL);
+    render_frame(r, &rr);
+    render_text(r, (short)(rr.left + 14), (short)(rr.top + 22), kViewName[i],
+                sel ? INK_SELECTED : INK_TITLE);
+    render_text(r, (short)(rr.left + 14), (short)(rr.top + 42), kViewDesc[i],
+                sel ? INK_SELECTED : INK_DIM);
+}
+
+/* The first-run chooser. Returns 1 when it only repainted the selection (the two
+ * affected rows, with their union left in u->panelRect for a sub-rect blit), 0 on a
+ * full draw — so a Up/Down doesn't reblit the whole welcome screen. */
+static int draw_setup(Ui *u)
 {
     Render *r = u->r;
     int     W = win_w(u), H = win_h(u);
-    Rect    full = u->win->portRect, rr;
+    Rect    full = u->win->portRect;
     short   cw;
     int     i;
+
+    if (u->setupDrawn && u->lastSetupSel != u->setupSel) {
+        Rect a, b;
+        render_text_size(r, 12);
+        setup_row_rect(u, u->lastSetupSel, &a);
+        setup_row_rect(u, u->setupSel,     &b);
+        if (u->lastSetupSel >= 0 && u->lastSetupSel < VIEW_N) draw_setup_row(u, u->lastSetupSel);
+        draw_setup_row(u, u->setupSel);
+        UnionRect(&a, &b, &u->panelRect);
+        u->lastSetupSel = u->setupSel;
+        return 1;
+    }
 
     render_fill(r, &full, FILL_BG);
     render_text_size(r, 12);
@@ -1193,20 +1228,15 @@ static void draw_setup(Ui *u)
       cw = render_text_width(r, t); render_text(r, (short)((W - cw) / 2), 64, t, INK_NORMAL); }
     render_hline(r, MARGIN, 76, (short)(W - 2 * MARGIN));
 
-    for (i = 0; i < VIEW_N; i++) {
-        int sel = (i == u->setupSel);
-        setup_row_rect(u, i, &rr);
-        render_fill(r, &rr, sel ? FILL_SEL : FILL_PANEL);
-        render_frame(r, &rr);
-        render_text(r, (short)(rr.left + 14), (short)(rr.top + 22), kViewName[i],
-                    sel ? INK_SELECTED : INK_TITLE);
-        render_text(r, (short)(rr.left + 14), (short)(rr.top + 42), kViewDesc[i],
-                    sel ? INK_SELECTED : INK_DIM);
-    }
+    for (i = 0; i < VIEW_N; i++) draw_setup_row(u, i);
+
     { const char *t = "Up / Down to choose, Return to continue.";
       cw = render_text_width(r, t); render_text(r, (short)((W - cw) / 2), (short)(H - 26), t, INK_DIM); }
     { const char *t = "You can change this any time in the View menu.";
       cw = render_text_width(r, t); render_text(r, (short)((W - cw) / 2), (short)(H - 12), t, INK_DIM); }
+    u->setupDrawn = 1;
+    u->lastSetupSel = u->setupSel;
+    return 0;
 }
 
 /* Shared browse-screen header: the Settings gear, the centred "^ Category v" band,
@@ -1967,6 +1997,7 @@ static void draw_quitconfirm(Ui *u)
     const char *msg = "Are you sure you want to quit MacAtrium?";
     short       cw, mid;
     quitconfirm_rects(u, &panel, &qb, &cb);
+    u->panelRect = panel;                                    /* blit/erase region */
     render_fill(r, &panel, FILL_PANEL);
     render_frame(r, &panel);
     render_text_size(r, 12);
@@ -1978,8 +2009,41 @@ static void draw_quitconfirm(Ui *u)
       render_text(r, (short)(mid - cw / 2), (short)(panel.top + 54), t, INK_DIM); }
 }
 
+static int is_overlay_mode(int mode)
+{
+    return mode == UI_MODE_MENU || mode == UI_MODE_SETTINGS ||
+           mode == UI_MODE_CTLPANELS || mode == UI_MODE_QUITCONFIRM;
+}
+
+/* The window rect an overlay panel occupies, by mode (centred) — mirrors the panel
+ * geometry each draw_* computes, so ui_draw can decide the blit / erase region
+ * before drawing. Returns 1 for an overlay mode, 0 otherwise. */
+static int overlay_panel_rect(Ui *u, int mode, Rect *p)
+{
+    int   W = win_w(u), H = win_h(u), pw, ph;
+    short px, py;
+    switch (mode) {
+        case UI_MODE_MENU:        pw = 240;   ph = u->nmenu * (ROW_H + 4) + 52; break;
+        case UI_MODE_SETTINGS:    pw = 320;   ph = SET_N * (ROW_H + 6) + 56;    break;
+        case UI_MODE_CTLPANELS:   pw = 320;   ph = 9 * (ROW_H + 2) + 56;        break;
+        case UI_MODE_QUITCONFIRM: pw = QC_PW; ph = QC_PH;                       break;
+        default: SetRect(p, 0, 0, 0, 0); return 0;
+    }
+    px = (short)((W - pw) / 2); py = (short)((H - ph) / 2);
+    SetRect(p, px, py, (short)(px + pw), (short)(py + ph));
+    return 1;
+}
+
+/* 1 if rect b lies fully inside rect a. */
+static int rect_contains(const Rect *a, const Rect *b)
+{
+    return a->left <= b->left && a->top <= b->top &&
+           a->right >= b->right && a->bottom >= b->bottom;
+}
+
 void ui_draw(Ui *u)
 {
+    int carouselRepainted = 0, setupPartial = 0;
     /* Keep the colour backend matched to the live screen depth on *every* repaint,
      * including ones that bypass ui_idle's poll — e.g. the updateEvt the system
      * posts when the screen depth changes (our startup 1-bit->8-bit bump). Without
@@ -1993,19 +2057,30 @@ void ui_draw(Ui *u)
     }
 
     render_begin(u->r, u->win);
-    /* On a mode change, force one carousel repaint only when leaving a view that
-     * drew *over* the carousel (an overlay panel or a full-screen card) so that
-     * panel gets erased. Opening an overlay from the clean LIST/SAFE carousel
-     * needs none: the carousel is already in the GWorld, so the panel just
-     * composites on top — no needless re-decode of every icon + the cover. */
+    /* On a mode change, repaint the browse view underneath only when the new screen
+     * won't itself cover what the previous one drew. Opening an overlay from a clean
+     * LIST keeps the carousel (the panel just composites on top, then we blit only
+     * the panel). Leaving a full-screen card, closing an overlay, or switching to an
+     * overlay whose panel doesn't fully cover the previous one all need the repaint
+     * to erase the old pixels. */
     if (u->mode != u->lastMode) {
-        if (u->lastMode != UI_MODE_LIST)   /* LIST = clean carousel or safe screen */
-            u->bgValid = 0;
+        if (u->lastMode == -1) {
+            u->bgValid = 0;                /* very first paint */
+        } else if (u->lastMode != UI_MODE_LIST) {
+            if (is_overlay_mode(u->lastMode) && is_overlay_mode(u->mode)) {
+                Rect np;                   /* overlay -> overlay: only if new won't cover old */
+                overlay_panel_rect(u, u->mode, &np);
+                if (!rect_contains(&np, &u->panelRect)) u->bgValid = 0;
+            } else {
+                u->bgValid = 0;            /* full-screen card, or overlay -> list (close) */
+            }
+        }
         u->overlayDrawn = 0;               /* a switched/opened overlay draws fully once */
+        u->setupDrawn = 0;                 /* re-entering the chooser draws fully once */
         u->lastMode = u->mode;
     }
     if (u->mode == UI_MODE_SETUP) {
-        draw_setup(u);
+        setupPartial = draw_setup(u);   /* 1 = only the changed rows repainted */
         u->bgValid = 0;                 /* full-screen first-run chooser */
     } else if (u->mode == UI_MODE_PREVIEW) {
         draw_preview(u);
@@ -2020,13 +2095,13 @@ void ui_draw(Ui *u)
         /* The menu / settings / control-panels panels are overlays. When only the
          * overlay's selection changed, the carousel behind it is already in the
          * GWorld, so skip repainting it — that's what made menu Up/Down lurch. */
-        int overlay = (u->mode == UI_MODE_MENU || u->mode == UI_MODE_SETTINGS ||
-                       u->mode == UI_MODE_CTLPANELS || u->mode == UI_MODE_QUITCONFIRM);
+        int overlay = is_overlay_mode(u->mode);
         if (!overlay || !u->bgValid) {
             if (u->safe) draw_safe(u);
             else         cur_view(u)->draw(u);   /* current browse view (carousel/grid/list) */
             u->bgValid = 1;
             u->overlayDrawn = 0;           /* the repaint erased any overlay panel */
+            carouselRepainted = 1;
         }
         if (u->mode == UI_MODE_MENU)
             draw_menu(u);
@@ -2037,7 +2112,13 @@ void ui_draw(Ui *u)
         else if (u->mode == UI_MODE_QUITCONFIRM)
             draw_quitconfirm(u);
     }
-    render_end(u->r, u->win);
+    /* An overlay drawn over an unchanged browse view only dirtied its own panel —
+     * copy just that region, not the whole window (the flash). Full-screen modes and
+     * any browse repaint copy the window. (No-op on the direct-draw B&W path.) */
+    if (setupPartial || (is_overlay_mode(u->mode) && !carouselRepainted))
+        render_end_rect(u->r, u->win, &u->panelRect);
+    else
+        render_end(u->r, u->win);
     ui_paint_controls(u);          /* real scroll bar + Launch button, over the blit */
 }
 
@@ -2667,6 +2748,7 @@ UiCommand ui_click(Ui *u, Point pt)
     {
         UiCommand cmd = UI_NONE;
         Rect      gear;
+        int       wasFocus = u->settingsFocus;
         SetRect(&gear, (short)(GEAR_X - 4), 3, (short)(GEAR_X + GEAR_W - 4), (short)(HEADER_H - 2));
         u->settingsFocus = 0;                        /* a click takes focus off the gear */
 
@@ -2680,7 +2762,9 @@ UiCommand ui_click(Ui *u, Point pt)
             if (cmd != UI_LAUNCH) browse_redraw(u);  /* a launch tears down the window */
             return cmd;
         }
-        ui_draw(u);
+        /* A click on empty space changed nothing — repaint only if it actually did
+         * (the gear losing focus); otherwise leave the screen alone (no full reblit). */
+        if (wasFocus) ui_draw(u);
         return UI_NONE;
     }
 }
