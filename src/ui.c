@@ -1739,7 +1739,9 @@ static void draw_list_detail(Ui *u, const ListLayout *L)
         if (cur->year > 0) { l2s(cur->year, num); strcat(meta, num); strcat(meta, "  -  "); }
         if (cur->genre[0]) strcat(meta, cur->genre);
         render_text(r, mx, (short)(L->lstBot + 40), meta, INK_NORMAL);
-        render_text(r, mx, (short)(L->lstBot + 58), "Return  launch      P  box art", INK_DIM);
+        render_text(r, mx, (short)(L->lstBot + 58),
+                    u->filter[0] ? "Return  launch      Esc  clear filter"
+                                 : "Return  launch      Type to filter", INK_DIM);
     }
 }
 
@@ -1775,6 +1777,27 @@ static void draw_list_headers(Ui *u, const ListLayout *L)
     }
 }
 
+/* Rebuild the current page for the active sort + name filter: reset the index from
+ * the resident page (no file re-read), re-sort, then narrow by u->filter. Paged mode
+ * only (legacy keeps all items resident with category-specific idx[]). */
+static void ui_filter_apply(Ui *u)
+{
+    if (!u->m->loader) return;
+    model_set_page(u->m, u->m->cat);                  /* idx -> identity from the page */
+    model_sort_page(u->m, u->sortMode, u->sortDesc);
+    if (u->filter[0]) model_filter_page(u->m, u->filter);
+    ui_page_changed(u);                               /* selection/page changed -> drop art caches */
+    u->bgValid = 0;
+}
+
+/* Drop an active name filter and restore the full (sorted) page. */
+static void ui_filter_clear(Ui *u)
+{
+    if (!u->filter[0]) return;
+    u->filter[0] = '\0';
+    ui_filter_apply(u);
+}
+
 static void draw_listview(Ui *u)
 {
     Render        *r = u->r;
@@ -1796,7 +1819,16 @@ static void draw_listview(Ui *u)
     for (i = 0; i < L.catRows && L.catTop + i < m->ncats; i++)
         draw_list_cat_row(u, &L, i);
 
-    draw_list_headers(u, &L);
+    if (u->filter[0]) {                            /* active filter replaces the headers */
+        char fb[40], cb[16];
+        strcpy(fb, "Filter: "); strncat(fb, u->filter, 24);
+        render_text(r, (short)(L.rx + 8), (short)(L.bTop + 15), fb, INK_TITLE);
+        l2s(L.nItems, cb);
+        { char cc[20]; strcpy(cc, cb); strcat(cc, " found");
+          render_text(r, (short)(W - SBW - render_text_width(r, cc) - 4), (short)(L.bTop + 15), cc, INK_DIM); }
+    } else {
+        draw_list_headers(u, &L);
+    }
     render_hline(r, L.rx, (short)W, (short)(L.bTop + 22));
     if (cat && cat->count > 0) {
         for (i = 0; i < L.itemRows && L.itemTop + i < L.nItems; i++)
@@ -1818,11 +1850,12 @@ static int listview_nav(Ui *u, char ch)
     Model *m = u->m;
     switch (ch) {
         case kCharUp:
-            if (u->listFocus == 0) { if (!model_move_cat(m, -1)) u->settingsFocus = 1; }
+            if (u->listFocus == 0) { u->filter[0] = '\0';   /* a new category reloads unfiltered */
+                                     if (!model_move_cat(m, -1)) u->settingsFocus = 1; }
             else                     model_move_item(m, -1);
             return 1;
         case kCharDown:
-            if (u->listFocus == 0)   model_move_cat(m, +1);
+            if (u->listFocus == 0) { u->filter[0] = '\0'; model_move_cat(m, +1); }
             else                     model_move_item(m, +1);
             return 1;
         case kCharLeft:
@@ -1865,7 +1898,7 @@ static int listview_click(Ui *u, Point pt, UiCommand *out)
             Rect  rr; SetRect(&rr, 1, y0, (short)(LPANE - 1), (short)(y0 + ROW_H));
             if (PtInRect(pt, &rr)) {
                 u->listFocus = 0;
-                if (ci != m->curCat) model_move_cat(m, ci - m->curCat);
+                if (ci != m->curCat) { u->filter[0] = '\0'; model_move_cat(m, ci - m->curCat); }
                 return 1;
             }
         }
@@ -2523,6 +2556,7 @@ static int settings_adjust(Ui *u, int dir)
             if (u->sndShutdown) sound_play_file("sounds/shutdown", 1); /* preview */
             return 1;
         case 6:                                    /* View: Carousel / Icon Grid / List (persisted) */
+            ui_filter_clear(u);                     /* the filter is List-view only */
             u->view = (u->view + dir + VIEW_N) % VIEW_N;
             u->bgValid = 0;                         /* the whole browse screen changes */
             return 1;
@@ -2594,6 +2628,29 @@ UiCommand ui_key(Ui *u, char ch)
         return sc;
     }
 
+    /* List view: typing is a name filter (find as you type), so a printable key —
+     * and Backspace — goes to the filter before the t/p/i shortcuts + type-ahead get
+     * it. Only here; the Carousel/Grid keep those keys. Arrows / Return / Esc are
+     * sub-0x20 and pass through to navigation / launch / the Esc handler below. */
+    if (u->mode == UI_MODE_LIST && u->view == VIEW_LIST && !u->safe &&
+        !u->settingsFocus && u->m->loader) {
+        if ((unsigned char)ch >= 0x20 && (unsigned char)ch < 0x7F) {
+            int l = (int)strlen(u->filter);
+            if (l < (int)sizeof u->filter - 1) {
+                u->filter[l] = ch; u->filter[l + 1] = '\0';
+                ui_filter_apply(u);
+                ui_draw(u);
+            }
+            return UI_NONE;
+        }
+        if (ch == kCharBackspace && u->filter[0]) {
+            u->filter[strlen(u->filter) - 1] = '\0';
+            ui_filter_apply(u);
+            ui_draw(u);
+            return UI_NONE;
+        }
+    }
+
     /* Theme toggle works in any mode (list / menu / safe / preview). */
     if (ch == 't' || ch == 'T') {
         render_toggle_theme(u->r);
@@ -2605,6 +2662,7 @@ UiCommand ui_key(Ui *u, char ch)
     /* Tab cycles the browse view (Carousel -> Icon -> List) — interim until the
      * View menu lands; persisted. */
     if (ch == '\t' && u->mode == UI_MODE_LIST && !u->settingsFocus && !u->safe) {
+        ui_filter_clear(u);                 /* the filter is List-view only */
         u->view = (u->view + 1) % VIEW_N;
         u->bgValid = 0;
         ui_draw(u);
@@ -2714,8 +2772,10 @@ UiCommand ui_key(Ui *u, char ch)
      * immediately (doubles as a gamepad button via MiSTer's button->key map).
      * Checked before navigation/type-ahead; restricted to printable keys so it
      * never shadows the arrows / Return / Esc. (Note 't' is consumed by the
-     * global theme toggle above, so it can't be a hotkey.) */
-    if (!u->safe && (unsigned char)ch >= 0x20 && model_select_hotkey(u->m, ch)) {
+     * global theme toggle above, so it can't be a hotkey.) The List view uses typing
+     * for its name filter, so hotkeys are suppressed there. */
+    if (!u->safe && u->view != VIEW_LIST &&
+        (unsigned char)ch >= 0x20 && model_select_hotkey(u->m, ch)) {
         u->status[0] = '\0';
         ui_draw(u);
         return UI_LAUNCH;
@@ -2729,8 +2789,12 @@ UiCommand ui_key(Ui *u, char ch)
     }
     switch (ch) {
         case kCharEscape:
-            u->mode = UI_MODE_MENU;
-            u->menuSel = 0;
+            if (u->view == VIEW_LIST && u->filter[0]) {   /* Esc clears the filter first */
+                ui_filter_clear(u);
+            } else {
+                u->mode = UI_MODE_MENU;
+                u->menuSel = 0;
+            }
             break;
         case kCharReturn:
         case kCharEnter:
@@ -2766,8 +2830,8 @@ UiCommand ui_key(Ui *u, char ch)
             }
             break;
         default:
-            /* Type-ahead: any other printable key jumps to the next matching
-             * item. ('t'/'p' stay reserved for theme/preview above.) */
+            /* Type-ahead: any other printable key jumps to the next matching item.
+             * (The List view intercepts printables earlier as filter input.) */
             if (!u->safe &&
                 ((ch >= 'a' && ch <= 'z') || (ch >= 'A' && ch <= 'Z') ||
                  (ch >= '0' && ch <= '9')))
@@ -2977,6 +3041,6 @@ void ui_set_view(Ui *u, int view)
     if (view < 0 || view >= VIEW_N) return;
     u->settingsFocus = 0;
     u->mode = UI_MODE_LIST;            /* dismiss any panel so the new view shows */
-    if (u->view != view) { u->view = view; u->bgValid = 0; }
+    if (u->view != view) { ui_filter_clear(u); u->view = view; u->bgValid = 0; }
     ui_draw(u);
 }

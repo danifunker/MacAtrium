@@ -61,6 +61,7 @@ typedef struct {
     int        listFocus;     /* List view: 0 = categories pane, 1 = items pane  */
     int        sortMode;      /* List view sort: SORT_NONE/NAME/TYPE/YEAR (model.h) */
     int        sortDesc;      /* 1 = descending                                     */
+    char       filter[24];    /* List view name filter; "" = off (type to filter)   */
     int        lastDrawnItem; /* selection at the last FULL browse-view draw, so an */
     int        lastDrawnTop;  /* in-page selection move can repaint just the changed */
     int        lastDrawnCat;  /* cells (else a scroll/category change -> full draw)   */
