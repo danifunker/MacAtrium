@@ -120,6 +120,27 @@ fn main() -> Result<()> {
                         schedule.entry(cyc).or_default().push(Act::MouseAbs(x, y));
                         schedule.entry(cyc + 1_000_000).or_default().push(Act::MouseBtn(true));
                         schedule.entry(cyc + 1_000_000 + dur).or_default().push(Act::MouseBtn(false));
+                    } else if let Some(coords) = k.strip_prefix("drag@") {
+                        // Press at (x1,y1), warp the cursor through to (x2,y2) while held,
+                        // then release — drives a click-drag (e.g. a column divider). The
+                        // guest's StillDown/GetMouse loop tracks the intermediate warps.
+                        //   drag@X1,Y1,X2,Y2
+                        let mut it = coords.split(',');
+                        let x1: u16 = it.next().expect("drag@X1,Y1,X2,Y2").parse()?;
+                        let y1: u16 = it.next().expect("drag@X1,Y1,X2,Y2").parse()?;
+                        let x2: u16 = it.next().expect("drag@X1,Y1,X2,Y2").parse()?;
+                        let y2: u16 = it.next().expect("drag@X1,Y1,X2,Y2").parse()?;
+                        schedule.entry(cyc).or_default().push(Act::MouseAbs(x1, y1));
+                        schedule.entry(cyc + 1_000_000).or_default().push(Act::MouseBtn(true));
+                        let steps = 8u64;
+                        for s in 1..=steps {                 // glide from p1 to p2 while held
+                            let x = x1 as i64 + (x2 as i64 - x1 as i64) * s as i64 / steps as i64;
+                            let y = y1 as i64 + (y2 as i64 - y1 as i64) * s as i64 / steps as i64;
+                            schedule.entry(cyc + 1_000_000 + s * 1_500_000)
+                                .or_default().push(Act::MouseAbs(x as u16, y as u16));
+                        }
+                        schedule.entry(cyc + 1_000_000 + (steps + 2) * 1_500_000)
+                            .or_default().push(Act::MouseBtn(false));
                     } else if let Some(base) = k.strip_prefix("cmd-opt-") {
                         // Cmd+Option chord: both modifiers down, key tap, both up.
                         let sc = scancode(base).unwrap_or_else(|| panic!("unknown key {base}"));

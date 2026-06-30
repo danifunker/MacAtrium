@@ -475,6 +475,7 @@ static void save_prefs(void)
     p.textSize = gRender.textSize;   p.haveTextSize = 1;
     p.gridStyle = gUi.gridStyle;     p.haveGridStyle = 1;
     p.sortMode = gUi.sortMode; p.sortDesc = gUi.sortDesc; p.haveSort = 1;
+    p.listColType = gUi.listColType; p.haveListCol = 1;
     p.carousel = gUi.carousel;       p.haveCarousel = 1;
     p.view = gUi.view;               p.haveView = 1;
     p.depth = display_current_depth();  p.haveDepth = (p.depth > 0);  /* boot-depth pref */
@@ -797,6 +798,7 @@ int main(void)
     if (gPrefs.haveGridStyle)    gUi.gridStyle    = gPrefs.gridStyle;      /* restore Grid Style */
     if (gPrefs.haveSort) { gUi.sortMode = gPrefs.sortMode; gUi.sortDesc = gPrefs.sortDesc;
                            model_sort_page(&gModel, gUi.sortMode, gUi.sortDesc); }  /* sort the loaded page */
+    if (gPrefs.haveListCol)      gUi.listColType  = gPrefs.listColType;     /* restore column width */
     if (gPrefs.haveCarousel)    gUi.carousel    = gPrefs.carousel;    /* restore carousel size */
     if (gPrefs.haveView)        gUi.view        = gPrefs.view;        /* restore browse view */
     else if (loaded)            gUi.mode        = UI_MODE_SETUP;      /* first run: ask how to browse */
