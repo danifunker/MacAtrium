@@ -113,6 +113,7 @@ void      ui_init(Ui *u, Env *env, Render *r, Model *m, WindowPtr win, int safe)
 void      ui_draw(Ui *u);
 void      ui_draw_art(Ui *u);   /* targeted: repaint only the detail cover area */
 UiCommand ui_key(Ui *u, char ch);
+UiCommand ui_key_cmd(Ui *u, char ch);  /* Cmd-modified shortcut (theme/info/art/hotkey) */
 UiCommand ui_click(Ui *u, Point pt);   /* mouse: hit-test a window-local click */
 
 /* ui_idle() return: what (if anything) the idle tick needs repainted —

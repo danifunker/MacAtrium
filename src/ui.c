@@ -607,6 +607,28 @@ static void draw_keyhints(Ui *u, const HintGroup *g, int n)
     draw_keyhints_box(u, g, n, MARGIN, (short)(W - MARGIN), (short)(H - HINT_H + 5));
 }
 
+/* Shared browse footer (carousel / grid / list): the rule + either the active name
+ * filter ("Filter: …  esc clears") or the view's key-cap hints. So every view shows
+ * the same controls + the type-to-find affordance, like the carousel always has. */
+static void draw_browse_footer(Ui *u, const HintGroup *g, int n)
+{
+    Render *r = u->r;
+    int     W = win_w(u), H = win_h(u);
+    render_hline(r, 0, (short)W, (short)(H - HINT_H));
+    if (u->filter[0]) {
+        char  fb[48];
+        short tw;
+        strcpy(fb, "Filter: ");
+        strncat(fb, u->filter, 24);
+        strcat(fb, "    esc clears");
+        render_base_text(r);
+        tw = render_text_width(r, fb);
+        render_text(r, (short)((W - tw) / 2), (short)(H - HINT_H + 15), fb, INK_DIM);
+    } else {
+        draw_keyhints(u, g, n);
+    }
+}
+
 /* Draw one fixed strip slot: erase its column (handles deselect + the empty trailing
  * slots on the last page), the item's app icon, and a 2px selection box when selected. */
 static void draw_carousel_tile(Ui *u, const CarLayout *L, int slot)
@@ -806,17 +828,17 @@ static void draw_carousel(Ui *u)
     u->lastDrawnTop  = L.page;
     u->lastDrawnCat  = u->m->curCat;
 
-    /* ---- footer: control key-caps ---- */
-    render_hline(r, 0, (short)W, (short)(H - HINT_H));
+    /* ---- footer: control key-caps (or the active filter) ---- */
     if (u->settingsFocus) {
         static const HintGroup g[] = { {"ret", 0, "Settings"}, {"v", 0, "Back"} };
+        render_hline(r, 0, (short)W, (short)(H - HINT_H));
         draw_keyhints(u, g, 2);
     } else {
         static const HintGroup g[] = {
-            {"<", ">", "Game"}, {"^", "v", "Category"}, {"ret", 0, "Play"},
-            {"I", 0, "Info"}, {"P", 0, "Box Art"}, {"esc", 0, "Menu"}
+            {"<", ">", "Game"}, {"^", "v", "Cat"}, {"ret", 0, "Play"},
+            {"A-Z", 0, "Find"}, {"esc", 0, "Menu"}
         };
-        draw_keyhints(u, g, 6);
+        draw_browse_footer(u, g, 5);
     }
 }
 
@@ -1353,6 +1375,13 @@ static void draw_iconview(Ui *u)
         /* the scroll-bar gutter (g.gridRight..+SBW) is owned by the real control */
     }
     draw_grid_detail(u, &g);
+    {
+        static const HintGroup fg[] = {
+            {"<", ">", "Move"}, {"^", "v", 0}, {"ret", 0, "Play"},
+            {"A-Z", 0, "Find"}, {"esc", 0, "Menu"}
+        };
+        draw_browse_footer(u, fg, 5);
+    }
     u->lastDrawnItem = u->m->curItem;
     u->lastDrawnTop  = g.scroll;
     u->lastDrawnCat  = u->m->curCat;
@@ -1575,9 +1604,7 @@ static void draw_list_detail(Ui *u, const ListLayout *L)
         if (cur->year > 0) { l2s(cur->year, num); strcat(meta, num); strcat(meta, "  -  "); }
         if (cur->genre[0]) strcat(meta, cur->genre);
         render_text(r, mx, (short)(L->lstBot + 40), meta, INK_NORMAL);
-        render_text(r, mx, (short)(L->lstBot + 58),
-                    u->filter[0] ? "Return  launch      Esc  clear filter"
-                                 : "Return  launch      Type to filter", INK_DIM);
+        /* controls now live in the shared footer (draw_browse_footer) */
     }
 }
 
@@ -1680,6 +1707,13 @@ static void draw_listview(Ui *u)
         vbar(u, (short)(typeX - 6), L.bTop, (short)(L.lstBot - L.bTop));
     }
     draw_list_detail(u, &L);
+    {
+        static const HintGroup fg[] = {
+            {"^", "v", "Move"}, {"<", ">", "Pane"}, {"ret", 0, "Play"},
+            {"A-Z", 0, "Find"}, {"esc", 0, "Menu"}
+        };
+        draw_browse_footer(u, fg, 5);
+    }
 
     u->lastDrawnItem  = m->curItem;
     u->lastDrawnTop   = L.itemTop;
@@ -2658,12 +2692,12 @@ UiCommand ui_key(Ui *u, char ch)
         return sc;
     }
 
-    /* List view: typing is a name filter (find as you type), so a printable key —
-     * and Backspace — goes to the filter before the t/p/i shortcuts + type-ahead get
-     * it. Only here; the Carousel/Grid keep those keys. Arrows / Return / Esc are
-     * sub-0x20 and pass through to navigation / launch / the Esc handler below. */
-    if (u->mode == UI_MODE_LIST && u->view == VIEW_LIST && !u->safe &&
-        !u->settingsFocus && u->m->loader) {
+    /* Type-to-filter (find as you type) in EVERY browse view: a printable key — and
+     * Backspace — narrows the current category. Plain keys are reserved for this, so
+     * the launch hotkeys + Info/Box-Art/Theme shortcuts are Cmd-modified (ui_key_cmd,
+     * dispatched by main). Arrows / Return / Esc are sub-0x20 and fall through to
+     * navigation / launch / the Esc handler below. */
+    if (u->mode == UI_MODE_LIST && !u->safe && !u->settingsFocus && u->m->loader) {
         if ((unsigned char)ch >= 0x20 && (unsigned char)ch < 0x7F) {
             int l = (int)strlen(u->filter);
             if (l < (int)sizeof u->filter - 1) {
@@ -2679,14 +2713,6 @@ UiCommand ui_key(Ui *u, char ch)
             ui_draw(u);
             return UI_NONE;
         }
-    }
-
-    /* Theme toggle works in any mode (list / menu / safe / preview). */
-    if (ch == 't' || ch == 'T') {
-        render_toggle_theme(u->r);
-        u->bgValid = 0;                             /* colours changed everywhere */
-        ui_draw(u);
-        return UI_PREFS_DIRTY;                      /* theme changed -> persist */
     }
 
     /* Tab cycles the browse view (Carousel -> Icon -> List) — interim until the
@@ -2758,28 +2784,17 @@ UiCommand ui_key(Ui *u, char ch)
         return UI_NONE;
     }
 
-    /* Per-item launch hotkey: a printable key mapped to a title launches it
-     * immediately (doubles as a gamepad button via MiSTer's button->key map).
-     * Checked before navigation/type-ahead; restricted to printable keys so it
-     * never shadows the arrows / Return / Esc. (Note 't' is consumed by the
-     * global theme toggle above, so it can't be a hotkey.) The List view uses typing
-     * for its name filter, so hotkeys are suppressed there. */
-    if (!u->safe && u->view != VIEW_LIST &&
-        (unsigned char)ch >= 0x20 && model_select_hotkey(u->m, ch)) {
-        u->status[0] = '\0';
-        ui_draw(u);
-        return UI_LAUNCH;
-    }
-
-    /* list / safe mode — the current browse view owns arrow navigation; the
-     * shared keys (Esc / Return / P / I / type-ahead) below apply to every view. */
+    /* list / safe mode — the current browse view owns arrow navigation; the shared
+     * keys (Esc / Return) below apply to every view. (Plain printables were consumed
+     * by the filter above; Info / Box Art / Theme / launch hotkeys are Cmd-modified,
+     * handled by ui_key_cmd.) */
     if (!u->safe && cur_view(u)->nav(u, ch)) {
         browse_redraw(u);           /* incremental when the move stayed on-page */
         return cmd;                 /* cmd == UI_NONE here */
     }
     switch (ch) {
         case kCharEscape:
-            if (u->view == VIEW_LIST && u->filter[0]) {   /* Esc clears the filter first */
+            if (u->filter[0]) {                           /* Esc clears an active filter first */
                 ui_filter_clear(u);
             } else {
                 return UI_OPEN_MENU;                       /* open the Quick-Launch window */
@@ -2792,45 +2807,51 @@ UiCommand ui_key(Ui *u, char ch)
                 cmd = UI_LAUNCH;
             }
             break;
-        case 'p':
-        case 'P':
-            if (!u->safe) {
-                const CatItem *it = model_cur_item(u->m);
-                /* Box art on demand: the main pane shows the screenshot, so P is
-                 * the way to see the box/cover art full-screen (falls back to the
-                 * screenshot when a title has no box art). */
-                const char *base = it ? (it->image[0] ? it->image : it->shot) : 0;
-                if (base && base[0]) {
-                    u->previewPic = load_item_art(u, base);
-                    u->mode = UI_MODE_PREVIEW;   /* draws "(no artwork)" if load failed */
-                }
-            }
-            break;
-        case 'i':
-        case 'I':
-            /* More Info card for the selection (loads its art, like preview). */
-            if (!u->safe) {
-                const CatItem *it = model_cur_item(u->m);
-                if (it) {
-                    const char *base = art_base(u, it);
-                    if (base && base[0]) u->previewPic = load_item_art(u, base);
-                    u->mode = UI_MODE_INFO;
-                }
-            }
-            break;
-        default:
-            /* Type-ahead: any other printable key jumps to the next matching item.
-             * (The List view intercepts printables earlier as filter input.) */
-            if (!u->safe &&
-                ((ch >= 'a' && ch <= 'z') || (ch >= 'A' && ch <= 'Z') ||
-                 (ch >= '0' && ch <= '9')))
-                model_type_ahead(u->m, ch);
-            break;
     }
     /* Launching hands off to the game and tears down the launcher window, so the
      * pre-launch repaint was a wasted full-screen blit the user saw flash by. */
     if (cmd != UI_LAUNCH) ui_draw(u);
     return cmd;
+}
+
+/* Cmd-modified keys (main dispatches these when MenuKey finds no menu match): the
+ * shortcuts that used to be plain keys, moved here so plain typing is free for the
+ * find-as-you-type filter. Cmd-T theme, Cmd-P box art, Cmd-I info, and Cmd+<letter>
+ * a per-item launch hotkey (doubles as a gamepad button via MiSTer's key map). The
+ * browse screen only; Cmd-I also arrives via File > Get Info (same action). */
+UiCommand ui_key_cmd(Ui *u, char ch)
+{
+    int lo = ((unsigned char)ch >= 'A' && (unsigned char)ch <= 'Z') ? ch + 32 : (unsigned char)ch;
+    if (u->safe || u->mode != UI_MODE_LIST || u->settingsFocus) return UI_NONE;
+    if (lo == 't') {
+        render_toggle_theme(u->r);
+        u->bgValid = 0;
+        ui_draw(u);
+        return UI_PREFS_DIRTY;
+    }
+    if (lo == 'p') {
+        const CatItem *it = model_cur_item(u->m);
+        const char *base = it ? (it->image[0] ? it->image : it->shot) : 0;
+        if (base && base[0]) { u->previewPic = load_item_art(u, base); u->mode = UI_MODE_PREVIEW; }
+        ui_draw(u);
+        return UI_NONE;
+    }
+    if (lo == 'i') {
+        const CatItem *it = model_cur_item(u->m);
+        if (it) {
+            const char *base = art_base(u, it);
+            if (base && base[0]) u->previewPic = load_item_art(u, base);
+            u->mode = UI_MODE_INFO;
+            ui_draw(u);
+        }
+        return UI_NONE;
+    }
+    if ((unsigned char)ch >= 0x20 && model_select_hotkey(u->m, ch)) {
+        u->status[0] = '\0';
+        ui_draw(u);
+        return UI_LAUNCH;
+    }
+    return UI_NONE;
 }
 
 /* Mouse equivalent of ui_key: hit-test a window-local click (main does the
