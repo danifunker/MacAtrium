@@ -59,6 +59,10 @@ void  render_end(Render *r, WindowPtr w);
  * (copy just the changed region) for incremental redraws. No-op on the direct
  * path (drawing already hit the window). */
 void  render_end_rect(Render *r, WindowPtr w, const Rect *dirty);
+/* Blit several disjoint dirty rects in one lock/unlock cycle — the multi-region
+ * Mac update model. Use instead of calling render_end_rect repeatedly (that
+ * over-unlocks the off-screen pixmap, reading it after it can move). */
+void  render_end_rects(Render *r, WindowPtr w, const Rect *rects, int n);
 
 void  render_fill(Render *r, const Rect *rr, int kind);
 void  render_frame(Render *r, const Rect *rr);          /* 1px accentless frame */
