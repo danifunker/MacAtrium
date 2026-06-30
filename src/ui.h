@@ -24,11 +24,12 @@ typedef enum {
     UI_PREFS_DIRTY,  /* a persisted setting (theme/volume) changed; main saves */
     UI_CHROME_DIRTY, /* menu-bar / title-bar visibility changed; main re-lays
                       * out the window + menu bar (rebuild_window) AND saves    */
-    UI_OPEN_SETTINGS /* open the real Settings window (main.c run_settings_dialog) */
+    UI_OPEN_SETTINGS,/* open the real Settings window (main.c run_settings_dialog)  */
+    UI_OPEN_MENU     /* open the real Quick-Launch menu window (run_quicklaunch_menu) */
 } UiCommand;
 
-enum { UI_MODE_LIST = 0, UI_MODE_MENU, UI_MODE_PREVIEW, UI_MODE_SETTINGS /* unused:
-       Settings is now a real window owned by main.c */,
+enum { UI_MODE_LIST = 0, UI_MODE_MENU /* unused: now a real window */, UI_MODE_PREVIEW,
+       UI_MODE_SETTINGS /* unused: now a real window */,
        UI_MODE_INFO, UI_MODE_CTLPANELS, UI_MODE_SETUP, UI_MODE_ABOUT,
        UI_MODE_QUITCONFIRM };
 
@@ -159,6 +160,18 @@ const char *ui_setting_label(int row);                /* fixed row label        
 int         ui_setting_checked(Ui *u, int row);       /* checkbox state (CHECK)    */
 void        ui_setting_value(Ui *u, int row, char *out); /* value text (STEPPER); out >= 24 */
 int         ui_setting_step(Ui *u, int row, int dir);    /* apply; 1 if it changed */
+
+/* ---- Quick-Launch menu model (the real menu window in main.c renders these) ----
+ * The rows are actions (Settings / Show Finder / Exit / Restart / Shut Down), built
+ * per-environment in ui_init. ui_menu_command maps a row to the command main runs. */
+int         ui_menu_count(Ui *u);
+const char *ui_menu_label(Ui *u, int i);
+UiCommand   ui_menu_command(Ui *u, int i);
+
+/* Re-blit the browse screen from the off-screen buffer WITHOUT re-rendering it —
+ * for closing a real modal window (menu / Settings) that left the buffer intact.
+ * Falls back to a full ui_draw on the direct-draw path or when the buffer is stale. */
+void        ui_reblit(Ui *u);
 
 /* Drop the per-item art caches (detail cover + tile icons) after a category
  * page loads — the paged catalog reuses its items array, so the caches would
