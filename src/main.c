@@ -1304,6 +1304,9 @@ int main(void)
                 case autoKey: {
                     char c = (char)(evt.message & charCodeMask);
                     short keyCode = (short)((evt.message >> 8) & 0xFF);
+                    /* Tab cycles the browse view — a discrete action, so ignore the
+                     * auto-repeat (a held Tab used to spin through every view). */
+                    if (c == '\t' && evt.what == autoKey) break;
                     if (evt.modifiers & cmdKey) {
                         /* Cmd-Option-Q quits the launcher back to the Finder. Match
                          * the virtual key CODE (Q = 0x0C), not the char: Option
