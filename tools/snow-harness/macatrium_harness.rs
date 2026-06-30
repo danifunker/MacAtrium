@@ -51,6 +51,7 @@ fn scancode(name: &str) -> Option<u8> {
         "p" => 0x23, "l" => 0x25, "j" => 0x26, "k" => 0x28, "n" => 0x2D,
         "m" => 0x2E,
         "space" => 0x31,
+        "tab" => 0x30,
         "enter" | "return" => 0x24,
         "esc" => 0x35,
         "up" => 0x3E, "down" => 0x3D, "left" => 0x3B, "right" => 0x3C,

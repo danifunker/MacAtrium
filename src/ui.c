@@ -1182,6 +1182,28 @@ static void draw_browse_header(Ui *u)
     render_hline(r, 0, (short)W, (short)(HEADER_H - 1));
 }
 
+/* Refresh ONLY the "N / M" counter at the header's right edge (its own erase + draw)
+ * — used by the incremental redraws so an item move never repaints the header centre,
+ * where the native category steppers live (repainting that whole band, on the direct-
+ * draw path or via a header-wide fill, is what erased / flashed the ◀ ▶ buttons). */
+#define CTR_W 110
+static void draw_browse_counter(Ui *u)
+{
+    Render   *r = u->r;
+    Model    *m = u->m;
+    ModelCat *cat = model_cur_cat(m);
+    int       W = win_w(u);
+    char      num[16], line[24];
+    Rect      cr;
+    if (!cat) return;
+    SetRect(&cr, (short)(W - CTR_W), 2, W, (short)(HEADER_H - 1));
+    render_fill(r, &cr, FILL_BG);
+    render_base_text(r);
+    l2s(m->curItem + 1, num); strcpy(line, num); strcat(line, " / ");
+    l2s(cat->count, num); strcat(line, num);
+    render_text(r, (short)(W - MARGIN - render_text_width(r, line)), 20, line, INK_DIM);
+}
+
 /* Scroll-bar gutter width (the grid/list reserve this column for the real
  * Control-Manager scroll bar; see ui_paint_controls). */
 #define SBW 16
@@ -1449,23 +1471,29 @@ static int iconview_click(Ui *u, Point pt, UiCommand *out)
 static int iconview_draw_sel(Ui *u)
 {
     GridLayout g;
-    Rect       old, neu, dirty, hdr;
+    Rect       old, neu, body, counter;
     if (!u->bgValid) return 0;
     grid_layout(u, &g);
     if (g.scroll != u->lastDrawnTop || u->m->curCat != u->lastDrawnCat) return 0;
     render_begin(u->r, u->win);
-    SetRect(&hdr, 0, 0, (short)win_w(u), (short)HEADER_H);   /* refresh the N / M counter */
-    render_fill(u->r, &hdr, FILL_BG);
-    draw_browse_header(u);
+    draw_browse_counter(u);                     /* only the N/M counter — not the steppers */
+    if (u->r->useOffscreen) ensure_art_loaded(u);  /* land the screenshot in this pass (one draw, like the carousel) */
     draw_grid_cell(u, &g, u->lastDrawnItem);    /* old -> deselected */
     draw_grid_cell(u, &g, u->m->curItem);       /* new -> selected   */
     draw_grid_detail(u, &g);
     if (!grid_cell_rect(&g, u->lastDrawnItem, &old)) old = g.detail;
     if (!grid_cell_rect(&g, u->m->curItem, &neu)) neu = g.detail;
-    UnionRect(&old, &neu, &dirty);
-    UnionRect(&dirty, &g.detail, &dirty);
-    UnionRect(&dirty, &hdr, &dirty);
-    render_end_rect(u->r, u->win, &dirty);
+    /* Blit the cells + detail (all below the header) and the N/M counter only — never
+     * the header centre, so the category steppers there aren't clobbered (no flash). */
+    {
+        Rect rects[2];
+        UnionRect(&old, &neu, &body);
+        UnionRect(&body, &g.detail, &body);
+        if (body.top < HEADER_H) body.top = HEADER_H;   /* never the header (steppers) */
+        SetRect(&counter, (short)(win_w(u) - CTR_W), 0, (short)win_w(u), (short)HEADER_H);
+        rects[0] = body; rects[1] = counter;
+        render_end_rects(u->r, u->win, rects, 2);
+    }
     u->lastDrawnItem = u->m->curItem;
     return 1;
 }
@@ -1832,6 +1860,7 @@ static int listview_draw_sel(Ui *u)
         u->listFocus != u->lastDrawnFocus || L.itemTop != u->lastDrawnTop)
         return 0;
     render_begin(u->r, u->win);
+    if (u->r->useOffscreen) ensure_art_loaded(u);  /* land the screenshot in this pass (one draw, like the carousel) */
     draw_list_item_row(u, &L, u->lastDrawnItem - L.itemTop);   /* old -> deselected */
     draw_list_item_row(u, &L, u->m->curItem - L.itemTop);      /* new -> selected   */
     draw_list_detail(u, &L);
@@ -1901,7 +1930,7 @@ static void carousel_draw_art(Ui *u)
 static int carousel_draw_sel(Ui *u)
 {
     CarLayout L;
-    Rect      oldB, newB, nameBand, hdr, det, dirty;
+    Rect      oldB, newB, nameBand, det, body, counter;
     int       oldSlot;
     if (!u->bgValid) return 0;
     carousel_layout(u, &L);
@@ -1912,9 +1941,7 @@ static int carousel_draw_sel(Ui *u)
     if (oldSlot < 0 || oldSlot >= L.nTiles) return 0; /* belt + braces */
 
     render_begin(u->r, u->win);
-    SetRect(&hdr, 0, 0, (short)win_w(u), (short)HEADER_H);   /* refresh the N / M counter */
-    render_fill(u->r, &hdr, FILL_BG);
-    draw_browse_header(u);                                   /* identical to the inline header */
+    draw_browse_counter(u);                     /* only the N/M counter — not the steppers */
 
     draw_carousel_tile(u, &L, oldSlot);        /* old -> deselected */
     draw_carousel_tile(u, &L, L.selOnPage);    /* new -> selected   */
@@ -1936,11 +1963,18 @@ static int carousel_draw_sel(Ui *u)
     carousel_tile_box(&L, oldSlot,     0, &oldB);   /* col rects bound the selection box */
     carousel_tile_box(&L, L.selOnPage, 0, &newB);
     SetRect(&det, L.clx, L.detTop, (short)win_w(u), L.detBot);
-    UnionRect(&oldB, &newB, &dirty);
-    UnionRect(&dirty, &nameBand, &dirty);
-    UnionRect(&dirty, &hdr, &dirty);
-    UnionRect(&dirty, &det, &dirty);
-    render_end_rect(u->r, u->win, &dirty);
+    /* Blit the tiles + name + detail (all below the header) and the N/M counter only —
+     * never the header centre, so the category steppers there aren't clobbered. */
+    {
+        Rect rects[2];
+        UnionRect(&oldB, &newB, &body);
+        UnionRect(&body, &nameBand, &body);
+        UnionRect(&body, &det, &body);
+        if (body.top < HEADER_H) body.top = HEADER_H;   /* never the header (steppers) */
+        SetRect(&counter, (short)(win_w(u) - CTR_W), 0, (short)win_w(u), (short)HEADER_H);
+        rects[0] = body; rects[1] = counter;
+        render_end_rects(u->r, u->win, rects, 2);
+    }
     u->lastDrawnItem = u->m->curItem;
     return 1;
 }
@@ -2041,7 +2075,12 @@ static void place_control(ControlHandle c, const Rect *want)
 
 /* Position + value + show + repaint the controls over the freshly-blitted content.
  * Hidden (so FindControl ignores them) outside the grid/list browse screens. */
-static void ui_paint_controls(Ui *u)
+/* `incremental` = repainting after an in-page selection move (browse_redraw /
+ * deferred-art settle), where the blit deliberately avoids the header, so the
+ * category steppers there weren't clobbered — leave them be (re-showing them is
+ * what made the ◀/▶ flash). The scroll bar + Launch sit in the blitted body, so
+ * they're always repainted. A full paint (incremental = 0) lays out everything. */
+static void ui_paint_controls(Ui *u, int incremental)
 {
     Rect sb, lb;
     int  n, vis, val, max, canLaunch;
@@ -2064,18 +2103,22 @@ static void ui_paint_controls(Ui *u)
     HideControl(u->cancelBtn);
 
     /* Category stepper buttons sit in the header band of the carousel + grid (the
-     * List view uses its categories pane instead). */
-    if (!u->safe && u->mode == UI_MODE_LIST &&
-        (u->view == VIEW_CAROUSEL || u->view == VIEW_ICON) && model_cur_cat(u->m)) {
-        int  W = win_w(u);
-        Rect cp, cn;
-        SetRect(&cp, (short)(W / 2 - CATBAND_HALF), 5, (short)(W / 2 - CATBAND_HALF + 24), 25);
-        SetRect(&cn, (short)(W / 2 + CATBAND_HALF - 24), 5, (short)(W / 2 + CATBAND_HALF), 25);
-        place_control(u->catPrev, &cp); ShowControl(u->catPrev); Draw1Control(u->catPrev);
-        place_control(u->catNext, &cn); ShowControl(u->catNext); Draw1Control(u->catNext);
-    } else {
-        HideControl(u->catPrev);
-        HideControl(u->catNext);
+     * List view uses its categories pane instead). Skipped on an incremental repaint:
+     * the header isn't re-blitted there, so they're untouched — repositioning + redrawing
+     * them is exactly what made the ◀/▶ flash on every item move. */
+    if (!incremental) {
+        if (!u->safe && u->mode == UI_MODE_LIST &&
+            (u->view == VIEW_CAROUSEL || u->view == VIEW_ICON) && model_cur_cat(u->m)) {
+            int  W = win_w(u);
+            Rect cp, cn;
+            SetRect(&cp, (short)(W / 2 - CATBAND_HALF), 5, (short)(W / 2 - CATBAND_HALF + 24), 25);
+            SetRect(&cn, (short)(W / 2 + CATBAND_HALF - 24), 5, (short)(W / 2 + CATBAND_HALF), 25);
+            place_control(u->catPrev, &cp); ShowControl(u->catPrev); Draw1Control(u->catPrev);
+            place_control(u->catNext, &cn); ShowControl(u->catNext); Draw1Control(u->catNext);
+        } else {
+            HideControl(u->catPrev);
+            HideControl(u->catNext);
+        }
     }
 
     if (u->safe || u->mode != UI_MODE_LIST ||
@@ -2246,7 +2289,7 @@ void ui_draw(Ui *u)
         render_end_rect(u->r, u->win, &u->panelRect);
     else
         render_end(u->r, u->win);
-    ui_paint_controls(u);          /* real scroll bar + Launch button, over the blit */
+    ui_paint_controls(u, 0);       /* full: real scroll bar + Launch + category steppers */
 }
 
 int ui_idle(Ui *u)
@@ -2283,7 +2326,7 @@ int ui_idle(Ui *u)
 void ui_draw_art(Ui *u)
 {
     if (u->safe || u->mode != UI_MODE_LIST) return;
-    if (cur_view(u)->draw_art) { cur_view(u)->draw_art(u); ui_paint_controls(u); }
+    if (cur_view(u)->draw_art) { cur_view(u)->draw_art(u); ui_paint_controls(u, 1); }
 }
 
 /* Repaint after a browse-view selection move: an incremental redraw of just the
@@ -2295,7 +2338,7 @@ static void browse_redraw(Ui *u)
 {
     if (u->mode == UI_MODE_LIST && !u->safe && u->bgValid &&
         cur_view(u)->draw_sel && cur_view(u)->draw_sel(u)) {
-        ui_paint_controls(u);
+        ui_paint_controls(u, 1);   /* incremental: leave the header steppers untouched */
         return;
     }
     ui_draw(u);
