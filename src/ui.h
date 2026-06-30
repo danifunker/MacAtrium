@@ -57,6 +57,7 @@ typedef struct {
     int        vol;           /* speaker volume 0..SOUND_VOL_MAX (-1 = n/a)   */
     int        artPref;       /* 0 = Box Art, 1 = Screenshot (the `shot` field) */
     int        view;          /* current browse view (VIEW_CAROUSEL/ICON/LIST)  */
+    int        gridStyle;     /* Icon Grid layout: 0 = Finder (2-line names), 1 = At Ease tiles */
     int        listFocus;     /* List view: 0 = categories pane, 1 = items pane  */
     int        lastDrawnItem; /* selection at the last FULL browse-view draw, so an */
     int        lastDrawnTop;  /* in-page selection move can repaint just the changed */
