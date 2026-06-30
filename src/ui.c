@@ -13,7 +13,11 @@
 #define HEADER_H 30
 #define HINT_H   24
 #define MARGIN   10
-#define ROW_H    18
+/* Row height tracks the content font size (Geneva S/M/L), so list / menu / settings
+ * rows reflow when the user changes Text Size. Set by ui_set_text_size(); the
+ * default matches the medium size below. ROW_H reads it everywhere it lays out rows. */
+static int g_rowH = 15;
+#define ROW_H    (g_rowH)
 #define NARROW_W 420
 #define ICON_SZ  16            /* list-row icon box (px); 32x32 art fits into it */
 #define ICON_GUT 22            /* icon column width incl. the gap before the name */
@@ -100,11 +104,26 @@ static int clamp_scroll(Ui *u, int visRows)
     return u->m->topRow;
 }
 
+/* Content text-size presets (points): Geneva at the Finder filename size (9) up to
+ * the old system size (12). The row height — and thus list / menu / settings density
+ * and how much of a long name fits — scales with the choice. */
+enum { TEXT_SMALL = 9, TEXT_MEDIUM = 10, TEXT_LARGE = 12 };
+
+void ui_set_text_size(Ui *u, int pts)
+{
+    if (pts < TEXT_SMALL) pts = TEXT_SMALL;
+    if (pts > TEXT_LARGE) pts = TEXT_LARGE;
+    render_set_text_size(u->r, pts);
+    g_rowH = pts + 5;                  /* row spacing tracks the font (S 14 / M 15 / L 17) */
+    u->bgValid = 0;                    /* the whole layout reflows around the new size */
+}
+
 /* ---- public --------------------------------------------------------------- */
 
 void ui_init(Ui *u, Env *env, Render *r, Model *m, WindowPtr win, int safe)
 {
     u->env = env; u->r = r; u->m = m; u->win = win;
+    ui_set_text_size(u, TEXT_MEDIUM);   /* Geneva content font, Finder-ish size (main overrides from prefs) */
     u->mode = UI_MODE_LIST;
     u->menuSel = 0;
     u->safe = safe;
@@ -309,7 +328,7 @@ static void draw_safe(Ui *u)
 
     render_fill(r, &full, FILL_BG);
 
-    render_text_size(r, 12);
+    render_base_text(r);
     {
         const char *t = "MacAtrium";
         short x = (short)((W - render_text_width(r, t)) / 2);
@@ -592,7 +611,7 @@ static void draw_carousel(Ui *u)
 
     /* ---- header: gear, the category (with ^v), and N / M (the app title now
      * lives in the System menu bar, so it's no longer repeated here) ---- */
-    render_text_size(r, 12);
+    render_base_text(r);
     draw_settings_btn(u);
     if (cat) {
         char  cl[ITEM_CAT_LEN + 8];
@@ -765,10 +784,11 @@ static const char *kViewDesc[VIEW_N] = {
     "Categories + a list with screenshots. Best for big libraries."
 };
 
-#define SET_N 12
+#define SET_N 13
 #define SET_ROW_VIEW      6             /* browse view: Carousel / Icon / List      */
 #define SET_ROW_MENUBAR   9             /* System menu bar: Shown / Hidden          */
 #define SET_ROW_TITLEBAR  10            /* window title bar: Shown / Hidden         */
+#define SET_ROW_TEXTSIZE  11            /* content text size: Small / Medium / Large */
 #define SET_ROW_CTLPANELS (SET_N - 1)   /* the action row (opens the cdev list)     */
 
 static void set_row_text(Ui *u, int row, char *out)
@@ -833,6 +853,12 @@ static void set_row_text(Ui *u, int row, char *out)
             while (strlen(out) < 16) strcat(out, " ");
             strcat(out, u->hideTitleBar ? "Hidden" : "Shown");
             break;
+        case SET_ROW_TEXTSIZE:
+            strcpy(out, "Text Size");
+            while (strlen(out) < 16) strcat(out, " ");
+            strcat(out, u->r->textSize <= TEXT_SMALL ? "Small" :
+                        u->r->textSize >= TEXT_LARGE ? "Large" : "Medium");
+            break;
         default:
             strcpy(out, "Control Panels");
             while (strlen(out) < 16) strcat(out, " ");
@@ -894,7 +920,7 @@ static void draw_settings(Ui *u)
     int     i;
 
     SetRect(&u->panelRect, px, py, (short)(px + pw), (short)(py + ph));   /* blit/erase region */
-    render_text_size(r, 12);
+    render_base_text(r);
 
     /* Selection/value-only change: the panel is already on screen (overlayDrawn)
      * and the browse view behind it is untouched (bgValid), so repaint just the
@@ -948,7 +974,7 @@ static void draw_ctlpanels(Ui *u)
     render_fill(r, &panel, FILL_PANEL);
     render_frame(r, &panel);
 
-    render_text_size(r, 12);
+    render_base_text(r);
     render_text(r, (short)(px + MARGIN), (short)(py + 22), "Control Panels", INK_TITLE);
     render_hline(r, px, (short)(px + pw), (short)(py + 30));
 
@@ -1061,7 +1087,7 @@ static void draw_preview(Ui *u)
     render_fill(r, &full, FILL_BG);
 
     /* title */
-    render_text_size(r, 12);
+    render_base_text(r);
     if (it)
         render_text(r, MARGIN, 20, it->name, INK_TITLE);
     render_hline(r, 0, (short)W, (short)(HEADER_H - 1));
@@ -1095,7 +1121,7 @@ static void draw_info(Ui *u)
     short   x = MARGIN, y;
 
     render_fill(r, &full, FILL_BG);
-    render_text_size(r, 12);
+    render_base_text(r);
 
     if (!it) {
         render_text(r, MARGIN, (short)(H / 2), "(no item selected)", INK_DIM);
@@ -1157,7 +1183,7 @@ static void draw_about(Ui *u)
     char    ver[40];
 
     render_fill(r, &full, FILL_BG);
-    render_text_size(r, 12);
+    render_base_text(r);
     { const char *t = "MacAtrium";
       cw = render_text_width(r, t); render_text(r, (short)((W - cw) / 2), cy, t, INK_TITLE); }
     cy = (short)(cy + 28);
@@ -1210,7 +1236,7 @@ static int draw_setup(Ui *u)
 
     if (u->setupDrawn && u->lastSetupSel != u->setupSel) {
         Rect a, b;
-        render_text_size(r, 12);
+        render_base_text(r);
         setup_row_rect(u, u->lastSetupSel, &a);
         setup_row_rect(u, u->setupSel,     &b);
         if (u->lastSetupSel >= 0 && u->lastSetupSel < VIEW_N) draw_setup_row(u, u->lastSetupSel);
@@ -1221,7 +1247,7 @@ static int draw_setup(Ui *u)
     }
 
     render_fill(r, &full, FILL_BG);
-    render_text_size(r, 12);
+    render_base_text(r);
     { const char *t = "Welcome to MacAtrium";
       cw = render_text_width(r, t); render_text(r, (short)((W - cw) / 2), 40, t, INK_TITLE); }
     { const char *t = "How would you like to browse your library?";
@@ -1249,7 +1275,7 @@ static void draw_browse_header(Ui *u)
     ModelCat *cat = model_cur_cat(m);
     int       W = win_w(u);
     char      num[16];
-    render_text_size(r, 12);
+    render_base_text(r);
     draw_settings_btn(u);
     if (cat) {
         char  cl[ITEM_CAT_LEN + 8];
@@ -1363,7 +1389,7 @@ static void draw_grid_detail(Ui *u, const GridLayout *g)
     render_fill(r, &d, FILL_BG);
     SetRect(&dv, d.left, d.top, (short)(d.left + 1), d.bottom);
     render_frame(r, &dv);
-    render_text_size(r, 12);
+    render_base_text(r);
 
     aw = (short)((d.right - d.left) - 2 * pad);
     ah = (short)(aw * 3 / 4);
@@ -1611,7 +1637,7 @@ static void draw_list_detail(Ui *u, const ListLayout *L)
     char           num[16];
     SetRect(&strip, L->rx, L->lstBot, (short)W, L->bBot);
     render_fill(r, &strip, FILL_BG);
-    render_text_size(r, 12);
+    render_base_text(r);
     render_hline(r, L->rx, (short)W, L->lstBot);
     ay0 = (short)(L->lstBot + 8); ah = (short)(LDET - 18); aw = (short)(ah * 4 / 3);
     mx  = (short)(L->rx + 12 + aw + 14);
@@ -1641,7 +1667,7 @@ static void draw_listview(Ui *u)
 
     list_layout(u, &L);
     render_fill(r, &full, FILL_BG);
-    render_text_size(r, 12);
+    render_base_text(r);
     draw_settings_btn(u);
     render_hline(r, 0, (short)W, (short)(HEADER_H - 1));
     vbar(u, LPANE, L.bTop, (short)(L.bBot - L.bTop));
@@ -2000,7 +2026,7 @@ static void draw_quitconfirm(Ui *u)
     u->panelRect = panel;                                    /* blit/erase region */
     render_fill(r, &panel, FILL_PANEL);
     render_frame(r, &panel);
-    render_text_size(r, 12);
+    render_base_text(r);
     mid = (short)(panel.left + (panel.right - panel.left) / 2);
     cw = render_text_width(r, msg);
     render_text(r, (short)(mid - cw / 2), (short)(panel.top + 34), msg, INK_TITLE);
@@ -2396,6 +2422,14 @@ static int settings_adjust(Ui *u, int dir)
             u->hideTitleBar = u->hideTitleBar ? 0 : 1;
             u->chromeDirty = 1;
             return 1;
+        case SET_ROW_TEXTSIZE: {                   /* content text size Small/Medium/Large */
+            int sizes[3] = { TEXT_SMALL, TEXT_MEDIUM, TEXT_LARGE };
+            int cur = 1, i;
+            for (i = 0; i < 3; i++) if (sizes[i] == u->r->textSize) cur = i;
+            cur = (cur + dir + 3) % 3;
+            ui_set_text_size(u, sizes[cur]);        /* reflows everything (sets bgValid=0) */
+            return 1;                               /* persisted */
+        }
         default:                                   /* Control Panels (action row, intercepted) */
             return 0;
     }

@@ -32,6 +32,8 @@ typedef struct {
     int  haveHideMenuBar;          /* 1 if `menubar` was loaded                 */
     int  hideTitleBar;             /* 1 = hide the window's WM title bar        */
     int  haveHideTitleBar;         /* 1 if `titlebar` was loaded                */
+    int  textSize;                 /* content font size in points (9 / 10 / 12) */
+    int  haveTextSize;             /* 1 if `textsize` was loaded                */
     int  carousel;                 /* carousel icon count (odd 3..25)           */
     int  haveCarousel;             /* 1 if `carousel` was loaded                */
     int  view;                     /* browse view (VIEW_CAROUSEL/ICON/LIST)     */

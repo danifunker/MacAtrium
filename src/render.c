@@ -17,6 +17,13 @@ void render_init(Render *r, const Env *e)
      * so 6.0.8 draws directly to the window instead (docs/09 Milestone 4). */
     r->useOffscreen = e->hasColorQD && (e->sysVers >= 0x0700);
     r->offscreen    = 0;
+    {   /* Geneva — the Finder filename face; fall back to the application font (also
+         * Geneva by default) if the name isn't found. */
+        short fnum = 0;
+        GetFNum("\pGeneva", &fnum);
+        r->contentFont = fnum ? fnum : applFont;
+    }
+    r->textSize = 12;
 }
 
 void render_reset_for_depth(Render *r, const Env *e, int depth)
@@ -101,8 +108,8 @@ void render_begin(Render *r, WindowPtr w)
         SetPort(w);
     }
 
-    TextFont(systemFont);     /* Chicago */
-    TextSize(12);
+    TextFont(r->contentFont); /* Geneva — content face (menus/title stay Chicago) */
+    TextSize(r->textSize);
     TextFace(normal);
     PenNormal();
 }
@@ -250,4 +257,18 @@ void render_text_size(Render *r, int points)
 {
     (void)r;
     TextSize(points);
+}
+
+void render_set_text_size(Render *r, int points)
+{
+    r->textSize = (short)points;
+}
+
+/* Re-assert the content font + size — used wherever the UI used to set the base
+ * text size (so a section draws in Geneva at the chosen size, not a stale size). */
+void render_base_text(Render *r)
+{
+    TextFont(r->contentFont);
+    TextSize(r->textSize);
+    TextFace(normal);
 }
