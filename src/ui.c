@@ -312,17 +312,21 @@ static int art_pane_w(int W)
 /* The Settings affordance at the header's left — a little 3-slider icon. A frame
  * around it shows it's focused (reached by pressing Left at the first category;
  * Enter then opens the Settings panel). */
+/* The header's left affordance: clicking it pops up the Quick-Launch menu, so it's
+ * drawn as a standard Macintosh pop-up-menu widget — a framed box with the downward
+ * pop-up triangle and the classic 1px drop shadow (right + bottom). A focus frame
+ * around it shows it's reached by the keyboard (Left at the first category). */
 static void draw_settings_btn(Ui *u)
 {
     Render *r = u->r;
-    Rect    box, knob;
-    short   x0 = GEAR_X, x1 = (short)(GEAR_X + 14);
-    render_hline(r, x0, x1, 10);
-    render_hline(r, x0, x1, 15);
-    render_hline(r, x0, x1, 20);
-    SetRect(&knob, (short)(x0 + 9), 8,  (short)(x0 + 12), 12); render_frame(r, &knob);
-    SetRect(&knob, (short)(x0 + 3), 13, (short)(x0 + 6),  17); render_frame(r, &knob);
-    SetRect(&knob, (short)(x0 + 8), 18, (short)(x0 + 11), 22); render_frame(r, &knob);
+    Rect    box, tri, sh;
+    short   x0 = GEAR_X;
+    SetRect(&box, x0, 6, (short)(x0 + 18), 22);
+    render_frame(r, &box);
+    render_hline(r, (short)(x0 + 2), (short)(x0 + 19), 23);          /* drop shadow: bottom */
+    SetRect(&sh, (short)(x0 + 18), 8, (short)(x0 + 19), 24); render_frame(r, &sh); /* + right */
+    SetRect(&tri, (short)(x0 + 4), 7, (short)(x0 + 14), 21);
+    render_arrow(r, &tri, 3);                                        /* downward pop-up triangle */
     if (u->settingsFocus) {
         SetRect(&box, (short)(GEAR_X - 4), 3, (short)(GEAR_X + GEAR_W - 4), (short)(HEADER_H - 4));
         render_frame(r, &box);
