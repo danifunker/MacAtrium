@@ -511,12 +511,20 @@ static void detail_art_rect(const CarLayout *L, Rect *ar)
 
 /* Paint the detail cover into its box: clear (so a targeted refresh erases the
  * previous item's art), frame, then the loaded cover — or "(no art)" once a load
- * for this item found nothing; empty until the cover has loaded. */
+ * for this item found nothing; empty until the cover has loaded. The ONE place all
+ * three views' covers settle: on the off-screen path load the art synchronously here
+ * so the cover lands in the same pass as the text (no text->image->text double draw);
+ * the direct-draw path leaves it deferred (ui_idle loads, then draw_art repaints this
+ * box) so a fast scroll never blocks on a PICT decode. */
 static void draw_detail_art(Ui *u, const Rect *ar)
 {
-    Render        *r      = u->r;
-    const CatItem *cur    = model_cur_item(u->m);
-    int            loaded = (cur && cur == u->artFor);
+    Render        *r;
+    const CatItem *cur;
+    int            loaded;
+    if (u->r->useOffscreen) ensure_art_loaded(u);
+    r      = u->r;
+    cur    = model_cur_item(u->m);
+    loaded = (cur && cur == u->artFor);
     render_fill(r, ar, FILL_BG);
     render_frame(r, ar);
     if (loaded && u->listArt) {
@@ -763,13 +771,8 @@ static void draw_carousel(Ui *u)
         }
     }
 
-    /* Off-screen (System 7+) path: load the selected cover *now* so it lands in
-     * this same repaint as the move — no deferred second pass that flashes it in.
-     * Cheap: the compositing GWorld blits once and the size-capped PICTs decode
-     * fast. The direct-draw System-6 path skips this and keeps the deferred load
-     * (ui_idle) so a fast scroll there never lurches on a per-move PICT decode;
-     * its detail pane just stays empty until the selection settles. */
-    if (u->r->useOffscreen) ensure_art_loaded(u);
+    /* (the detail cover loads synchronously inside draw_detail_art on the off-screen
+     * path — one shared place for all three views — so it lands in this same pass.) */
 
     /* ---- header: gear, the category (with ^v), and N / M (the app title now
      * lives in the System menu bar, so it's no longer repeated here) ---- */
@@ -1362,7 +1365,6 @@ static void draw_iconview(Ui *u)
     render_fill(r, &full, FILL_BG);
     draw_browse_header(u);
     grid_layout(u, &g);
-    if (u->r->useOffscreen) ensure_art_loaded(u);   /* detail screenshot, fast path */
     if (!cat || cat->count == 0) {
         const char *t = "(no items in this category)";
         render_text(r, (short)((g.gridRight - render_text_width(r, t)) / 2), (short)(H / 2), t, INK_DIM);
@@ -1449,7 +1451,6 @@ static int iconview_draw_sel(Ui *u)
     if (g.scroll != u->lastDrawnTop || u->m->curCat != u->lastDrawnCat) return 0;
     render_begin(u->r, u->win);
     draw_browse_counter(u);                     /* only the N/M counter — not the steppers */
-    if (u->r->useOffscreen) ensure_art_loaded(u);  /* land the screenshot in this pass (one draw, like the carousel) */
     draw_grid_cell(u, &g, u->lastDrawnItem);    /* old -> deselected */
     draw_grid_cell(u, &g, u->m->curItem);       /* new -> selected   */
     draw_grid_detail(u, &g);
@@ -1583,11 +1584,13 @@ static void draw_list_item_row(Ui *u, const ListLayout *L, int i)
 static void draw_list_detail(Ui *u, const ListLayout *L)
 {
     Render        *r = u->r;
-    const CatItem *cur = model_cur_item(u->m);
+    const CatItem *cur;
     int            W = win_w(u), loaded;
     short          ay0, ah, aw, mx;
     Rect           strip, ar;
     char           num[16];
+    if (u->r->useOffscreen) ensure_art_loaded(u);   /* one-pass cover load, like the carousel */
+    cur = model_cur_item(u->m);
     SetRect(&strip, L->rx, L->lstBot, (short)W, L->bBot);
     render_fill(r, &strip, FILL_BG);
     render_base_text(r);
@@ -1837,7 +1840,6 @@ static int listview_draw_sel(Ui *u)
         u->listFocus != u->lastDrawnFocus || L.itemTop != u->lastDrawnTop)
         return 0;
     render_begin(u->r, u->win);
-    if (u->r->useOffscreen) ensure_art_loaded(u);  /* land the screenshot in this pass (one draw, like the carousel) */
     draw_list_item_row(u, &L, u->lastDrawnItem - L.itemTop);   /* old -> deselected */
     draw_list_item_row(u, &L, u->m->curItem - L.itemTop);      /* new -> selected   */
     draw_list_detail(u, &L);
@@ -1934,7 +1936,6 @@ static int carousel_draw_sel(Ui *u)
         }
     }
 
-    if (u->r->useOffscreen) ensure_art_loaded(u);   /* land the cover in this same pass */
     draw_carousel_detail(u, &L);
 
     carousel_tile_box(&L, oldSlot,     0, &oldB);   /* col rects bound the selection box */
