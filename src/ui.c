@@ -19,6 +19,13 @@
 static int g_rowH = 15;
 #define ROW_H    (g_rowH)
 #define NARROW_W 420
+
+/* Icon Grid layout styles (Settings > Grid Style). FINDER = the Finder "by Icon"
+ * view (icon, 2-line wrapped name, the name highlighted when selected); TILES = each
+ * app as an At Ease-style rounded button (icon + name in a framed tile, the whole
+ * tile highlighted). */
+enum { GRID_FINDER = 0, GRID_TILES, GRID_N };
+static const char *kGridStyle[GRID_N] = { "Finder", "Tiles" };
 #define ICON_SZ  16            /* list-row icon box (px); 32x32 art fits into it */
 #define ICON_GUT 22            /* icon column width incl. the gap before the name */
 #define CATLIST_W 140          /* width of the optional categories list panel (left) */
@@ -137,6 +144,7 @@ void ui_init(Ui *u, Env *env, Render *r, Model *m, WindowPtr win, int safe)
     u->vol = sound_available() ? sound_get_vol() : -1;
     u->artPref = 1;                            /* Screenshot is the primary cover (box art on P) */
     u->view = VIEW_CAROUSEL;                   /* default browse view (first-run chooser may change) */
+    u->gridStyle = GRID_FINDER;                /* Icon Grid default: Finder layout      */
     u->listFocus = 1;                          /* List view starts focused on the items pane */
     u->setupSel = 0;
     u->carousel = 7;                           /* icons shown: 7 by default (odd 3..25), fit-capped */
@@ -784,11 +792,12 @@ static const char *kViewDesc[VIEW_N] = {
     "Categories + a list with screenshots. Best for big libraries."
 };
 
-#define SET_N 13
+#define SET_N 14
 #define SET_ROW_VIEW      6             /* browse view: Carousel / Icon / List      */
 #define SET_ROW_MENUBAR   9             /* System menu bar: Shown / Hidden          */
 #define SET_ROW_TITLEBAR  10            /* window title bar: Shown / Hidden         */
 #define SET_ROW_TEXTSIZE  11            /* content text size: Small / Medium / Large */
+#define SET_ROW_GRIDSTYLE 12            /* Icon Grid layout: Finder / Tiles         */
 #define SET_ROW_CTLPANELS (SET_N - 1)   /* the action row (opens the cdev list)     */
 
 static void set_row_text(Ui *u, int row, char *out)
@@ -858,6 +867,11 @@ static void set_row_text(Ui *u, int row, char *out)
             while (strlen(out) < 16) strcat(out, " ");
             strcat(out, u->r->textSize <= TEXT_SMALL ? "Small" :
                         u->r->textSize >= TEXT_LARGE ? "Large" : "Medium");
+            break;
+        case SET_ROW_GRIDSTYLE:
+            strcpy(out, "Grid Style");
+            while (strlen(out) < 16) strcat(out, " ");
+            strcat(out, kGridStyle[(u->gridStyle >= 0 && u->gridStyle < GRID_N) ? u->gridStyle : 0]);
             break;
         default:
             strcpy(out, "Control Panels");
@@ -1300,6 +1314,39 @@ static void draw_browse_header(Ui *u)
  * Control-Manager scroll bar; see ui_paint_controls). */
 #define SBW 16
 
+/* Split `name` into up to two lines that each fit `maxW`, preferring a word break;
+ * the 2nd line is ellipsised if the name is longer than two lines hold. l2[0]=0 when
+ * one line is enough. l1/l2 must hold ITEM_NAME_LEN+2. */
+static void grid_name_2(Render *r, const char *name, short maxW, char *l1, char *l2)
+{
+    int  len = (int)strlen(name), fit = 0, sp = -1, i;
+    char buf[ITEM_NAME_LEN + 2];
+    l1[0] = l2[0] = '\0';
+    if (render_text_width(r, name) <= maxW) { strcpy(l1, name); return; }
+    for (i = 1; i <= len && i < (int)sizeof buf; i++) {     /* longest prefix that fits */
+        memcpy(buf, name, i); buf[i] = '\0';
+        if (render_text_width(r, buf) > maxW) break;
+        fit = i;
+        if (name[i - 1] == ' ') sp = i - 1;
+    }
+    if (sp > 0) fit = sp;                                   /* prefer a word break */
+    memcpy(l1, name, fit); l1[fit] = '\0';
+    while (fit > 0 && l1[fit - 1] == ' ') l1[--fit] = '\0';
+    {   const char *rest = name + fit;
+        while (*rest == ' ') rest++;
+        strncpy(l2, rest, ITEM_NAME_LEN); l2[ITEM_NAME_LEN] = '\0';
+        if (render_text_width(r, l2) > maxW) {             /* ellipsise the tail */
+            int k = (int)strlen(l2);
+            while (k > 1) {
+                k--;
+                memcpy(buf, l2, k); buf[k] = '\xC9'; buf[k + 1] = '\0';   /* 0xC9 = … */
+                if (render_text_width(r, buf) <= maxW) break;
+            }
+            strcpy(l2, buf);
+        }
+    }
+}
+
 /* ---- Icon Grid view (Finder "by Icon"): a split pane — icons on the left ~2/3,
  * a detail panel (screenshot + info) on the right ~1/3. ---- */
 /* Geometry shared by the grid's draw + click + incremental redraw, so a click and
@@ -1320,7 +1367,8 @@ static void grid_layout(Ui *u, GridLayout *g)
     if (detW > (short)(W / 2)) detW = (short)(W / 2);
     SetRect(&g->detail, (short)(W - detW), (short)HEADER_H, (short)W, (short)(H - HINT_H));
     g->gridRight = (short)(W - detW - SBW);
-    g->cw = 78; g->chh = 62;
+    if (u->gridStyle == GRID_TILES) { g->cw = 100; g->chh = 82; }  /* roomy At Ease buttons */
+    else                            { g->cw = 80;  g->chh = 66; }  /* Finder: room for 2-line names */
     gridW   = g->gridRight - MARGIN;
     g->cols = gridW / g->cw; if (g->cols < 1) g->cols = 1;
     g->top  = HEADER_H + 8;
@@ -1359,21 +1407,49 @@ static void draw_grid_cell(Ui *u, const GridLayout *g, int idx)
     const CatItem *it;
     Art           *ic;
     Rect           cell, ir;
-    char           nm[ITEM_NAME_LEN];
-    short          isz = 32, ix, nameW;
-    int            isSel;
+    char           l1[ITEM_NAME_LEN + 2], l2[ITEM_NAME_LEN + 2];
+    const char    *ls[2];
+    short          isz = 32, cw, ix, ny;
+    int            isSel, nlines, ln;
     if (!cat || !grid_cell_rect(g, idx, &cell)) return;
-    it = &m->cat->items[cat->idx[idx]]; isSel = (idx == m->curItem);
-    render_fill(r, &cell, isSel ? FILL_SEL : FILL_BG);
-    ix = (short)(cell.left + (g->cw - 4 - isz) / 2);
+    it = &m->cat->items[cat->idx[idx]];
+    isSel = (idx == m->curItem);
     ic = row_icon(u, cat->idx[idx], it);
-    SetRect(&ir, ix, (short)(cell.top + 6), (short)(ix + isz), (short)(cell.top + 6 + isz));
-    if (ic) art_draw_fit(ic, &ir); else render_frame(r, &ir);
-    strncpy(nm, it->name, sizeof nm - 1); nm[sizeof nm - 1] = '\0';
-    while (nm[0] && render_text_width(r, nm) > g->cw - 8) nm[strlen(nm) - 1] = '\0';
-    nameW = render_text_width(r, nm);
-    render_text(r, (short)(cell.left + (g->cw - 4 - nameW) / 2), (short)(cell.bottom - 6), nm,
-                isSel ? INK_SELECTED : INK_NORMAL);
+    cw = (short)(cell.right - cell.left);
+    render_fill(r, &cell, FILL_BG);                        /* erase (handles deselect) */
+
+    if (u->gridStyle == GRID_TILES) {
+        /* At Ease tile: a rounded button; the whole tile highlights when selected. */
+        Rect tile = cell;
+        InsetRect(&tile, 1, 1);
+        render_fill(r, &tile, isSel ? FILL_SEL : FILL_PANEL);
+        render_round_frame(r, &tile);
+        ix = (short)(cell.left + (cw - isz) / 2);
+        SetRect(&ir, ix, (short)(cell.top + 8), (short)(ix + isz), (short)(cell.top + 8 + isz));
+        if (ic) art_draw_fit(ic, &ir); else render_frame(r, &ir);
+        grid_name_2(r, it->name, (short)(cw - 10), l1, l2);
+        ny = (short)(cell.top + 8 + isz + 13);
+    } else {
+        /* Finder by-icon: icon, 2-line centred name; the NAME highlights when
+         * selected (a tight inverse behind each line), not the whole cell. */
+        ix = (short)(cell.left + (cw - isz) / 2);
+        SetRect(&ir, ix, (short)(cell.top + 4), (short)(ix + isz), (short)(cell.top + 4 + isz));
+        if (ic) art_draw_fit(ic, &ir); else render_frame(r, &ir);
+        grid_name_2(r, it->name, (short)(cw - 2), l1, l2);
+        ny = (short)(cell.top + 4 + isz + 12);
+    }
+
+    ls[0] = l1; ls[1] = l2; nlines = l2[0] ? 2 : 1;
+    for (ln = 0; ln < nlines; ln++, ny = (short)(ny + 12)) {
+        short tw = render_text_width(r, ls[ln]);
+        short lx = (short)(cell.left + (cw - tw) / 2);
+        if (isSel && u->gridStyle == GRID_FINDER) {        /* Finder highlights the name */
+            Rect hl;
+            SetRect(&hl, (short)(lx - 2), (short)(ny - 10), (short)(lx + tw + 2), (short)(ny + 2));
+            render_fill(r, &hl, FILL_SEL);
+        }
+        render_text(r, lx, ny, ls[ln], isSel ? INK_SELECTED : INK_NORMAL);
+    }
 }
 
 /* The right detail panel: a left divider, the selected item's screenshot, then its
@@ -2430,6 +2506,10 @@ static int settings_adjust(Ui *u, int dir)
             ui_set_text_size(u, sizes[cur]);        /* reflows everything (sets bgValid=0) */
             return 1;                               /* persisted */
         }
+        case SET_ROW_GRIDSTYLE:                    /* Icon Grid: Finder / Tiles */
+            u->gridStyle = (u->gridStyle + dir + GRID_N) % GRID_N;
+            u->bgValid = 0;                         /* the grid relays out */
+            return 1;                               /* persisted */
         default:                                   /* Control Panels (action row, intercepted) */
             return 0;
     }

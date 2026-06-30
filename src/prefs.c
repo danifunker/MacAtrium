@@ -94,6 +94,7 @@ void prefs_load(Prefs *p)
     p->hideMenuBar = 0; p->haveHideMenuBar = 0;
     p->hideTitleBar = 0; p->haveHideTitleBar = 0;
     p->textSize = 0; p->haveTextSize = 0;
+    p->gridStyle = 0; p->haveGridStyle = 0;
     p->carousel = 7; p->haveCarousel = 0;
     p->view = 0; p->haveView = 0;
     p->depth = 0; p->haveDepth = 0;
@@ -152,6 +153,9 @@ void prefs_load(Prefs *p)
         } else if (strcmp(key, "textsize") == 0) {
             int v = parse_int(val);
             if (v >= 9 && v <= 12) { p->textSize = v; p->haveTextSize = 1; }
+        } else if (strcmp(key, "gridstyle") == 0) {
+            p->gridStyle = (strcmp(val, "tiles") == 0) ? 1 : 0;
+            p->haveGridStyle = 1;
         } else if (strcmp(key, "carousel") == 0) {
             int v = parse_int(val);
             if (v >= 3) {
@@ -255,6 +259,11 @@ OSErr prefs_save(const Prefs *p)
     if (p->haveTextSize) {
         append_str(body, &n, sizeof body, "textsize=");
         append_int(body, &n, sizeof body, p->textSize);
+        append_str(body, &n, sizeof body, "\r");
+    }
+    if (p->haveGridStyle) {
+        append_str(body, &n, sizeof body, "gridstyle=");
+        append_str(body, &n, sizeof body, p->gridStyle ? "tiles" : "finder");
         append_str(body, &n, sizeof body, "\r");
     }
     if (p->haveCarousel) {
