@@ -27,6 +27,11 @@ typedef struct {
     int       color;       /* 1 = Color QD backend, 0 = B&W backend */
     int       theme;       /* THEME_DARK (default) / THEME_LIGHT */
     int       depth;       /* pixelSize */
+    short     contentFont; /* Geneva — the Finder content/filename face; all of the
+                            * launcher's own text uses it (the menu bar + WM title bar
+                            * stay Chicago, drawn by the System). */
+    short     textSize;    /* content point size (9 / 10 / 12); Settings picks it and
+                            * the layout reflows (ROW_H derives from it). */
     /* Off-screen compositing: draw a whole frame into a GWorld, then blit it to
      * the window in one CopyBits so there's no on-screen erase/repaint flicker
      * (docs/03). Enabled when Color QD is present (NewGWorld available); falls
@@ -67,6 +72,8 @@ void  render_return(Render *r, const Rect *box);          /* the return hook gly
 void  render_text(Render *r, short x, short y, const char *s, int ink);
 
 short render_text_width(Render *r, const char *s);
-void  render_text_size(Render *r, int points);          /* 12 rows, 12+ header */
+void  render_text_size(Render *r, int points);          /* explicit one-off size */
+void  render_set_text_size(Render *r, int points);      /* set the content size (S/M/L) */
+void  render_base_text(Render *r);                      /* re-assert content font + size */
 
 #endif /* MACATRIUM_RENDER_H */

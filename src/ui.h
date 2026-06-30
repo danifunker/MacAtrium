@@ -131,6 +131,11 @@ void      ui_step_category(Ui *u, short dir);
  * Quit / Cmd-Opt-Q route through this instead of quitting directly). */
 void      ui_confirm_quit(Ui *u);
 
+/* Set the content text size in points (9 / 10 / 12 = Small / Medium / Large); the
+ * row height scales with it and the whole layout reflows. main applies the saved
+ * preference at startup; the Settings "Text Size" row changes it live. */
+void      ui_set_text_size(Ui *u, int pts);
+
 void      ui_show_about(Ui *u);              /* Apple > About MacAtrium     */
 void      ui_show_settings(Ui *u);           /* View  > Settings…           */
 void      ui_show_info(Ui *u);               /* File  > Get Info            */
