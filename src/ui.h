@@ -22,11 +22,13 @@ typedef enum {
     UI_OPEN_CDEV,    /* open the selected control panel via the Finder */
     UI_QUIT,         /* quit the launcher entirely, back to the Finder        */
     UI_PREFS_DIRTY,  /* a persisted setting (theme/volume) changed; main saves */
-    UI_CHROME_DIRTY  /* menu-bar / title-bar visibility changed; main re-lays
+    UI_CHROME_DIRTY, /* menu-bar / title-bar visibility changed; main re-lays
                       * out the window + menu bar (rebuild_window) AND saves    */
+    UI_OPEN_SETTINGS /* open the real Settings window (main.c run_settings_dialog) */
 } UiCommand;
 
-enum { UI_MODE_LIST = 0, UI_MODE_MENU, UI_MODE_PREVIEW, UI_MODE_SETTINGS,
+enum { UI_MODE_LIST = 0, UI_MODE_MENU, UI_MODE_PREVIEW, UI_MODE_SETTINGS /* unused:
+       Settings is now a real window owned by main.c */,
        UI_MODE_INFO, UI_MODE_CTLPANELS, UI_MODE_SETUP, UI_MODE_ABOUT,
        UI_MODE_QUITCONFIRM };
 
@@ -143,9 +145,20 @@ void      ui_confirm_quit(Ui *u);
 void      ui_set_text_size(Ui *u, int pts);
 
 void      ui_show_about(Ui *u);              /* Apple > About MacAtrium     */
-void      ui_show_settings(Ui *u);           /* View  > Settings…           */
 void      ui_show_info(Ui *u);               /* File  > Get Info            */
 void      ui_set_view(Ui *u, int view);      /* View  > Carousel/Icon/List  */
+
+/* ---- Settings model (the real Settings window in main.c renders + drives these,
+ * so the actual setting logic stays here as the single source of truth) ---------
+ * Each row is one of: a checkbox (binary), a stepper (multi-value, < / > steps),
+ * or an action (Control Panels). The dialog walks rows 0..ui_setting_count()-1. */
+enum { SETTING_CHECK = 0, SETTING_STEPPER, SETTING_ACTION };
+int         ui_setting_count(void);
+int         ui_setting_kind(int row);                 /* SETTING_*                 */
+const char *ui_setting_label(int row);                /* fixed row label           */
+int         ui_setting_checked(Ui *u, int row);       /* checkbox state (CHECK)    */
+void        ui_setting_value(Ui *u, int row, char *out); /* value text (STEPPER); out >= 24 */
+int         ui_setting_step(Ui *u, int row, int dir);    /* apply; 1 if it changed */
 
 /* Drop the per-item art caches (detail cover + tile icons) after a category
  * page loads — the paged catalog reuses its items array, so the caches would

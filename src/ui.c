@@ -814,13 +814,12 @@ static void draw_carousel(Ui *u)
     }
 }
 
-/* The Settings panel: a list of adjustable rows (Theme / Color Depth / Volume /
- * Artwork / Startup Sound / Shutdown Sound) plus a Control Panels action row.
- * Up/Down move rows; Left/Right (and Return) change the selected row's value;
- * Return on the last row opens the Control Panels list. */
-/* Browse-view display names (Settings "View" row + the first-run chooser) and
- * one-line descriptions (chooser only). Defined here so set_row_text can name the
- * current view; draw_setup (further down) reuses them. */
+/* Settings is a real Mac window (main.c run_settings_dialog); the row model it
+ * renders + drives lives further down (settings_adjust_row + ui_setting_*). The
+ * SET_N / SET_ROW_* indices below are shared by both. */
+/* Browse-view display names (Settings "Browse View" row + the first-run chooser)
+ * and one-line descriptions (chooser only). Defined here so ui_setting_value can
+ * name the current view; draw_setup (further down) reuses them. */
 static const char *kViewName[VIEW_N] = { "Carousel", "Icon Grid", "List Browser" };
 static const char *kViewDesc[VIEW_N] = {
     "Flip through big covers. Best for keyboard / controller.",
@@ -835,187 +834,6 @@ static const char *kViewDesc[VIEW_N] = {
 #define SET_ROW_TEXTSIZE  11            /* content text size: Small / Medium / Large */
 #define SET_ROW_GRIDSTYLE 12            /* Icon Grid layout: Finder / Tiles         */
 #define SET_ROW_CTLPANELS (SET_N - 1)   /* the action row (opens the cdev list)     */
-
-static void set_row_text(Ui *u, int row, char *out)
-{
-    char num[16];
-    switch (row) {
-        case 0:
-            strcpy(out, "Theme");
-            while (strlen(out) < 16) strcat(out, " ");
-            strcat(out, (u->r->theme == THEME_LIGHT) ? "Light" : "Dark");
-            break;
-        case 1:
-            strcpy(out, "Color Depth");
-            while (strlen(out) < 16) strcat(out, " ");
-            if      (u->env->pixelSize >= 32) { strcat(out, "Millions"); }
-            else if (u->env->pixelSize >= 16) { strcat(out, "Thousands"); }
-            else { l2s(u->env->pixelSize, num); strcat(out, num); strcat(out, "-bit"); }
-            break;
-        case 2:
-            strcpy(out, "Volume");
-            while (strlen(out) < 16) strcat(out, " ");
-            if (u->vol < 0) { strcat(out, "n/a"); }
-            else { l2s(u->vol, num); strcat(out, num); strcat(out, " / 7"); }
-            break;
-        case 3:
-            strcpy(out, "Artwork");
-            while (strlen(out) < 16) strcat(out, " ");
-            strcat(out, (u->artPref == 1) ? "Screenshot" : "Box Art");
-            break;
-        case 4:
-            strcpy(out, "Startup Sound");
-            while (strlen(out) < 16) strcat(out, " ");
-            strcat(out, u->sndStartup ? "On" : "Off");
-            break;
-        case 5:
-            strcpy(out, "Shutdown Sound");
-            while (strlen(out) < 16) strcat(out, " ");
-            strcat(out, u->sndShutdown ? "On" : "Off");
-            break;
-        case 6:
-            strcpy(out, "View");
-            while (strlen(out) < 16) strcat(out, " ");
-            strcat(out, kViewName[(u->view >= 0 && u->view < VIEW_N) ? u->view : 0]);
-            break;
-        case 7:
-            strcpy(out, "Categories");
-            while (strlen(out) < 16) strcat(out, " ");
-            strcat(out, u->catList ? "Shown" : "Hidden");
-            break;
-        case 8:
-            strcpy(out, "Carousel");
-            while (strlen(out) < 16) strcat(out, " ");
-            l2s(u->carousel, num); strcat(out, num); strcat(out, " icons");
-            break;
-        case SET_ROW_MENUBAR:
-            strcpy(out, "Menu Bar");
-            while (strlen(out) < 16) strcat(out, " ");
-            strcat(out, u->hideMenuBar ? "Hidden" : "Shown");
-            break;
-        case SET_ROW_TITLEBAR:
-            strcpy(out, "Title Bar");
-            while (strlen(out) < 16) strcat(out, " ");
-            strcat(out, u->hideTitleBar ? "Hidden" : "Shown");
-            break;
-        case SET_ROW_TEXTSIZE:
-            strcpy(out, "Text Size");
-            while (strlen(out) < 16) strcat(out, " ");
-            strcat(out, u->r->textSize <= TEXT_SMALL ? "Small" :
-                        u->r->textSize >= TEXT_LARGE ? "Large" : "Medium");
-            break;
-        case SET_ROW_GRIDSTYLE:
-            strcpy(out, "Grid Style");
-            while (strlen(out) < 16) strcat(out, " ");
-            strcat(out, kGridStyle[(u->gridStyle >= 0 && u->gridStyle < GRID_N) ? u->gridStyle : 0]);
-            break;
-        default:
-            strcpy(out, "Control Panels");
-            while (strlen(out) < 16) strcat(out, " ");
-            strcat(out, "Open >");
-            break;
-    }
-}
-
-/* One Settings row (selection highlight + "Label   value" text). Shared by the
- * full-panel draw and the partial (selection/value-changed) redraw, so adjusting a
- * row repaints just that row instead of re-filling — and flashing — the whole panel
- * (mirrors draw_menu_row, which already gives the Esc menu a clean refresh). */
-static void draw_settings_row(Ui *u, short px, short py, int pw, int i)
-{
-    Render *r = u->r;
-    short   y0   = (short)(py + 40 + i * (ROW_H + 6));
-    short   base = (short)(y0 + ROW_H - 5);
-    int     sel  = (i == u->setSel);
-    char    line[48];
-    Rect    rr;
-    SetRect(&rr, (short)(px + 4), y0, (short)(px + pw - 4), (short)(y0 + ROW_H));
-    render_fill(r, &rr, sel ? FILL_SEL : FILL_PANEL);
-    set_row_text(u, i, line);
-    {   /* set_row_text space-pads the label to 16 chars then appends the value;
-         * split there and draw the value at a fixed column so values line up under a
-         * proportional font instead of trailing ragged padding. */
-        char  label[18];
-        char *value = (int)strlen(line) > 16 ? line + 16 : line + strlen(line);
-        int   k;
-        for (k = 0; k < 16 && line[k]; k++) label[k] = line[k];
-        while (k > 0 && label[k - 1] == ' ') k--;
-        label[k] = '\0';
-        render_text(r, (short)(px + MARGIN), base, label, sel ? INK_SELECTED : INK_NORMAL);
-        render_text(r, (short)(px + 128),    base, value, sel ? INK_SELECTED : INK_NORMAL);
-    }
-}
-
-/* The contextual bottom hint (clip-length note on the sound rows, the open hint on
- * Control Panels, else the nav keys). Depends on the selected row, so it's redrawn
- * on every selection move; clears its band first so the previous hint doesn't ghost. */
-static void draw_settings_hint(Ui *u, short px, short py, int pw, int ph)
-{
-    Render *r = u->r;
-    Rect    band;
-    short   xL = (short)(px + 4), xR = (short)(px + pw - 4), top = (short)(py + ph - 18);
-    SetRect(&band, (short)(px + 1), (short)(py + ph - 21),
-            (short)(px + pw - 1), (short)(py + ph - 1));
-    render_fill(r, &band, FILL_PANEL);
-    if (u->setSel == 4 || u->setSel == 5) {        /* sound rows: a note, not keys */
-        const char *hint = "Sounds: a clip baked in the image, max 7 sec";
-        short x = (short)(px + (pw - render_text_width(r, hint)) / 2);
-        if (x < xL) x = xL;
-        render_text(r, x, (short)(py + ph - 7), hint, INK_DIM);
-    } else if (u->setSel == SET_ROW_CTLPANELS) {
-        static const HintGroup g[] = { {"ret", 0, "Open Control Panels"} };
-        draw_keyhints_box(u, g, 1, xL, xR, top);
-    } else {
-        static const HintGroup g[] = { {"^", "v", "Row"}, {"<", ">", "Change"}, {"esc", 0, "Back"} };
-        draw_keyhints_box(u, g, 3, xL, xR, top);
-    }
-}
-
-static void draw_settings(Ui *u)
-{
-    Render *r = u->r;
-    int     W = win_w(u), H = win_h(u);
-    int     pw = 320;
-    int     ph = SET_N * (ROW_H + 6) + 56;
-    short   px = (short)((W - pw) / 2);
-    short   py = (short)((H - ph) / 2);
-    Rect    panel;
-    int     i;
-
-    SetRect(&u->panelRect, px, py, (short)(px + pw), (short)(py + ph));   /* blit/erase region */
-    render_base_text(r);
-
-    /* Selection/value-only change: the panel is already on screen (overlayDrawn)
-     * and the browse view behind it is untouched (bgValid), so repaint just the
-     * affected row(s) + the contextual hint — re-filling the whole panel every
-     * keystroke was the flash. A value change that DOES invalidate the background
-     * (theme / depth / view / artwork / categories / carousel) clears overlayDrawn
-     * back in ui_draw, so it falls through to the full draw below. */
-    if (u->overlayDrawn) {
-        if (u->lastSel != u->setSel && u->lastSel >= 0 && u->lastSel < SET_N)
-            draw_settings_row(u, px, py, pw, u->lastSel);
-        draw_settings_row(u, px, py, pw, u->setSel);
-        draw_settings_hint(u, px, py, pw, ph);
-        u->lastSel = u->setSel;
-        return;
-    }
-
-    SetRect(&panel, px, py, (short)(px + pw), (short)(py + ph));
-    render_fill(r, &panel, FILL_PANEL);
-    render_frame(r, &panel);
-
-    render_text(r, (short)(px + MARGIN), (short)(py + 22), "Settings", INK_TITLE);
-    render_hline(r, px, (short)(px + pw), (short)(py + 30));
-
-    for (i = 0; i < SET_N; i++)
-        draw_settings_row(u, px, py, pw, i);
-
-    render_hline(r, px, (short)(px + pw), (short)(py + ph - 22));
-    draw_settings_hint(u, px, py, pw, ph);
-
-    u->overlayDrawn = 1;
-    u->lastSel = u->setSel;
-}
 
 /* The Control Panels list (reached from Settings -> Control Panels): a scrollable
  * panel of the System's `cdev` files; Return opens the selected one via the
@@ -2323,7 +2141,7 @@ static void draw_quitconfirm(Ui *u)
 
 static int is_overlay_mode(int mode)
 {
-    return mode == UI_MODE_MENU || mode == UI_MODE_SETTINGS ||
+    return mode == UI_MODE_MENU ||
            mode == UI_MODE_CTLPANELS || mode == UI_MODE_QUITCONFIRM;
 }
 
@@ -2336,7 +2154,6 @@ static int overlay_panel_rect(Ui *u, int mode, Rect *p)
     short px, py;
     switch (mode) {
         case UI_MODE_MENU:        pw = 240;   ph = u->nmenu * (ROW_H + 4) + 84; break;
-        case UI_MODE_SETTINGS:    pw = 320;   ph = SET_N * (ROW_H + 6) + 56;    break;
         case UI_MODE_CTLPANELS:   pw = 320;   ph = 9 * (ROW_H + 2) + 56;        break;
         case UI_MODE_QUITCONFIRM: pw = QC_PW; ph = QC_PH;                       break;
         default: SetRect(p, 0, 0, 0, 0); return 0;
@@ -2417,8 +2234,6 @@ void ui_draw(Ui *u)
         }
         if (u->mode == UI_MODE_MENU)
             draw_menu(u);
-        else if (u->mode == UI_MODE_SETTINGS)
-            draw_settings(u);
         else if (u->mode == UI_MODE_CTLPANELS)
             draw_ctlpanels(u);
         else if (u->mode == UI_MODE_QUITCONFIRM)
@@ -2532,7 +2347,7 @@ void ui_step_category(Ui *u, short dir)
 static UiCommand menu_select(Ui *u)
 {
     switch (u->menuRows[u->menuSel]) {
-        case MROW_SETTINGS:    u->mode = UI_MODE_SETTINGS; u->setSel = 0; return UI_NONE;
+        case MROW_SETTINGS:    u->mode = UI_MODE_LIST; return UI_OPEN_SETTINGS;
         case MROW_SHOW_FINDER: u->mode = UI_MODE_LIST; return UI_SHOW_FINDER;
         case MROW_EXIT:        u->mode = UI_MODE_LIST; return UI_QUIT;
         case MROW_RESTART:     u->mode = UI_MODE_LIST; return UI_RESTART;
@@ -2639,9 +2454,9 @@ static void apply_depth(Ui *u, short depth)
  * *persisted* preference (theme / volume / colour depth) changed, so main can
  * save prefs. Colour depth now persists via slot PRAM (apply_depth →
  * display_set_default_depth) plus the prefs `depth` key (docs/15). */
-static int settings_adjust(Ui *u, int dir)
+static int settings_adjust_row(Ui *u, int row, int dir)
 {
-    switch (u->setSel) {
+    switch (row) {
         case 0:                                    /* Theme (persisted) */
             render_toggle_theme(u->r);
             u->bgValid = 0;                         /* carousel colours changed */
@@ -2726,6 +2541,89 @@ static int settings_adjust(Ui *u, int dir)
     }
 }
 
+/* ---- Settings model exposed to the real Settings window (main.c) -------------- */
+int ui_setting_count(void) { return SET_N; }
+
+int ui_setting_kind(int row)
+{
+    switch (row) {
+        case 0: case 3: case 4: case 5: case 7:
+        case SET_ROW_MENUBAR: case SET_ROW_TITLEBAR:
+            return SETTING_CHECK;
+        case SET_ROW_CTLPANELS:
+            return SETTING_ACTION;
+        default:                                   /* depth/vol/view/carousel/text/grid */
+            return SETTING_STEPPER;
+    }
+}
+
+const char *ui_setting_label(int row)
+{
+    switch (row) {
+        case 0:                 return "Dark theme";
+        case 1:                 return "Color Depth";
+        case 2:                 return "Volume";
+        case 3:                 return "Use screenshots";
+        case 4:                 return "Startup sound";
+        case 5:                 return "Shutdown sound";
+        case 6:                 return "Browse View";
+        case 7:                 return "Show categories list";
+        case 8:                 return "Carousel icons";
+        case SET_ROW_MENUBAR:   return "Hide menu bar";
+        case SET_ROW_TITLEBAR:  return "Hide title bar";
+        case SET_ROW_TEXTSIZE:  return "Text Size";
+        case SET_ROW_GRIDSTYLE: return "Grid Style";
+        default:                return "Control Panels\xC9";   /* 0xC9 = … */
+    }
+}
+
+int ui_setting_checked(Ui *u, int row)
+{
+    switch (row) {
+        case 0:                 return u->r->theme != THEME_LIGHT;   /* dark */
+        case 3:                 return u->artPref == 1;              /* screenshot */
+        case 4:                 return u->sndStartup;
+        case 5:                 return u->sndShutdown;
+        case 7:                 return u->catList;
+        case SET_ROW_MENUBAR:   return u->hideMenuBar;
+        case SET_ROW_TITLEBAR:  return u->hideTitleBar;
+        default:                return 0;
+    }
+}
+
+void ui_setting_value(Ui *u, int row, char *out)
+{
+    char num[16];
+    out[0] = '\0';
+    switch (row) {
+        case 1:
+            if      (u->env->pixelSize >= 32) strcpy(out, "Millions");
+            else if (u->env->pixelSize >= 16) strcpy(out, "Thousands");
+            else { l2s(u->env->pixelSize, num); strcpy(out, num); strcat(out, "-bit"); }
+            break;
+        case 2:
+            if (u->vol < 0) strcpy(out, "n/a");
+            else { l2s(u->vol, num); strcpy(out, num); strcat(out, " / 7"); }
+            break;
+        case 6:
+            strcpy(out, kViewName[(u->view >= 0 && u->view < VIEW_N) ? u->view : 0]);
+            break;
+        case 8:
+            l2s(u->carousel, num); strcpy(out, num);
+            break;
+        case SET_ROW_TEXTSIZE:
+            strcpy(out, u->r->textSize <= TEXT_SMALL ? "Small" :
+                        u->r->textSize >= TEXT_LARGE ? "Large" : "Medium");
+            break;
+        case SET_ROW_GRIDSTYLE:
+            strcpy(out, kGridStyle[(u->gridStyle >= 0 && u->gridStyle < GRID_N) ? u->gridStyle : 0]);
+            break;
+        default: break;
+    }
+}
+
+int ui_setting_step(Ui *u, int row, int dir) { return settings_adjust_row(u, row, dir); }
+
 UiCommand ui_key(Ui *u, char ch)
 {
     UiCommand cmd = UI_NONE;
@@ -2797,37 +2695,8 @@ UiCommand ui_key(Ui *u, char ch)
         return UI_PREFS_DIRTY;
     }
 
-    /* Settings panel: rows adjusted with arrows, Esc returns to the list. */
-    if (u->mode == UI_MODE_SETTINGS) {
-        int dirty = 0;
-        /* The Control Panels row is an action: Return/Right opens the cdev list
-         * (enumerated fresh each time). */
-        if (u->setSel == SET_ROW_CTLPANELS &&
-            (ch == kCharReturn || ch == kCharEnter || ch == kCharRight)) {
-            u->ncdevs  = ctlpanels_list(u->cdevs, CTLPANEL_MAX);
-            u->cdevSel = 0;
-            u->cdevTop = 0;
-            u->mode = UI_MODE_CTLPANELS;
-            ui_draw(u);
-            return UI_NONE;
-        }
-        switch (ch) {
-            case kCharUp:    if (u->setSel > 0) u->setSel--; break;
-            case kCharDown:  if (u->setSel < SET_N - 1) u->setSel++; break;
-            case kCharLeft:  dirty = settings_adjust(u, -1); break;
-            case kCharRight: dirty = settings_adjust(u, +1); break;
-            case kCharReturn:
-            case kCharEnter: dirty = settings_adjust(u, +1); break;
-            case kCharEscape: u->mode = UI_MODE_LIST; break;   /* gear stays focused */
-        }
-        /* A *bar toggle re-lays out the window: let main rebuild + repaint (don't
-         * draw into the about-to-be-disposed window here). */
-        if (u->chromeDirty) { u->chromeDirty = 0; return UI_CHROME_DIRTY; }
-        ui_draw(u);
-        return dirty ? UI_PREFS_DIRTY : UI_NONE;
-    }
-
-    /* Control Panels list: navigate, Return opens via the Finder, Esc back. */
+    /* Control Panels list: navigate, Return opens via the Finder, Esc back to the
+     * browse screen (the Settings window it was opened from has already closed). */
     if (u->mode == UI_MODE_CTLPANELS) {
         switch (ch) {
             case kCharUp:    if (u->cdevSel > 0) u->cdevSel--; break;
@@ -2836,17 +2705,18 @@ UiCommand ui_key(Ui *u, char ch)
             case kCharEnter:
                 if (u->ncdevs > 0) { ui_draw(u); return UI_OPEN_CDEV; }
                 break;
-            case kCharEscape: u->mode = UI_MODE_SETTINGS; break;
+            case kCharEscape: u->mode = UI_MODE_LIST; break;
         }
         ui_draw(u);
         return UI_NONE;
     }
 
-    /* Gear focused on the list screen (reached by Left at the first category). */
+    /* Gear focused on the list screen (reached by Left at the first category):
+     * Return opens the real Settings window (main.c), Esc opens the Esc menu. */
     if (u->mode == UI_MODE_LIST && u->settingsFocus) {
         switch (ch) {
             case kCharReturn:
-            case kCharEnter:  u->mode = UI_MODE_SETTINGS; u->setSel = 0; break;
+            case kCharEnter:  u->settingsFocus = 0; return UI_OPEN_SETTINGS;
             case kCharEscape: u->settingsFocus = 0; u->mode = UI_MODE_MENU; u->menuSel = 0; break;
             default:          u->settingsFocus = 0; break;   /* any other key unfocuses */
         }
@@ -3037,36 +2907,6 @@ UiCommand ui_click(Ui *u, Point pt)
         return UI_NONE;
     }
 
-    if (u->mode == UI_MODE_SETTINGS) {
-        int   W = win_w(u), H = win_h(u);
-        int   pw = 320, ph = SET_N * (ROW_H + 6) + 56;
-        short px = (short)((W - pw) / 2), py = (short)((H - ph) / 2);
-        Rect  panel;
-        int   i, dirty = 0;
-        SetRect(&panel, px, py, (short)(px + pw), (short)(py + ph));
-        if (!PtInRect(pt, &panel)) { u->mode = UI_MODE_LIST; ui_draw(u); return UI_NONE; }
-        for (i = 0; i < SET_N; i++) {
-            short y0 = (short)(py + 40 + i * (ROW_H + 6));
-            Rect  rr;
-            SetRect(&rr, (short)(px + 4), y0, (short)(px + pw - 4), (short)(y0 + ROW_H));
-            if (PtInRect(pt, &rr)) {
-                if (i == SET_ROW_CTLPANELS) {        /* action row: open the cdev list */
-                    u->ncdevs  = ctlpanels_list(u->cdevs, CTLPANEL_MAX);
-                    u->cdevSel = 0; u->cdevTop = 0;
-                    u->mode = UI_MODE_CTLPANELS;
-                } else if (i == u->setSel) {         /* re-click the selected row adjusts */
-                    dirty = settings_adjust(u, +1);
-                } else {                             /* first click just selects */
-                    u->setSel = i;
-                }
-                break;
-            }
-        }
-        if (u->chromeDirty) { u->chromeDirty = 0; return UI_CHROME_DIRTY; }  /* main re-lays out */
-        ui_draw(u);
-        return dirty ? UI_PREFS_DIRTY : UI_NONE;
-    }
-
     if (u->mode == UI_MODE_CTLPANELS) {
         int   W = win_w(u), H = win_h(u);
         int   pw = 320, rows = 9, ph = rows * (ROW_H + 2) + 56;
@@ -3074,7 +2914,7 @@ UiCommand ui_click(Ui *u, Point pt)
         Rect  panel;
         int   i;
         SetRect(&panel, px, py, (short)(px + pw), (short)(py + ph));
-        if (!PtInRect(pt, &panel)) { u->mode = UI_MODE_SETTINGS; ui_draw(u); return UI_NONE; }
+        if (!PtInRect(pt, &panel)) { u->mode = UI_MODE_LIST; ui_draw(u); return UI_NONE; }
         for (i = 0; i < rows; i++) {
             int   idx = u->cdevTop + i;
             short y0  = (short)(py + 38 + i * (ROW_H + 2));
@@ -3137,14 +2977,6 @@ void ui_confirm_quit(Ui *u)
 {
     u->settingsFocus = 0;
     u->mode = UI_MODE_QUITCONFIRM;
-    ui_draw(u);
-}
-
-void ui_show_settings(Ui *u)
-{
-    u->settingsFocus = 0;
-    u->setSel = 0;
-    u->mode = UI_MODE_SETTINGS;
     ui_draw(u);
 }
 

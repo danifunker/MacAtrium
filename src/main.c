@@ -35,6 +35,9 @@
 #ifndef plainDBox
 #define plainDBox 2
 #endif
+#ifndef movableDBoxProc
+#define movableDBoxProc 5
+#endif
 
 /* MultiFinder suspend/resume (we set acceptSuspendResumeEvents in the SIZE
  * resource). Standard on full toolboxes; guard for leaner Retro68 headers. */
@@ -605,6 +608,258 @@ static void do_launch(void)
 /* Dispatch a UiCommand from ui_key() / ui_click(). The side-effecting actions
  * (launch / Finder / power / persist) live here so the UI layer stays draw+state
  * only; both the keyboard and the mouse paths funnel through it. */
+/* ---- the real Settings window (docs/33 §2.2) --------------------------------
+ * Replaces the old in-GWorld overlay panel with a real movable modal dialog of
+ * live Toolbox controls: checkboxes for the binary settings, < / > push-button
+ * steppers for the multi-value ones (depth / volume / view / …), a Control Panels
+ * action button, and a default Done button. It runs its own modal loop so it stays
+ * out of the main async state machine; the arrow keys move a focus ring and
+ * Space/Return activate the focused control, so it is standard-looking yet fully
+ * keyboard / gamepad drivable. Checkboxes + push buttons are original-Mac controls
+ * (System 6+); popup menus (System 7-only) are deliberately avoided so the 6.0.8
+ * build keeps a working Settings screen. ui.c owns the actual setting logic
+ * (ui_setting_*), so this is just chrome + input. */
+#define SD_CW   360            /* content width                          */
+#define SD_LM   18             /* left / right content margin            */
+#define SD_RH   22             /* row pitch                              */
+#define SD_ROW0 16             /* first row's top (content-local)        */
+#define SD_MAXROWS 24
+
+typedef enum { SD_DONE = 0, SD_OPEN_CDEVS } SettingsResult;
+
+/* per-row controls + the Done button, shared by the modal loop's handlers */
+static ControlHandle gSdChk[SD_MAXROWS];   /* CHECK row's checkbox        */
+static ControlHandle gSdDec[SD_MAXROWS];   /* STEPPER row's <  button     */
+static ControlHandle gSdInc[SD_MAXROWS];   /* STEPPER row's  > button     */
+static ControlHandle gSdAct[SD_MAXROWS];   /* ACTION row's button         */
+static ControlHandle gSdDone;
+static short         gSdDoneTop;
+static int           gSdRows;
+
+static void c2p255(const char *s, Str255 out)
+{
+    int n = 0;
+    while (s[n] && n < 255) { out[n + 1] = (unsigned char)s[n]; n++; }
+    out[0] = (unsigned char)n;
+}
+
+static short sd_row_top(int i) { return (short)(SD_ROW0 + i * SD_RH); }
+static void  sd_row_frame(int i, Rect *r)
+{
+    short t = sd_row_top(i);
+    SetRect(r, SD_LM - 3, (short)(t - 1), (short)(SD_CW - SD_LM + 3), (short)(t + 19));
+}
+static void  sd_dec_rect(int i, Rect *r)
+{ short t = sd_row_top(i); SetRect(r, (short)(SD_CW-SD_LM-46), t, (short)(SD_CW-SD_LM-24), (short)(t+18)); }
+static void  sd_inc_rect(int i, Rect *r)
+{ short t = sd_row_top(i); SetRect(r, (short)(SD_CW-SD_LM-22), t, (short)(SD_CW-SD_LM),    (short)(t+18)); }
+static void  sd_done_rect(Rect *r)
+{ SetRect(r, (short)(SD_CW-SD_LM-78), gSdDoneTop, (short)(SD_CW-SD_LM), (short)(gSdDoneTop+20)); }
+
+/* Draw one stepper row's label (left) + value (right of label, left of the < button),
+ * erasing the value band first so a wider value can shrink cleanly. */
+static void sd_draw_stepper_text(int i)
+{
+    char val[24];
+    const char *lab = ui_setting_label(i);
+    short top = sd_row_top(i), base = (short)(top + 14);
+    short vright = (short)(SD_CW - SD_LM - 52);   /* value's right edge (left of <) */
+    short vw;
+    Rect  band;
+    TextFont(0); TextSize(12);
+    MoveTo(SD_LM, base); DrawText((Ptr)lab, 0, (short)strlen(lab));
+    SetRect(&band, (short)(SD_LM + 128), top, (short)(SD_CW - SD_LM - 50), (short)(top + 18));
+    EraseRect(&band);
+    ui_setting_value(&gUi, i, val);
+    vw = TextWidth(val, 0, (short)strlen(val));
+    MoveTo((short)(vright - vw), base); DrawText(val, 0, (short)strlen(val));
+}
+
+/* The bold ring the Window/Control Manager doesn't draw around a default button. */
+static void sd_default_ring(void)
+{
+    Rect r; sd_done_rect(&r); InsetRect(&r, -4, -4);
+    PenSize(3, 3); FrameRoundRect(&r, 16, 16); PenSize(1, 1);
+}
+
+static void sd_focus_rect(int focus, Rect *r)
+{
+    if (focus >= 0 && focus < gSdRows) sd_row_frame(focus, r);
+    else { sd_done_rect(r); InsetRect(r, -7, -7); }   /* Done: outside its default ring */
+}
+/* Draw (on) or erase (off, paint white) the focus frame around a focusable item. */
+static void sd_focus_frame(int focus, int on)
+{
+    Rect r; sd_focus_rect(focus, &r);
+    PenPat(on ? &qd.black : &qd.white);
+    FrameRect(&r);
+    PenPat(&qd.black);
+}
+
+/* Full content redraw (initial paint + every updateEvt): controls, stepper text,
+ * the hint line, the Done ring, and the current focus frame. */
+static void sd_draw_content(WindowPtr dlg, int focus)
+{
+    Rect content = dlg->portRect;
+    int  i;
+    SetPort(dlg);
+    EraseRect(&content);
+    DrawControls(dlg);
+    for (i = 0; i < gSdRows; i++)
+        if (ui_setting_kind(i) == SETTING_STEPPER) sd_draw_stepper_text(i);
+    {
+        const char *h = "Arrows move \xC9 Space/Return change \xC9 Esc closes";  /* 0xC9 = … */
+        short tw;
+        TextFont(0); TextSize(12);
+        tw = TextWidth((Ptr)h, 0, (short)strlen(h));
+        MoveTo((short)((SD_CW - tw) / 2), (short)(sd_row_top(gSdRows - 1) + 18 + 16));
+        DrawText((Ptr)h, 0, (short)strlen(h));
+    }
+    sd_default_ring();
+    sd_focus_frame(focus, 1);
+}
+
+static void sd_set_focus(int *focus, int newFocus)
+{
+    if (newFocus == *focus) return;
+    sd_focus_frame(*focus, 0);
+    *focus = newFocus;
+    sd_focus_frame(*focus, 1);
+}
+
+/* Apply a checkbox toggle / stepper step (dir +1 toggles a checkbox) and reflect it:
+ * update the control's value or value text, and capture a deferred chrome change. */
+static void sd_apply(WindowPtr dlg, int row, int dir, int *chromeChanged)
+{
+    SetPort(dlg);
+    ui_setting_step(&gUi, row, dir);
+    if (gUi.chromeDirty) { gUi.chromeDirty = 0; *chromeChanged = 1; }
+    if (ui_setting_kind(row) == SETTING_CHECK)
+        SetControlValue(gSdChk[row], (short)ui_setting_checked(&gUi, row));
+    else
+        sd_draw_stepper_text(row);   /* a depth change also posts an updateEvt -> full redraw */
+}
+
+static SettingsResult run_settings_dialog(int *chromeChanged)
+{
+    WindowPtr      dlg;
+    Rect           bounds, sb = qd.screenBits.bounds;
+    int            nrows = ui_setting_count(), nfocus, i, focus = 0, running = 1;
+    short          CH;
+    SettingsResult res = SD_DONE;
+
+    *chromeChanged = 0;
+    if (nrows > SD_MAXROWS) nrows = SD_MAXROWS;
+    gSdRows = nrows;
+    nfocus  = nrows + 1;                              /* rows + the Done button */
+
+    gSdDoneTop = (short)(sd_row_top(nrows - 1) + 18 + 24);
+    CH = (short)(gSdDoneTop + 20 + 14);
+    {
+        short L = (short)(sb.left + ((sb.right - sb.left) - SD_CW) / 2);
+        short T = (short)(sb.top  + ((sb.bottom - sb.top) - CH) / 2);
+        if (T < (short)(sb.top + 44)) T = (short)(sb.top + 44);
+        SetRect(&bounds, L, T, (short)(L + SD_CW), (short)(T + CH));
+    }
+    dlg = NewWindow(0L, &bounds, "\pSettings", true, movableDBoxProc, (WindowPtr)-1L, false, 0L);
+    if (!dlg) return SD_DONE;
+    SetPort(dlg);
+    TextFont(0); TextSize(12);
+
+    for (i = 0; i < nrows; i++) {
+        int    kind = ui_setting_kind(i);
+        short  top  = sd_row_top(i);
+        Str255 t;
+        gSdChk[i] = gSdDec[i] = gSdInc[i] = gSdAct[i] = 0;
+        if (kind == SETTING_CHECK) {
+            Rect r; SetRect(&r, SD_LM, top, (short)(SD_CW - SD_LM), (short)(top + 18));
+            c2p255(ui_setting_label(i), t);
+            gSdChk[i] = NewControl(dlg, &r, t, true, (short)ui_setting_checked(&gUi, i), 0, 1, checkBoxProc, 0L);
+        } else if (kind == SETTING_STEPPER) {
+            Rect rd, ri; sd_dec_rect(i, &rd); sd_inc_rect(i, &ri);
+            gSdDec[i] = NewControl(dlg, &rd, "\p<", true, 1, 0, 1, pushButProc, 0L);
+            gSdInc[i] = NewControl(dlg, &ri, "\p>", true, 1, 0, 1, pushButProc, 0L);
+        } else {
+            Rect r; SetRect(&r, SD_LM, top, (short)(SD_LM + 150), (short)(top + 18));
+            c2p255(ui_setting_label(i), t);
+            gSdAct[i] = NewControl(dlg, &r, t, true, 1, 0, 1, pushButProc, 0L);
+        }
+    }
+    { Rect r; sd_done_rect(&r); gSdDone = NewControl(dlg, &r, "\pDone", true, 1, 0, 1, pushButProc, 0L); }
+
+    sd_draw_content(dlg, focus);
+    ValidRect(&dlg->portRect);                       /* we drew it; swallow the show updateEvt */
+
+    while (running) {
+        EventRecord evt;
+        if (!next_event(&evt)) continue;
+        switch (evt.what) {
+            case updateEvt: {
+                WindowPtr w = (WindowPtr)evt.message;
+                if (w == dlg) { BeginUpdate(w); sd_draw_content(dlg, focus); EndUpdate(w); }
+                else { BeginUpdate(w); SetPort(w); ui_draw(&gUi); EndUpdate(w); SetPort(dlg); }
+                break;
+            }
+            case mouseDown: {
+                WindowPtr w; short part = FindWindow(evt.where, &w);
+                if (part == inDrag && w == dlg) {
+                    DragWindow(w, evt.where, &sb); SetPort(dlg);
+                } else if (part == inContent && w == dlg) {
+                    Point p = evt.where; ControlHandle ctl; short cp;
+                    SetPort(dlg); GlobalToLocal(&p);
+                    cp = FindControl(p, dlg, &ctl);
+                    if (cp && ctl && TrackControl(ctl, p, (ControlActionUPP)0)) {
+                        int row = -1;
+                        if (ctl == gSdDone) { running = 0; break; }
+                        for (i = 0; i < nrows; i++)
+                            if (ctl==gSdChk[i] || ctl==gSdDec[i] || ctl==gSdInc[i] || ctl==gSdAct[i]) { row = i; break; }
+                        if (row >= 0) {
+                            int kind = ui_setting_kind(row);
+                            if (kind == SETTING_ACTION) { res = SD_OPEN_CDEVS; running = 0; break; }
+                            if (ctl == gSdChk[row]) sd_apply(dlg, row, +1, chromeChanged);
+                            else if (ctl == gSdDec[row]) sd_apply(dlg, row, -1, chromeChanged);
+                            else if (ctl == gSdInc[row]) sd_apply(dlg, row, +1, chromeChanged);
+                            sd_set_focus(&focus, row);
+                        }
+                    }
+                } else if (w != dlg) {
+                    SysBeep(1);                       /* modal: clicks elsewhere just beep */
+                }
+                break;
+            }
+            case keyDown:
+            case autoKey: {
+                char c = (char)(evt.message & charCodeMask);
+                if (evt.modifiers & cmdKey) { if (c == '.') running = 0; break; }
+                switch (c) {
+                    case kCharEscape: running = 0; break;
+                    case kCharUp:     sd_set_focus(&focus, (focus - 1 + nfocus) % nfocus); break;
+                    case '\t':
+                    case kCharDown:   sd_set_focus(&focus, (focus + 1) % nfocus); break;
+                    case kCharLeft:
+                        if (focus < nrows && ui_setting_kind(focus) == SETTING_STEPPER)
+                            sd_apply(dlg, focus, -1, chromeChanged);
+                        break;
+                    case kCharRight:
+                        if (focus < nrows && ui_setting_kind(focus) == SETTING_STEPPER)
+                            sd_apply(dlg, focus, +1, chromeChanged);
+                        break;
+                    case ' ':
+                    case kCharReturn:
+                    case kCharEnter:
+                        if (focus >= nrows) { running = 0; break; }   /* Done */
+                        if (ui_setting_kind(focus) == SETTING_ACTION) { res = SD_OPEN_CDEVS; running = 0; }
+                        else sd_apply(dlg, focus, +1, chromeChanged);
+                        break;
+                }
+                break;
+            }
+        }
+    }
+    DisposeWindow(dlg);                               /* frees the dialog's controls too */
+    return res;
+}
+
 static void handle_ui_command(UiCommand cmd)
 {
     switch (cmd) {
@@ -657,6 +912,27 @@ static void handle_ui_command(UiCommand cmd)
             rebuild_window();                 /* re-lay out the window + bar, repaint */
             save_prefs();
             break;
+        case UI_OPEN_SETTINGS: {              /* the real Settings window (run modally) */
+            int            chromeChanged = 0;
+            SettingsResult sr = run_settings_dialog(&chromeChanged);
+            gUi.mode = UI_MODE_LIST;
+            if (chromeChanged) {
+                rebuild_window();             /* a menu/title-bar toggle: re-lay out + repaint */
+            } else {
+                gUi.bgValid = 0;              /* the dialog applied theme/depth/view/… changes */
+                SetPort(gWin);
+                ui_draw(&gUi);                /* repaint the browse behind the closed dialog */
+                ValidRect(&gWin->portRect);   /* swallow the dispose-exposed updateEvt */
+            }
+            save_prefs();
+            if (sr == SD_OPEN_CDEVS) {        /* the Control Panels action button */
+                gUi.ncdevs = ctlpanels_list(gUi.cdevs, CTLPANEL_MAX);
+                gUi.cdevSel = 0; gUi.cdevTop = 0;
+                gUi.mode = UI_MODE_CTLPANELS;
+                ui_draw(&gUi);
+            }
+            break;
+        }
         default: break;
     }
 }
@@ -693,7 +969,7 @@ static void do_menu(long mr)
             break;
         case mView:
             if (item >= 1 && item <= VIEW_N)     { ui_set_view(&gUi, item - 1); save_prefs(); }
-            else if (item == kViewSettings)      ui_show_settings(&gUi);
+            else if (item == kViewSettings)      handle_ui_command(UI_OPEN_SETTINGS);
             break;
         case mSpecial:
             if (item == kSpecialRestart)         handle_ui_command(UI_RESTART);
