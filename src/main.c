@@ -1312,12 +1312,13 @@ int main(void)
                             ui_confirm_quit(&gUi); /* ask before quitting */
                             break;
                         }
-                        /* Other Cmd-combos are menu shortcuts. MenuKey returns the
-                         * matched menu/item (0 if none); unmatched combos are
-                         * swallowed rather than passed to the UI as plain keys. */
+                        /* Other Cmd-combos: a menu shortcut if MenuKey matches one,
+                         * otherwise a UI Cmd-shortcut (theme / box art / per-item
+                         * launch hotkey — plain keys are reserved for the filter). */
                         {
                             long mr = MenuKey(c);
                             if (HiWord(mr)) do_menu(mr);
+                            else            handle_ui_command(ui_key_cmd(&gUi, c));
                         }
                         break;
                     }
