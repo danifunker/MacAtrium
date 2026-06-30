@@ -39,6 +39,8 @@ typedef struct {
     int  sortMode;                 /* List sort: 0 none / 1 name / 2 type / 3 year */
     int  sortDesc;                 /* 1 = descending                            */
     int  haveSort;                 /* 1 if `sort` was loaded                    */
+    int  listColType;              /* List Name|Type divider, px from the right */
+    int  haveListCol;              /* 1 if `listcol` was loaded                 */
     int  carousel;                 /* carousel icon count (odd 3..25)           */
     int  haveCarousel;             /* 1 if `carousel` was loaded                */
     int  view;                     /* browse view (VIEW_CAROUSEL/ICON/LIST)     */

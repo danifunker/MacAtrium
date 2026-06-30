@@ -96,6 +96,7 @@ void prefs_load(Prefs *p)
     p->textSize = 0; p->haveTextSize = 0;
     p->gridStyle = 0; p->haveGridStyle = 0;
     p->sortMode = 0; p->sortDesc = 0; p->haveSort = 0;
+    p->listColType = 0; p->haveListCol = 0;
     p->carousel = 7; p->haveCarousel = 0;
     p->view = 0; p->haveView = 0;
     p->depth = 0; p->haveDepth = 0;
@@ -162,6 +163,9 @@ void prefs_load(Prefs *p)
             if (v >= 0 && v <= 3) { p->sortMode = v; p->haveSort = 1; }
         } else if (strcmp(key, "sortdesc") == 0) {
             p->sortDesc = (parse_int(val) != 0) ? 1 : 0;
+        } else if (strcmp(key, "listcol") == 0) {
+            int v = parse_int(val);
+            if (v >= 60 && v <= 260) { p->listColType = v; p->haveListCol = 1; }
         } else if (strcmp(key, "carousel") == 0) {
             int v = parse_int(val);
             if (v >= 3) {
@@ -278,6 +282,11 @@ OSErr prefs_save(const Prefs *p)
         append_str(body, &n, sizeof body, "\r");
         append_str(body, &n, sizeof body, "sortdesc=");
         append_int(body, &n, sizeof body, p->sortDesc);
+        append_str(body, &n, sizeof body, "\r");
+    }
+    if (p->haveListCol) {
+        append_str(body, &n, sizeof body, "listcol=");
+        append_int(body, &n, sizeof body, p->listColType);
         append_str(body, &n, sizeof body, "\r");
     }
     if (p->haveCarousel) {
