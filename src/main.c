@@ -627,14 +627,23 @@ static void do_launch(void)
 
 typedef enum { SD_DONE = 0, SD_OPEN_CDEVS } SettingsResult;
 
-/* per-row controls + the Done button, shared by the modal loop's handlers */
+/* per-row controls + the Done / page buttons, shared by the modal loop's handlers */
 static ControlHandle gSdChk[SD_MAXROWS];   /* CHECK row's checkbox        */
 static ControlHandle gSdDec[SD_MAXROWS];   /* STEPPER row's <  button     */
 static ControlHandle gSdInc[SD_MAXROWS];   /* STEPPER row's  > button     */
 static ControlHandle gSdAct[SD_MAXROWS];   /* ACTION row's button         */
 static ControlHandle gSdDone;
+static ControlHandle gSdPage;              /* "More…"/"Back" page toggle (paged only) */
 static short         gSdDoneTop;
 static int           gSdRows;
+/* Paging: a tall dialog (all rows) won't fit a short screen (9" 512x342: only
+ * ~290px of content under the menu bar + the dialog's title bar). When it doesn't
+ * fit, the rows split across pages and a "More…"/"Back" button flips between them.
+ * gSdRpp = rows per page (>= gSdRows => one page, the 640x480 default — no paging).
+ * sd_row_top wraps a row index into its slot, so all the geometry helpers below are
+ * paging-aware for free. */
+static int           gSdRpp = SD_MAXROWS;
+static int           gSdPaged;
 
 static void c2p255(const char *s, Str255 out)
 {
@@ -643,7 +652,7 @@ static void c2p255(const char *s, Str255 out)
     out[0] = (unsigned char)n;
 }
 
-static short sd_row_top(int i) { return (short)(SD_ROW0 + i * SD_RH); }
+static short sd_row_top(int i) { return (short)(SD_ROW0 + (i % gSdRpp) * SD_RH); }
 static void  sd_row_frame(int i, Rect *r)
 {
     short t = sd_row_top(i);
@@ -655,6 +664,35 @@ static void  sd_inc_rect(int i, Rect *r)
 { short t = sd_row_top(i); SetRect(r, (short)(SD_CW-SD_LM-22), t, (short)(SD_CW-SD_LM),    (short)(t+18)); }
 static void  sd_done_rect(Rect *r)
 { SetRect(r, (short)(SD_CW-SD_LM-78), gSdDoneTop, (short)(SD_CW-SD_LM), (short)(gSdDoneTop+20)); }
+static void  sd_page_rect(Rect *r)
+{ SetRect(r, SD_LM, gSdDoneTop, (short)(SD_LM + 84), (short)(gSdDoneTop + 20)); }
+
+/* Which page a row is on, and a page's focusable-item count / focus->item map.
+ * A focus index walks: the page's visible rows, then (if paged) the page button,
+ * then Done. sd_focus_item returns a row index (>=0), -1 = page button, -2 = Done. */
+static int sd_page_lastrow(int page) { int hi = (page+1)*gSdRpp; return hi < gSdRows ? hi : gSdRows; }
+static int sd_page_nfocus(int page)
+{ return (sd_page_lastrow(page) - page*gSdRpp) + (gSdPaged ? 1 : 0) + 1; }
+static int sd_focus_item(int focus, int page)
+{
+    int lo = page * gSdRpp, vis = sd_page_lastrow(page) - lo;
+    if (focus < vis)              return lo + focus;
+    if (gSdPaged && focus == vis) return -1;          /* page button */
+    return -2;                                          /* Done       */
+}
+
+/* Show only the current page's row controls (off-page controls share slots, so
+ * they're hidden); a full redraw follows to repaint cleanly. */
+static void sd_show_page(WindowPtr dlg, int page)
+{
+    int i, k;
+    (void)dlg;
+    for (i = 0; i < gSdRows; i++) {
+        ControlHandle cs[4]; int on = (i / gSdRpp) == page;
+        cs[0]=gSdChk[i]; cs[1]=gSdDec[i]; cs[2]=gSdInc[i]; cs[3]=gSdAct[i];
+        for (k = 0; k < 4; k++) if (cs[k]) { if (on) ShowControl(cs[k]); else HideControl(cs[k]); }
+    }
+}
 
 /* Draw one stepper row's label (left) + value (right of label, left of the < button),
  * erasing the value band first so a wider value can shrink cleanly. */
@@ -682,32 +720,35 @@ static void sd_default_ring(void)
     PenSize(3, 3); FrameRoundRect(&r, 16, 16); PenSize(1, 1);
 }
 
-static void sd_focus_rect(int focus, Rect *r)
+static void sd_focus_rect(int focus, int page, Rect *r)
 {
-    if (focus >= 0 && focus < gSdRows) sd_row_frame(focus, r);
-    else { sd_done_rect(r); InsetRect(r, -7, -7); }   /* Done: outside its default ring */
+    int it = sd_focus_item(focus, page);
+    if (it >= 0)       sd_row_frame(it, r);
+    else if (it == -1) { sd_page_rect(r); InsetRect(r, -4, -4); }    /* page button */
+    else               { sd_done_rect(r); InsetRect(r, -7, -7); }    /* Done: outside its ring */
 }
 /* Draw (on) or erase (off, paint white) the focus frame around a focusable item. */
-static void sd_focus_frame(int focus, int on)
+static void sd_focus_frame(int focus, int page, int on)
 {
-    Rect r; sd_focus_rect(focus, &r);
+    Rect r; sd_focus_rect(focus, page, &r);
     PenPat(on ? &qd.black : &qd.white);
     FrameRect(&r);
     PenPat(&qd.black);
 }
 
-/* Full content redraw (initial paint + every updateEvt): controls, stepper text,
- * the hint line, the Done ring, and the current focus frame. */
-static void sd_draw_content(WindowPtr dlg, int focus)
+/* Full content redraw (initial paint + every updateEvt + page flip): the shown
+ * controls, the current page's stepper text, the hint line (single page only — a
+ * paged dialog has no room), the Done ring, and the focus frame. */
+static void sd_draw_content(WindowPtr dlg, int focus, int page)
 {
     Rect content = dlg->portRect;
-    int  i;
+    int  i, lo = page * gSdRpp, hi = sd_page_lastrow(page);
     SetPort(dlg);
     EraseRect(&content);
     DrawControls(dlg);
-    for (i = 0; i < gSdRows; i++)
+    for (i = lo; i < hi; i++)
         if (ui_setting_kind(i) == SETTING_STEPPER) sd_draw_stepper_text(i);
-    {
+    if (!gSdPaged) {
         const char *h = "Arrows move \xC9 Space/Return change \xC9 Esc closes";  /* 0xC9 = … */
         short tw;
         TextFont(0); TextSize(12);
@@ -716,15 +757,26 @@ static void sd_draw_content(WindowPtr dlg, int focus)
         DrawText((Ptr)h, 0, (short)strlen(h));
     }
     sd_default_ring();
-    sd_focus_frame(focus, 1);
+    sd_focus_frame(focus, page, 1);
 }
 
-static void sd_set_focus(int *focus, int newFocus)
+static void sd_set_focus(int *focus, int newFocus, int page)
 {
     if (newFocus == *focus) return;
-    sd_focus_frame(*focus, 0);
+    sd_focus_frame(*focus, page, 0);
     *focus = newFocus;
-    sd_focus_frame(*focus, 1);
+    sd_focus_frame(*focus, page, 1);
+}
+
+/* Flip to the next page (wraps): show its controls, relabel the page button, reset
+ * focus to the top, and repaint. */
+static void sd_flip_page(WindowPtr dlg, int *page, int *focus, int npages)
+{
+    *page = (*page + 1) % npages;
+    sd_show_page(dlg, *page);
+    SetControlTitle(gSdPage, (*page < npages - 1) ? "\pMore\xC9" : "\pBack");
+    *focus = 0;
+    sd_draw_content(dlg, *focus, *page);
 }
 
 /* Apply a checkbox toggle / stepper step (dir +1 toggles a checkbox) and reflect it:
@@ -744,17 +796,37 @@ static SettingsResult run_settings_dialog(int *chromeChanged)
 {
     WindowPtr      dlg;
     Rect           bounds, sb = qd.screenBits.bounds;
-    int            nrows = ui_setting_count(), nfocus, i, focus = 0, running = 1;
-    short          CH;
+    int            nrows = ui_setting_count(), i, focus = 0, running = 1;
+    int            npages = 1, curPage = 0;
+    short          CH, availH;
     SettingsResult res = SD_DONE;
 
     *chromeChanged = 0;
     if (nrows > SD_MAXROWS) nrows = SD_MAXROWS;
     gSdRows = nrows;
-    nfocus  = nrows + 1;                              /* rows + the Done button */
 
-    gSdDoneTop = (short)(sd_row_top(nrows - 1) + 18 + 24);
-    CH = (short)(gSdDoneTop + 20 + 14);
+    /* Paging: how many rows fit between the menu bar (20) and the dialog's own title
+     * bar (~22) with a margin? Single page when they all fit (the 640x480 case);
+     * otherwise split into balanced pages reachable with the More…/Back button. */
+    availH = (short)((sb.bottom - sb.top) - 20 - 22 - 12);
+    {
+        int rppMax = (availH - SD_ROW0 - 50) / SD_RH;     /* single-page chrome: hint + Done */
+        if (rppMax < 1) rppMax = 1;
+        if (nrows <= rppMax) { gSdPaged = 0; gSdRpp = nrows; npages = 1; }
+        else {
+            gSdPaged = 1;
+            rppMax = (availH - SD_ROW0 - 32) / SD_RH;      /* paged chrome: page btn + Done row */
+            if (rppMax < 1) rppMax = 1;
+            npages = (nrows + rppMax - 1) / rppMax;
+            gSdRpp = (nrows + npages - 1) / npages;        /* balance the pages */
+        }
+    }
+    {
+        int   pageRows = (nrows < gSdRpp) ? nrows : gSdRpp;
+        short rowsBot  = (short)(SD_ROW0 + pageRows * SD_RH);
+        gSdDoneTop = (short)(rowsBot + (gSdPaged ? 8 : 24));
+        CH = (short)(gSdDoneTop + 20 + (gSdPaged ? 12 : 14));
+    }
     {
         short L = (short)(sb.left + ((sb.right - sb.left) - SD_CW) / 2);
         short T = (short)(sb.top  + ((sb.bottom - sb.top) - CH) / 2);
@@ -767,36 +839,43 @@ static SettingsResult run_settings_dialog(int *chromeChanged)
     TextFont(0); TextSize(12);
 
     for (i = 0; i < nrows; i++) {
-        int    kind = ui_setting_kind(i);
-        short  top  = sd_row_top(i);
-        Str255 t;
+        int     kind = ui_setting_kind(i);
+        short   top  = sd_row_top(i);
+        Boolean vis  = (Boolean)((i / gSdRpp) == 0);    /* only page 0 visible initially */
+        Str255  t;
         gSdChk[i] = gSdDec[i] = gSdInc[i] = gSdAct[i] = 0;
         if (kind == SETTING_CHECK) {
             Rect r; SetRect(&r, SD_LM, top, (short)(SD_CW - SD_LM), (short)(top + 18));
             c2p255(ui_setting_label(i), t);
-            gSdChk[i] = NewControl(dlg, &r, t, true, (short)ui_setting_checked(&gUi, i), 0, 1, checkBoxProc, 0L);
+            gSdChk[i] = NewControl(dlg, &r, t, vis, (short)ui_setting_checked(&gUi, i), 0, 1, checkBoxProc, 0L);
         } else if (kind == SETTING_STEPPER) {
             Rect rd, ri; sd_dec_rect(i, &rd); sd_inc_rect(i, &ri);
-            gSdDec[i] = NewControl(dlg, &rd, "\p<", true, 1, 0, 1, pushButProc, 0L);
-            gSdInc[i] = NewControl(dlg, &ri, "\p>", true, 1, 0, 1, pushButProc, 0L);
+            gSdDec[i] = NewControl(dlg, &rd, "\p<", vis, 1, 0, 1, pushButProc, 0L);
+            gSdInc[i] = NewControl(dlg, &ri, "\p>", vis, 1, 0, 1, pushButProc, 0L);
         } else {
             Rect r; SetRect(&r, SD_LM, top, (short)(SD_LM + 150), (short)(top + 18));
             c2p255(ui_setting_label(i), t);
-            gSdAct[i] = NewControl(dlg, &r, t, true, 1, 0, 1, pushButProc, 0L);
+            gSdAct[i] = NewControl(dlg, &r, t, vis, 1, 0, 1, pushButProc, 0L);
         }
     }
     { Rect r; sd_done_rect(&r); gSdDone = NewControl(dlg, &r, "\pDone", true, 1, 0, 1, pushButProc, 0L); }
+    gSdPage = 0;
+    if (gSdPaged) {
+        Rect r; sd_page_rect(&r);
+        gSdPage = NewControl(dlg, &r, "\pMore\xC9", true, 1, 0, 1, pushButProc, 0L);
+    }
 
-    sd_draw_content(dlg, focus);
+    sd_draw_content(dlg, focus, curPage);
     ValidRect(&dlg->portRect);                       /* we drew it; swallow the show updateEvt */
 
     while (running) {
         EventRecord evt;
+        int nfocus = sd_page_nfocus(curPage);
         if (!next_event(&evt)) continue;
         switch (evt.what) {
             case updateEvt: {
                 WindowPtr w = (WindowPtr)evt.message;
-                if (w == dlg) { BeginUpdate(w); sd_draw_content(dlg, focus); EndUpdate(w); }
+                if (w == dlg) { BeginUpdate(w); sd_draw_content(dlg, focus, curPage); EndUpdate(w); }
                 else { BeginUpdate(w); SetPort(w); ui_draw(&gUi); EndUpdate(w); SetPort(dlg); }
                 break;
             }
@@ -811,7 +890,8 @@ static SettingsResult run_settings_dialog(int *chromeChanged)
                     if (cp && ctl && TrackControl(ctl, p, (ControlActionUPP)0)) {
                         int row = -1;
                         if (ctl == gSdDone) { running = 0; break; }
-                        for (i = 0; i < nrows; i++)
+                        if (gSdPaged && ctl == gSdPage) { sd_flip_page(dlg, &curPage, &focus, npages); break; }
+                        for (i = 0; i < nrows; i++)               /* hidden (off-page) controls aren't hit */
                             if (ctl==gSdChk[i] || ctl==gSdDec[i] || ctl==gSdInc[i] || ctl==gSdAct[i]) { row = i; break; }
                         if (row >= 0) {
                             int kind = ui_setting_kind(row);
@@ -819,7 +899,7 @@ static SettingsResult run_settings_dialog(int *chromeChanged)
                             if (ctl == gSdChk[row]) sd_apply(dlg, row, +1, chromeChanged);
                             else if (ctl == gSdDec[row]) sd_apply(dlg, row, -1, chromeChanged);
                             else if (ctl == gSdInc[row]) sd_apply(dlg, row, +1, chromeChanged);
-                            sd_set_focus(&focus, row);
+                            sd_set_focus(&focus, row - curPage * gSdRpp, curPage);
                         }
                     }
                 } else if (w != dlg) {
@@ -830,26 +910,29 @@ static SettingsResult run_settings_dialog(int *chromeChanged)
             case keyDown:
             case autoKey: {
                 char c = (char)(evt.message & charCodeMask);
+                int  it;
                 if (evt.modifiers & cmdKey) { if (c == '.') running = 0; break; }
                 switch (c) {
                     case kCharEscape: running = 0; break;
-                    case kCharUp:     sd_set_focus(&focus, (focus - 1 + nfocus) % nfocus); break;
+                    case kCharUp:     sd_set_focus(&focus, (focus - 1 + nfocus) % nfocus, curPage); break;
                     case '\t':
-                    case kCharDown:   sd_set_focus(&focus, (focus + 1) % nfocus); break;
+                    case kCharDown:   sd_set_focus(&focus, (focus + 1) % nfocus, curPage); break;
                     case kCharLeft:
-                        if (focus < nrows && ui_setting_kind(focus) == SETTING_STEPPER)
-                            sd_apply(dlg, focus, -1, chromeChanged);
+                        it = sd_focus_item(focus, curPage);
+                        if (it >= 0 && ui_setting_kind(it) == SETTING_STEPPER) sd_apply(dlg, it, -1, chromeChanged);
                         break;
                     case kCharRight:
-                        if (focus < nrows && ui_setting_kind(focus) == SETTING_STEPPER)
-                            sd_apply(dlg, focus, +1, chromeChanged);
+                        it = sd_focus_item(focus, curPage);
+                        if (it >= 0 && ui_setting_kind(it) == SETTING_STEPPER) sd_apply(dlg, it, +1, chromeChanged);
                         break;
                     case ' ':
                     case kCharReturn:
                     case kCharEnter:
-                        if (focus >= nrows) { running = 0; break; }   /* Done */
-                        if (ui_setting_kind(focus) == SETTING_ACTION) { res = SD_OPEN_CDEVS; running = 0; }
-                        else sd_apply(dlg, focus, +1, chromeChanged);
+                        it = sd_focus_item(focus, curPage);
+                        if (it == -2) running = 0;                                     /* Done */
+                        else if (it == -1) sd_flip_page(dlg, &curPage, &focus, npages); /* page button */
+                        else if (ui_setting_kind(it) == SETTING_ACTION) { res = SD_OPEN_CDEVS; running = 0; }
+                        else sd_apply(dlg, it, +1, chromeChanged);
                         break;
                 }
                 break;
