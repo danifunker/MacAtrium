@@ -568,12 +568,13 @@ static short draw_keycap(Ui *u, short x, short top, const char *spec)
     return w;
 }
 
-/* Lay out a centred row of hint groups along the footer band. */
-static void draw_keyhints(Ui *u, const HintGroup *g, int n)
+/* Lay out a centred row of hint groups within [xL, xR], the caps' tops at `top`.
+ * Shared by the browse footer and the overlay panels (Esc menu / Settings / Control
+ * Panels) so every on-screen key hint reads as the same Macintosh key-caps. */
+static void draw_keyhints_box(Ui *u, const HintGroup *g, int n, short xL, short xR, short top)
 {
     Render *r = u->r;
-    int     W = win_w(u), H = win_h(u), i;
-    short   top = (short)(H - HINT_H + 5);
+    int     i;
     short   total = 0, x;
     for (i = 0; i < n; i++) {
         total = (short)(total + keycap_w(u, g[i].k1));
@@ -581,8 +582,8 @@ static void draw_keyhints(Ui *u, const HintGroup *g, int n)
         if (g[i].label) total = (short)(total + 5 + render_text_width(r, g[i].label));
         if (i < n - 1)  total = (short)(total + KEYCAP_GAP);
     }
-    x = (short)((W - total) / 2);
-    if (x < MARGIN) x = MARGIN;
+    x = (short)(xL + ((xR - xL) - total) / 2);
+    if (x < xL) x = xL;
     for (i = 0; i < n; i++) {
         x = (short)(x + draw_keycap(u, x, top, g[i].k1));
         if (g[i].k2) { x = (short)(x + 2); x = (short)(x + draw_keycap(u, x, top, g[i].k2)); }
@@ -593,6 +594,13 @@ static void draw_keyhints(Ui *u, const HintGroup *g, int n)
         }
         x = (short)(x + KEYCAP_GAP);
     }
+}
+
+/* The browse footer: hint groups centred across the full window width. */
+static void draw_keyhints(Ui *u, const HintGroup *g, int n)
+{
+    int   W = win_w(u), H = win_h(u);
+    draw_keyhints_box(u, g, n, MARGIN, (short)(W - MARGIN), (short)(H - HINT_H + 5));
 }
 
 /* Draw one fixed strip slot: erase its column (handles deselect + the empty trailing
@@ -943,22 +951,24 @@ static void draw_settings_row(Ui *u, short px, short py, int pw, int i)
  * on every selection move; clears its band first so the previous hint doesn't ghost. */
 static void draw_settings_hint(Ui *u, short px, short py, int pw, int ph)
 {
-    Render     *r = u->r;
-    const char *hint;
-    Rect        band;
-    short       x;
+    Render *r = u->r;
+    Rect    band;
+    short   xL = (short)(px + 4), xR = (short)(px + pw - 4), top = (short)(py + ph - 18);
     SetRect(&band, (short)(px + 1), (short)(py + ph - 21),
             (short)(px + pw - 1), (short)(py + ph - 1));
     render_fill(r, &band, FILL_PANEL);
-    if (u->setSel == 4 || u->setSel == 5)
-        hint = "Sounds: a clip baked in the image, max 7 sec";
-    else if (u->setSel == SET_ROW_CTLPANELS)
-        hint = "Return  open the Control Panels list";
-    else
-        hint = "^v row   <> change   Esc back";
-    x = (short)(px + (pw - render_text_width(r, hint)) / 2);
-    if (x < (short)(px + 4)) x = (short)(px + 4);
-    render_text(r, x, (short)(py + ph - 7), hint, INK_DIM);
+    if (u->setSel == 4 || u->setSel == 5) {        /* sound rows: a note, not keys */
+        const char *hint = "Sounds: a clip baked in the image, max 7 sec";
+        short x = (short)(px + (pw - render_text_width(r, hint)) / 2);
+        if (x < xL) x = xL;
+        render_text(r, x, (short)(py + ph - 7), hint, INK_DIM);
+    } else if (u->setSel == SET_ROW_CTLPANELS) {
+        static const HintGroup g[] = { {"ret", 0, "Open Control Panels"} };
+        draw_keyhints_box(u, g, 1, xL, xR, top);
+    } else {
+        static const HintGroup g[] = { {"^", "v", "Row"}, {"<", ">", "Change"}, {"esc", 0, "Back"} };
+        draw_keyhints_box(u, g, 3, xL, xR, top);
+    }
 }
 
 static void draw_settings(Ui *u)
@@ -1060,9 +1070,8 @@ static void draw_ctlpanels(Ui *u)
 
     render_hline(r, px, (short)(px + pw), (short)(py + ph - 22));
     {
-        const char *hint = "^v select   Return  open   Esc  back";
-        short x = (short)(px + (pw - render_text_width(r, hint)) / 2);
-        render_text(r, x, (short)(py + ph - 7), hint, INK_DIM);
+        static const HintGroup g[] = { {"^", "v", "Select"}, {"ret", 0, "Open"}, {"esc", 0, "Back"} };
+        draw_keyhints_box(u, g, 3, (short)(px + 4), (short)(px + pw - 4), (short)(py + ph - 18));
     }
 }
 
@@ -1087,7 +1096,7 @@ static void draw_menu(Ui *u)
     Render *r = u->r;
     int     W = win_w(u), H = win_h(u);
     int     pw = 240;
-    int     ph = u->nmenu * (ROW_H + 4) + 52;
+    int     ph = u->nmenu * (ROW_H + 4) + 84;   /* room for a key-cap nav line + stamp */
     short   px = (short)((W - pw) / 2);
     short   py = (short)((H - ph) / 2);
     Rect    panel;
@@ -1116,6 +1125,12 @@ static void draw_menu(Ui *u)
     for (i = 0; i < u->nmenu; i++)
         draw_menu_row(u, px, py, pw, i);
 
+    /* nav key-caps (consistent with the browse footer + Settings), then the build stamp */
+    render_hline(r, px, (short)(px + pw), (short)(py + ph - 42));
+    {
+        static const HintGroup g[] = { {"^", "v", "Select"}, {"ret", 0, "Open"}, {"esc", 0, "Back"} };
+        draw_keyhints_box(u, g, 3, (short)(px + 4), (short)(px + pw - 4), (short)(py + ph - 38));
+    }
     {   /* build stamp (git commit) so the running build is identifiable */
         char  ver[40];
         short vw;
@@ -2320,7 +2335,7 @@ static int overlay_panel_rect(Ui *u, int mode, Rect *p)
     int   W = win_w(u), H = win_h(u), pw, ph;
     short px, py;
     switch (mode) {
-        case UI_MODE_MENU:        pw = 240;   ph = u->nmenu * (ROW_H + 4) + 52; break;
+        case UI_MODE_MENU:        pw = 240;   ph = u->nmenu * (ROW_H + 4) + 84; break;
         case UI_MODE_SETTINGS:    pw = 320;   ph = SET_N * (ROW_H + 6) + 56;    break;
         case UI_MODE_CTLPANELS:   pw = 320;   ph = 9 * (ROW_H + 2) + 56;        break;
         case UI_MODE_QUITCONFIRM: pw = QC_PW; ph = QC_PH;                       break;
