@@ -787,6 +787,14 @@ int main(void)
         SetPort(gWin);
         ui_draw(&gUi);
     }
+    /* We just painted the first frame ourselves. Validate the whole window so the
+     * updateEvt the OS queued — for the new window's content AND the boot 1-bit->8-bit
+     * depth bump (display_set_depth above invalidates every window over the changed
+     * screen) — finds an empty region and doesn't drive a redundant second full
+     * repaint. That double-paint was the "refreshes when the app first loads". A
+     * genuine later exposure still InvalRects + repaints normally. */
+    SetPort(gWin);
+    ValidRect(&gWin->portRect);
 
     /* Startup chime (async so it overlaps the UI coming up); off by default,
      * a no-op if no sound was baked into the image. */
