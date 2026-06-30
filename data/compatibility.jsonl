@@ -43,6 +43,7 @@
 {"id":"appinfo-1-0","color":false}
 {"id":"appleshare","color":false}
 {"id":"aqua-blooper-piper","color":true}
+{"id":"arkanoid-1-10","color":false,"maxDepth":1}
 {"id":"armor-alley","color":false}
 {"id":"arthur","color":true}
 {"id":"artillery-2-0-2","color":true}
@@ -155,6 +156,7 @@
 {"id":"cyclops","color":false}
 {"id":"daleks-forever-1-0","color":true}
 {"id":"dark-castle","color":false,"maxDepth":1,"mouse":true}
+{"id":"dark-castle-1-2","color":false,"maxDepth":1,"mouse":true}
 {"id":"dark-queen-of-krynn-the","color":true}
 {"id":"darkside-of-the-mac","color":true}
 {"id":"darkwood-2-5","color":true}
