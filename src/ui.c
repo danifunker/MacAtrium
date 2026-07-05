@@ -297,9 +297,6 @@ static int art_pane_w(int W)
     return w;
 }
 
-#define GEAR_X 8                /* settings affordance: left edge */
-#define GEAR_W 24               /* ...and reserved width (title starts after) */
-
 /* Mouse affordances on the browse screen (docs/07). The Launch button and the
  * ◀▶ pager are real Control-Manager controls (drawn by ui_paint_controls); the
  * filmstrip tiles are fixed-size columns. Sizes are fixed so hit-testing in
@@ -309,28 +306,30 @@ static int art_pane_w(int W)
 #define CAR_PAGER_H 16          /* carousel horizontal scroll bar height (== SBW)  */
 #define CATBAND_HALF 80         /* clickable half-width of the centred "^ cat v" */
 
-/* The Settings affordance at the header's left — a little 3-slider icon. A frame
- * around it shows it's focused (reached by pressing Left at the first category;
- * Enter then opens the Settings panel). */
-/* The header's left affordance: clicking it pops up the Quick-Launch menu, so it's
- * drawn as a standard Macintosh pop-up-menu widget — a framed box with the downward
- * pop-up triangle and the classic 1px drop shadow (right + bottom). A focus frame
- * around it shows it's reached by the keyboard (Left at the first category). */
-static void draw_settings_btn(Ui *u)
+/* The category stepper — the classic Macintosh "little arrows" increment control:
+ * a framed box split in two, an up triangle (previous category) over a down triangle
+ * (next). Fixed rect at the header band's right edge so ui_click can hit-test it
+ * without font metrics (unreliable outside a draw pass). The Settings affordance at
+ * the header's LEFT is now a real push button drawn by ui_paint_controls. */
+static void cat_stepper_rect(Ui *u, Rect *rr)
+{
+    int W = win_w(u);
+    SetRect(rr, (short)(W / 2 + CATBAND_HALF - 16), 5, (short)(W / 2 + CATBAND_HALF), 25);
+}
+static void draw_cat_stepper(Ui *u)
 {
     Render *r = u->r;
-    Rect    box, tri, sh;
-    short   x0 = GEAR_X;
-    SetRect(&box, x0, 6, (short)(x0 + 18), 22);
+    Rect    box, up, dn;
+    short   midY;
+    if (!model_cur_cat(u->m)) return;
+    cat_stepper_rect(u, &box);
     render_frame(r, &box);
-    render_hline(r, (short)(x0 + 2), (short)(x0 + 19), 23);          /* drop shadow: bottom */
-    SetRect(&sh, (short)(x0 + 18), 8, (short)(x0 + 19), 24); render_frame(r, &sh); /* + right */
-    SetRect(&tri, (short)(x0 + 4), 7, (short)(x0 + 14), 21);
-    render_arrow(r, &tri, 3);                                        /* downward pop-up triangle */
-    if (u->settingsFocus) {
-        SetRect(&box, (short)(GEAR_X - 4), 3, (short)(GEAR_X + GEAR_W - 4), (short)(HEADER_H - 4));
-        render_frame(r, &box);
-    }
+    midY = (short)((box.top + box.bottom) / 2);
+    render_hline(r, box.left, box.right, midY);          /* two stacked arrow buttons */
+    SetRect(&up, box.left, box.top, box.right, midY);
+    SetRect(&dn, box.left, midY, box.right, box.bottom);
+    render_arrow(r, &up, 2);                             /* up   = previous category */
+    render_arrow(r, &dn, 3);                             /* down = next category     */
 }
 
 static void draw_safe(Ui *u)
@@ -395,7 +394,7 @@ typedef struct {
     int   nTiles;                    /* equal-size tiles shown in the strip       */
     int   page, first, selOnPage;    /* page = curItem/nTiles; first = page*nTiles */
     short stripX0, iconCy, tileW, tileSz, nameBase;
-    Rect  gear, catBand, launchBtn, pager;   /* pager = horizontal scroll bar (band bottom) */
+    Rect  catBand, launchBtn, pager;   /* pager = horizontal scroll bar (band bottom) */
     short catMidX;                   /* split: click < = prev cat, >= = next cat */
 } CarLayout;
 
@@ -416,8 +415,6 @@ static void carousel_layout(Ui *u, CarLayout *L)
     L->count  = cat ? cat->count : 0;
     L->hasItems = (cat && cat->count > 0);
 
-    SetRect(&L->gear, (short)(GEAR_X - 4), 3,
-            (short)(GEAR_X + GEAR_W - 4), (short)(HEADER_H - 4));
     L->catMidX = (short)(W / 2);
     SetRect(&L->catBand, (short)(W / 2 - CATBAND_HALF), 2,
             (short)(W / 2 + CATBAND_HALF), (short)(HEADER_H - 2));
@@ -774,21 +771,21 @@ static void draw_carousel(Ui *u)
     /* (the detail cover loads synchronously inside draw_detail_art on the off-screen
      * path — one shared place for all three views — so it lands in this same pass.) */
 
-    /* ---- header: gear, the category (with ^v), and N / M (the app title now
-     * lives in the System menu bar, so it's no longer repeated here) ---- */
+    /* ---- header: the category (with its little-arrows stepper) + N / M. The
+     * Settings button (header left) is a real control drawn in ui_paint_controls. ---- */
     render_base_text(r);
-    draw_settings_btn(u);
     if (cat) {
         char  cl[ITEM_CAT_LEN + 8];
         short cw, maxw = (short)(2 * (CATBAND_HALF - 28));
-        /* the category name in Chicago (the system heading face); the prev/next
-         * steppers (ui_paint_controls) flank it */
+        /* the category name in Chicago (the system heading face); the little-arrows
+         * stepper sits just past the header band's right edge */
         render_sys_text(r);
         strncpy(cl, cat->name, sizeof cl - 1); cl[sizeof cl - 1] = '\0';
         while (cl[0] && render_text_width(r, cl) > maxw) cl[strlen(cl) - 1] = '\0';
         cw = render_text_width(r, cl);
         render_text(r, (short)((W - cw) / 2), 20, cl, INK_NORMAL);
         render_base_text(r);                          /* counter back in the body face */
+        draw_cat_stepper(u);
         {
             char line[24];
             l2s(m->curItem + 1, num); strcpy(line, num);
@@ -1124,18 +1121,18 @@ static void draw_browse_header(Ui *u)
     int       W = win_w(u);
     char      num[16];
     render_base_text(r);
-    draw_settings_btn(u);
     if (cat) {
         char  cl[ITEM_CAT_LEN + 8];
         short cw, maxw = (short)(2 * (CATBAND_HALF - 28));
         /* the category name in Chicago (the system heading face) — bolder than the
-         * Geneva body text; the prev/next steppers (ui_paint_controls) flank it */
+         * Geneva body text; the little-arrows stepper sits at the band's right edge */
         render_sys_text(r);
         strncpy(cl, cat->name, sizeof cl - 1); cl[sizeof cl - 1] = '\0';
         while (cl[0] && render_text_width(r, cl) > maxw) cl[strlen(cl) - 1] = '\0';
         cw = render_text_width(r, cl);
         render_text(r, (short)((W - cw) / 2), 20, cl, INK_NORMAL);
         render_base_text(r);                          /* counter back in the body face */
+        draw_cat_stepper(u);
         {
             char line[24];
             l2s(m->curItem + 1, num); strcpy(line, num); strcat(line, " / ");
@@ -1203,6 +1200,23 @@ static void grid_name_2(Render *r, const char *name, short maxW, char *l1, char 
             strcpy(l2, buf);
         }
     }
+}
+
+/* Blit-list builder: append `content` MINUS the sub-rect `hole` to rects[] (up to
+ * four bands around the hole), bumping *n (capped at `cap`). An incremental redraw
+ * uses this so the CopyBits that refreshes a changed content region never overwrites
+ * a real Control-Manager control (the Launch button) sitting inside it — the control
+ * is drawn straight onto the window, not the off-screen buffer, so blitting the
+ * buffer over it would erase it and force a flickery redraw. No intersection → the
+ * whole `content` is appended. */
+static void push_around(Rect *rects, int *n, int cap, const Rect *content, const Rect *hole)
+{
+    Rect c = *content, hh = *hole, h;
+    if (!SectRect(&c, &hh, &h)) { if (*n < cap) rects[(*n)++] = c; return; }
+    if (h.top    > c.top    && *n < cap) SetRect(&rects[(*n)++], c.left,  c.top,    c.right, h.top);
+    if (h.bottom < c.bottom && *n < cap) SetRect(&rects[(*n)++], c.left,  h.bottom, c.right, c.bottom);
+    if (h.left   > c.left   && *n < cap) SetRect(&rects[(*n)++], c.left,  h.top,    h.left,  h.bottom);
+    if (h.right  < c.right  && *n < cap) SetRect(&rects[(*n)++], h.right, h.top,    c.right, h.bottom);
 }
 
 /* ---- Icon Grid view (Finder "by Icon"): a split pane — icons on the left ~2/3,
@@ -1317,6 +1331,23 @@ static void draw_grid_cell(Ui *u, const GridLayout *g, int idx)
     }
 }
 
+/* The detail panel's cover box (screenshot, 4:3) and its Launch-button rect, shared
+ * by the full draw, the incremental redraw, and ui_paint_controls so the drawn pixels
+ * and the control placement can never drift apart. */
+static void grid_art_rect(const GridLayout *g, Rect *art)
+{
+    short pad = MARGIN;
+    short aw  = (short)((g->detail.right - g->detail.left) - 2 * pad);
+    short ah  = (short)(aw * 3 / 4);
+    SetRect(art, (short)(g->detail.left + pad), (short)(g->detail.top + pad),
+            (short)(g->detail.left + pad + aw), (short)(g->detail.top + pad + ah));
+}
+static void grid_launch_rect(const GridLayout *g, Rect *lb)
+{
+    SetRect(lb, (short)(g->detail.left + MARGIN + 24), (short)(g->detail.bottom - 30),
+            (short)(g->detail.right - MARGIN - 24), (short)(g->detail.bottom - 8));
+}
+
 /* The right detail panel: a left divider, the selected item's screenshot, then its
  * name / year-vendor / genre / blurb (mirrors the carousel's detail band). */
 static void draw_grid_detail(Ui *u, const GridLayout *g)
@@ -1324,7 +1355,7 @@ static void draw_grid_detail(Ui *u, const GridLayout *g)
     Render        *r = u->r;
     const CatItem *cur = model_cur_item(u->m);
     Rect           d = g->detail, art, dv;
-    short          pad = MARGIN, aw, ah, tx, ty;
+    short          pad = MARGIN, aw, tx, ty;
     char           num[16];
 
     render_fill(r, &d, FILL_BG);
@@ -1332,10 +1363,8 @@ static void draw_grid_detail(Ui *u, const GridLayout *g)
     render_frame(r, &dv);
     render_base_text(r);
 
-    aw = (short)((d.right - d.left) - 2 * pad);
-    ah = (short)(aw * 3 / 4);
-    SetRect(&art, (short)(d.left + pad), (short)(d.top + pad),
-            (short)(d.left + pad + aw), (short)(d.top + pad + ah));
+    grid_art_rect(g, &art);
+    aw = (short)(art.right - art.left);           /* the blurb wraps to the cover's width */
     draw_detail_art(u, &art);
     if (!cur) return;
 
@@ -1459,30 +1488,38 @@ static int iconview_draw_sel(Ui *u)
     draw_grid_detail(u, &g);
     if (!grid_cell_rect(&g, u->lastDrawnItem, &old)) old = g.detail;
     if (!grid_cell_rect(&g, u->m->curItem, &neu)) neu = g.detail;
-    /* Blit the cells + detail (all below the header) and the N/M counter only — never
-     * the header centre, so the category steppers there aren't clobbered (no flash). */
+    /* Blit the two changed cells and the detail panel — the detail split around the
+     * Launch button (a real control drawn onto the window, not the buffer) so the copy
+     * never erases it. Cells stay left of the scroll-bar gutter, the detail right of
+     * it; the N/M counter goes too, never the header centre (the category steppers). */
     {
-        Rect rects[2];
-        UnionRect(&old, &neu, &body);
-        UnionRect(&body, &g.detail, &body);
-        if (body.top < HEADER_H) body.top = HEADER_H;   /* never the header (steppers) */
+        Rect rects[8], lb;
+        int  nr = 0;
+        UnionRect(&old, &neu, &body);                    /* the two cells (left of the gutter) */
+        if (body.top < HEADER_H) body.top = HEADER_H;
+        rects[nr++] = body;
+        grid_launch_rect(&g, &lb);
+        push_around(rects, &nr, 7, &g.detail, &lb);
         SetRect(&counter, (short)(win_w(u) - CTR_W), 0, (short)win_w(u), (short)HEADER_H);
-        rects[0] = body; rects[1] = counter;
-        render_end_rects(u->r, u->win, rects, 2);
+        rects[nr++] = counter;
+        render_end_rects(u->r, u->win, rects, nr);
     }
     u->lastDrawnItem = u->m->curItem;
     return 1;
 }
 
-/* Deferred screenshot settled: repaint only the detail panel. */
+/* Deferred screenshot settled: repaint ONLY the cover box (not the whole panel — that
+ * re-rendered the name / blurb and clobbered the Launch button on every art load). */
 static void iconview_draw_art(Ui *u)
 {
     GridLayout g;
+    Rect       art;
     if (!u->bgValid) return;
     grid_layout(u, &g);
+    grid_art_rect(&g, &art);
     render_begin(u->r, u->win);
-    draw_grid_detail(u, &g);
-    render_end_rect(u->r, u->win, &g.detail);
+    draw_detail_art(u, &art);
+    render_end_rect(u->r, u->win, &art);
 }
 
 static int iconview_idle(Ui *u) { return ensure_art_loaded(u) ? UI_IDLE_ART : UI_IDLE_NONE; }
@@ -1588,13 +1625,39 @@ static void draw_list_item_row(Ui *u, const ListLayout *L, int i)
     }
 }
 
+/* The detail strip's cover box (screenshot, 4:3) and its Launch-button rect, shared
+ * by the strip draw, the incremental redraw, and ui_paint_controls so the drawn pixels
+ * and the control placement stay in lockstep. */
+static void list_art_rect(const ListLayout *L, Rect *ar)
+{
+    short ay0 = (short)(L->lstBot + 8), ah = (short)(LDET - 18), aw = (short)(ah * 4 / 3);
+    SetRect(ar, (short)(L->rx + 12), ay0, (short)(L->rx + 12 + aw), (short)(ay0 + ah));
+}
+static void list_launch_rect(Ui *u, const ListLayout *L, Rect *lb)
+{
+    int W = win_w(u);
+    SetRect(lb, (short)(W - 96), (short)(L->lstBot + 46), (short)(W - 12), (short)(L->lstBot + 66));
+}
+/* Draw just the cover into `ar`: erase, frame, then the screenshot (or an empty frame
+ * until it loads). Shared by the strip's full draw and the deferred-art repaint so
+ * both land the cover identically. */
+static void list_draw_cover(Ui *u, const Rect *ar)
+{
+    const CatItem *cur = model_cur_item(u->m);
+    int   loaded = (cur && cur == u->artFor);
+    Rect  in = *ar;
+    render_fill(u->r, &in, FILL_BG);
+    render_frame(u->r, ar);
+    if (loaded && u->listArt) { InsetRect(&in, 2, 2); art_draw_fit(u->listArt, &in); }
+}
+
 /* The bottom detail strip — the selected item's screenshot + name / year / genre. */
 static void draw_list_detail(Ui *u, const ListLayout *L)
 {
     Render        *r = u->r;
     const CatItem *cur;
-    int            W = win_w(u), loaded;
-    short          ay0, ah, aw, mx;
+    int            W = win_w(u);
+    short          mx;
     Rect           strip, ar;
     char           num[16];
     if (u->r->useOffscreen) ensure_art_loaded(u);   /* one-pass cover load, like the carousel */
@@ -1603,12 +1666,9 @@ static void draw_list_detail(Ui *u, const ListLayout *L)
     render_fill(r, &strip, FILL_BG);
     render_base_text(r);
     render_hline(r, L->rx, (short)W, L->lstBot);
-    ay0 = (short)(L->lstBot + 8); ah = (short)(LDET - 18); aw = (short)(ah * 4 / 3);
-    mx  = (short)(L->rx + 12 + aw + 14);
-    SetRect(&ar, (short)(L->rx + 12), ay0, (short)(L->rx + 12 + aw), (short)(ay0 + ah));
-    render_frame(r, &ar);
-    loaded = (cur && cur == u->artFor);
-    if (loaded && u->listArt) { Rect in = ar; InsetRect(&in, 2, 2); art_draw_fit(u->listArt, &in); }
+    list_art_rect(L, &ar);
+    mx = (short)(ar.right + 14);
+    list_draw_cover(u, &ar);
     if (cur) {
         char meta[ITEM_GENRE_LEN + 32]; meta[0] = '\0';
         render_text(r, mx, (short)(L->lstBot + 22), cur->name, INK_TITLE);
@@ -1686,8 +1746,7 @@ static void draw_listview(Ui *u)
 
     list_layout(u, &L);
     render_fill(r, &full, FILL_BG);
-    render_base_text(r);
-    draw_settings_btn(u);
+    render_base_text(r);   /* Settings button (header left) is a real control (ui_paint_controls) */
     render_hline(r, 0, (short)W, (short)(HEADER_H - 1));
     vbar(u, LPANE, L.bTop, (short)(L.bBot - L.bTop));
 
@@ -1841,7 +1900,6 @@ static int listview_click(Ui *u, Point pt, UiCommand *out)
 static int listview_draw_sel(Ui *u)
 {
     ListLayout L;
-    Rect       dirty;
     if (!u->bgValid) return 0;
     list_layout(u, &L);
     if (u->listFocus != 1 || u->m->curCat != u->lastDrawnCat ||
@@ -1851,23 +1909,38 @@ static int listview_draw_sel(Ui *u)
     draw_list_item_row(u, &L, u->lastDrawnItem - L.itemTop);   /* old -> deselected */
     draw_list_item_row(u, &L, u->m->curItem - L.itemTop);      /* new -> selected   */
     draw_list_detail(u, &L);
-    SetRect(&dirty, L.rx, L.bTop, (short)win_w(u), L.bBot);    /* the items side */
-    render_end_rect(u->r, u->win, &dirty);
+    /* Blit the two changed rows and the detail strip — the strip split around the
+     * Launch button (a real control on the window) so the copy never erases it. Rows
+     * stay left of the scroll-bar gutter; the strip sits below the gutter. */
+    {
+        Rect  rects[8], row, strip, lb;
+        int   nr = 0, W = win_w(u);
+        short y0o = (short)(L.bTop + 26 + (u->lastDrawnItem - L.itemTop) * ROW_H);
+        short y0n = (short)(L.bTop + 26 + (u->m->curItem   - L.itemTop) * ROW_H);
+        SetRect(&row, L.rx, y0o, (short)(W - SBW), (short)(y0o + ROW_H)); rects[nr++] = row;
+        SetRect(&row, L.rx, y0n, (short)(W - SBW), (short)(y0n + ROW_H)); rects[nr++] = row;
+        SetRect(&strip, L.rx, L.lstBot, (short)W, L.bBot);
+        list_launch_rect(u, &L, &lb);
+        push_around(rects, &nr, 8, &strip, &lb);
+        render_end_rects(u->r, u->win, rects, nr);
+    }
     u->lastDrawnItem = u->m->curItem;
     return 1;
 }
 
-/* Deferred screenshot settled: repaint only the bottom detail strip. */
+/* Deferred screenshot settled: repaint ONLY the cover box (not the whole strip — that
+ * re-rendered the name / meta and clobbered the Launch button on every art load). */
 static void listview_draw_art(Ui *u)
 {
     ListLayout L;
-    Rect       strip;
+    Rect       ar;
     if (!u->bgValid) return;
     list_layout(u, &L);
+    list_art_rect(&L, &ar);
     render_begin(u->r, u->win);
-    draw_list_detail(u, &L);
-    SetRect(&strip, L.rx, L.lstBot, (short)win_w(u), L.bBot);
-    render_end_rect(u->r, u->win, &strip);
+    if (u->r->useOffscreen) ensure_art_loaded(u);
+    list_draw_cover(u, &ar);
+    render_end_rect(u->r, u->win, &ar);
 }
 
 /* ---- browse views (MVC strategy) ----------------------------------------
@@ -1907,7 +1980,7 @@ static void carousel_draw_art(Ui *u)
     carousel_layout(u, &L);
     detail_art_rect(&L, &ar);
     draw_detail_art(u, &ar);
-    render_end(u->r, u->win);
+    render_end_rect(u->r, u->win, &ar);   /* only the cover box, never the Launch button */
 }
 
 /* Incremental selection redraw: an in-page ←/→ move repaints only the old + new
@@ -1949,17 +2022,19 @@ static int carousel_draw_sel(Ui *u)
     carousel_tile_box(&L, oldSlot,     0, &oldB);   /* col rects bound the selection box */
     carousel_tile_box(&L, L.selOnPage, 0, &newB);
     SetRect(&det, L.clx, L.detTop, (short)win_w(u), L.detBot);
-    /* Blit the tiles + name + detail (all below the header) and the N/M counter only —
-     * never the header centre, so the category steppers there aren't clobbered. */
+    /* Blit the changed regions as separate bands that straddle — but never cover — the
+     * Launch button and the ◀▶ pager (real controls drawn onto the window): the tiles
+     * sit above the Launch button, the name band between it and the pager, the detail
+     * band below the pager. Copying over either erases it and forces a flickery
+     * redraw. The N/M counter goes too; the header centre (steppers) never does. */
     {
-        Rect rects[2];
-        UnionRect(&oldB, &newB, &body);
-        UnionRect(&body, &nameBand, &body);
-        UnionRect(&body, &det, &body);
-        if (body.top < HEADER_H) body.top = HEADER_H;   /* never the header (steppers) */
+        Rect rects[4];
+        UnionRect(&oldB, &newB, &body);                 /* just the two tile columns */
+        if (body.top < HEADER_H) body.top = HEADER_H;
+        if (body.bottom > L.launchBtn.top) body.bottom = L.launchBtn.top;  /* stay above Launch */
         SetRect(&counter, (short)(win_w(u) - CTR_W), 0, (short)win_w(u), (short)HEADER_H);
-        rects[0] = body; rects[1] = counter;
-        render_end_rects(u->r, u->win, rects, 2);
+        rects[0] = body; rects[1] = nameBand; rects[2] = det; rects[3] = counter;
+        render_end_rects(u->r, u->win, rects, 4);
     }
     u->lastDrawnItem = u->m->curItem;
     return 1;
@@ -2025,11 +2100,12 @@ static void ensure_controls(Ui *u)
     u->launch    = NewControl(u->win, &z, "\pLaunch", false, 1, 0, 1, pushButProc, 0L);
     u->quitBtn   = NewControl(u->win, &z, "\pQuit",   false, 1, 0, 1, pushButProc, 0L);
     u->cancelBtn = NewControl(u->win, &z, "\pCancel", false, 1, 0, 1, pushButProc, 0L);
-    SetRect(&z, 0, 0, 24, 20);
-    u->catPrev   = NewControl(u->win, &z, "\p<", false, 1, 0, 1, pushButProc, 0L);
-    u->catNext   = NewControl(u->win, &z, "\p>", false, 1, 0, 1, pushButProc, 0L);
+    /* Header-left settings button: a standard push button (empty title — we draw a
+     * gear glyph over it in ui_paint_controls) that opens the Quick-Launch menu. */
+    SetRect(&z, 0, 0, 26, 20);
+    u->settingsBtn = NewControl(u->win, &z, "\p", false, 1, 0, 1, pushButProc, 0L);
     u->controlsReady = (u->scrollV && u->launch && u->quitBtn && u->cancelBtn &&
-                        u->catPrev && u->catNext) ? 1 : 0;
+                        u->settingsBtn) ? 1 : 0;
 }
 
 /* The quit-confirm dialog's panel + its two button rects (shared by draw + the
@@ -2047,6 +2123,33 @@ static void quitconfirm_rects(Ui *u, Rect *panel, Rect *quitBtn, Rect *cancelBtn
             (short)(px + QC_PW - 110), (short)(py + QC_PH - 14));
 }
 
+/* Header-left settings button geometry — a fixed rect (no font metrics) shared by the
+ * control placement and the focus ring. */
+static void settings_btn_rect(Rect *r) { SetRect(r, 5, 5, 31, 25); }
+
+/* A little cog glyph, drawn straight into the window over the (empty) settings push
+ * button after its CDEF paints — QuickDraw, since ui_paint_controls runs after the
+ * off-screen blit and owns the window port. Eight rim teeth, a filled hub, a white
+ * centre. Black-on-white reads on the button's standard white face in either theme. */
+static void draw_gear_glyph(short cx, short cy)
+{
+    static const signed char dx[8] = {  0,  4,  6,  4,  0, -4, -6, -4 };
+    static const signed char dy[8] = { -6, -4,  0,  4,  6,  4,  0, -4 };
+    Rect o;
+    int  i;
+    ForeColor(blackColor);
+    BackColor(whiteColor);                                     /* hub hole erases to white */
+    for (i = 0; i < 8; i++) {                                  /* rim teeth */
+        SetRect(&o, (short)(cx + dx[i] - 1), (short)(cy + dy[i] - 1),
+                (short)(cx + dx[i] + 2), (short)(cy + dy[i] + 2));
+        PaintRect(&o);
+    }
+    SetRect(&o, (short)(cx - 5), (short)(cy - 5), (short)(cx + 5), (short)(cy + 5));
+    PaintOval(&o);                                             /* cog body */
+    SetRect(&o, (short)(cx - 2), (short)(cy - 2), (short)(cx + 2), (short)(cy + 2));
+    EraseOval(&o);                                             /* hub hole */
+}
+
 /* Reposition a control only when its rect actually changed, so a per-frame repaint
  * doesn't erase+redraw (flicker) a control that hasn't moved. */
 static void place_control(ControlHandle c, const Rect *want)
@@ -2061,11 +2164,12 @@ static void place_control(ControlHandle c, const Rect *want)
 
 /* Position + value + show + repaint the controls over the freshly-blitted content.
  * Hidden (so FindControl ignores them) outside the grid/list browse screens. */
-/* `incremental` = repainting after an in-page selection move (browse_redraw /
- * deferred-art settle), where the blit deliberately avoids the header, so the
- * category steppers there weren't clobbered — leave them be (re-showing them is
- * what made the ◀/▶ flash). The scroll bar + Launch sit in the blitted body, so
- * they're always repainted. A full paint (incremental = 0) lays out everything. */
+/* `incremental` = repainting after an in-page selection move (browse_redraw), where
+ * the blit deliberately straddles the real controls: the header steppers, the scroll
+ * bar, and the Launch button are all left untouched by the copy, so we only nudge the
+ * scroll thumb (SetControlValue) and never re-show/redraw the rest — re-drawing them
+ * is what made the steppers and Launch flash on every item move. A full paint
+ * (incremental = 0) lays out and draws everything. */
 static void ui_paint_controls(Ui *u, int incremental)
 {
     Rect sb, lb;
@@ -2075,7 +2179,7 @@ static void ui_paint_controls(Ui *u, int incremental)
     if (u->mode == UI_MODE_QUITCONFIRM) {       /* the modal's two real buttons */
         Rect panel, qb, cb, ring;
         quitconfirm_rects(u, &panel, &qb, &cb);
-        HideControl(u->scrollV); HideControl(u->launch);
+        HideControl(u->scrollV); HideControl(u->launch); HideControl(u->settingsBtn);
         place_control(u->quitBtn, &qb);   ShowControl(u->quitBtn);   Draw1Control(u->quitBtn);
         place_control(u->cancelBtn, &cb);  ShowControl(u->cancelBtn); Draw1Control(u->cancelBtn);
         /* the bold default-button ring around Quit (the CDEF doesn't draw it) */
@@ -2088,22 +2192,28 @@ static void ui_paint_controls(Ui *u, int incremental)
     HideControl(u->quitBtn);
     HideControl(u->cancelBtn);
 
-    /* Category stepper buttons sit in the header band of the carousel + grid (the
-     * List view uses its categories pane instead). Skipped on an incremental repaint:
-     * the header isn't re-blitted there, so they're untouched — repositioning + redrawing
-     * them is exactly what made the ◀/▶ flash on every item move. */
+    /* Header-left Settings button (a standard push button with a gear glyph, opens the
+     * Quick-Launch menu) — all three browse views. Placed on a FULL paint only: the
+     * header isn't re-blitted on an incremental move, so the button + gear stay put
+     * (repositioning/redrawing per move is what flashed the old category steppers). A
+     * focus ring shows when the keyboard has parked on it (Left at the first category). */
     if (!incremental) {
         if (!u->safe && u->mode == UI_MODE_LIST &&
-            (u->view == VIEW_CAROUSEL || u->view == VIEW_ICON) && model_cur_cat(u->m)) {
-            int  W = win_w(u);
-            Rect cp, cn;
-            SetRect(&cp, (short)(W / 2 - CATBAND_HALF), 5, (short)(W / 2 - CATBAND_HALF + 24), 25);
-            SetRect(&cn, (short)(W / 2 + CATBAND_HALF - 24), 5, (short)(W / 2 + CATBAND_HALF), 25);
-            place_control(u->catPrev, &cp); ShowControl(u->catPrev); Draw1Control(u->catPrev);
-            place_control(u->catNext, &cn); ShowControl(u->catNext); Draw1Control(u->catNext);
+            (u->view == VIEW_CAROUSEL || u->view == VIEW_ICON || u->view == VIEW_LIST)) {
+            Rect sbr;
+            settings_btn_rect(&sbr);
+            place_control(u->settingsBtn, &sbr);
+            ShowControl(u->settingsBtn);
+            Draw1Control(u->settingsBtn);
+            draw_gear_glyph((short)((sbr.left + sbr.right) / 2), (short)((sbr.top + sbr.bottom) / 2));
+            if (u->settingsFocus) {                            /* keyboard focus ring */
+                Rect ring = sbr; InsetRect(&ring, -3, -3);
+                PenSize(2, 2); ForeColor(blackColor);
+                FrameRoundRect(&ring, 8, 8);
+                PenSize(1, 1);
+            }
         } else {
-            HideControl(u->catPrev);
-            HideControl(u->catNext);
+            HideControl(u->settingsBtn);
         }
     }
 
@@ -2122,13 +2232,12 @@ static void ui_paint_controls(Ui *u, int incremental)
         GridLayout g; grid_layout(u, &g);
         SetRect(&sb, g.gridRight, (short)HEADER_H, (short)(g.gridRight + SBW), (short)(win_h(u) - HINT_H));
         n = g.n; vis = g.vis * g.cols;
-        SetRect(&lb, (short)(g.detail.left + MARGIN + 24), (short)(g.detail.bottom - 30),
-                (short)(g.detail.right - MARGIN - 24), (short)(g.detail.bottom - 8));
+        grid_launch_rect(&g, &lb);              /* same rect the incremental blit avoids */
     } else {  /* VIEW_LIST */
         ListLayout L; list_layout(u, &L);
         SetRect(&sb, (short)(win_w(u) - SBW), (short)(L.bTop + 24), (short)win_w(u), L.lstBot);
         n = L.nItems; vis = L.itemRows;
-        SetRect(&lb, (short)(win_w(u) - 96), (short)(L.lstBot + 46), (short)(win_w(u) - 12), (short)(L.lstBot + 66));
+        list_launch_rect(u, &L, &lb);           /* same rect the incremental blit avoids */
     }
     /* The scroll bar reflects the selection's position in the category; inactive
      * (max == min) when everything fits, per HIG. */
@@ -2136,15 +2245,24 @@ static void ui_paint_controls(Ui *u, int incremental)
     val = (n > vis) ? u->m->curItem : 0;
     place_control(u->scrollV, &sb);
     SetControlMaximum(u->scrollV, (short)max);
-    SetControlValue(u->scrollV, (short)val);
-    ShowControl(u->scrollV);
-    Draw1Control(u->scrollV);
+    SetControlValue(u->scrollV, (short)val);           /* moves just the thumb */
+    if (!incremental) { ShowControl(u->scrollV); Draw1Control(u->scrollV); }
+    /* On an incremental pass the blit never touches the scroll-bar gutter, so the bar
+     * itself is intact — SetControlValue already re-drew the thumb; no full redraw. */
 
     canLaunch = (model_cur_item(u->m) != 0);
     place_control(u->launch, &lb);
     HiliteControl(u->launch, (short)(canLaunch ? 0 : 255));
-    ShowControl(u->launch);
-    Draw1Control(u->launch);
+    if (!incremental) {
+        ShowControl(u->launch);
+        Draw1Control(u->launch);
+    } else if (!u->r->useOffscreen && (u->view == VIEW_ICON || u->view == VIEW_LIST)) {
+        /* Direct-draw path only: the grid/list detail fill drew straight onto the
+         * window and painted over the Launch button, so put it back. (Off-screen, the
+         * blit is split around the button; the carousel never draws over it — so in
+         * both of those cases the button is left untouched, no flicker.) */
+        Draw1Control(u->launch);
+    }
 }
 
 /* The quit-confirmation modal: a centred panel + message. The Quit (default) and
@@ -2321,19 +2439,22 @@ int ui_idle(Ui *u)
 void ui_draw_art(Ui *u)
 {
     if (u->safe || u->mode != UI_MODE_LIST) return;
-    if (cur_view(u)->draw_art) { cur_view(u)->draw_art(u); ui_paint_controls(u, 1); }
+    /* Repaints only the cover box, which never overlaps a real control — so, unlike a
+     * selection move, there's nothing to put back afterward (no ui_paint_controls). */
+    if (cur_view(u)->draw_art) cur_view(u)->draw_art(u);
 }
 
 /* Repaint after a browse-view selection move: an incremental redraw of just the
  * changed cells/detail when the view offers one and is already on-screen, else a
  * full ui_draw (a scroll/category change, an overlay, a non-list mode). This is the
- * Mac update model — redraw only what changed instead of the whole window. The
- * sub-rect blit can clip the scroll bar / button, so repaint the controls after. */
+ * Mac update model — redraw only what changed instead of the whole window. The blit
+ * straddles the real controls (it never copies over them), so the follow-up only
+ * nudges the scroll thumb to the new selection — the bar + Launch are left as-is. */
 static void browse_redraw(Ui *u)
 {
     if (u->mode == UI_MODE_LIST && !u->safe && u->bgValid &&
         cur_view(u)->draw_sel && cur_view(u)->draw_sel(u)) {
-        ui_paint_controls(u, 1);   /* incremental: leave the header steppers untouched */
+        ui_paint_controls(u, 1);   /* incremental: just the scroll thumb, no flashy redraws */
         return;
     }
     ui_draw(u);
@@ -2372,12 +2493,6 @@ void ui_scroll_to(Ui *u, short val)
     if (target < 0) target = 0;
     if (target >= n) target = n - 1;
     if (target != u->m->curItem) { model_move_item(u->m, target - u->m->curItem); browse_redraw(u); }
-}
-
-/* Step the category by the header's prev/next buttons (main.c, after TrackControl). */
-void ui_step_category(Ui *u, short dir)
-{
-    if (model_move_cat(u->m, dir)) browse_redraw(u);
 }
 
 /* ---- Quick-Launch menu model (the real menu window in main.c renders these) ---- */
@@ -2799,7 +2914,11 @@ UiCommand ui_key(Ui *u, char ch)
      * by the filter above; Info / Box Art / Theme / launch hotkeys are Cmd-modified,
      * handled by ui_key_cmd.) */
     if (!u->safe && cur_view(u)->nav(u, ch)) {
-        browse_redraw(u);           /* incremental when the move stayed on-page */
+        /* Navigating onto the gear (Left/Up past the first category) needs a full draw
+         * so its focus ring — in the header, which the incremental blit never touches —
+         * appears; an ordinary move stays incremental. */
+        if (u->settingsFocus) ui_draw(u);
+        else                  browse_redraw(u);
         return cmd;                 /* cmd == UI_NONE here */
     }
     switch (ch) {
@@ -2936,18 +3055,25 @@ UiCommand ui_click(Ui *u, Point pt)
     /* ---- browse screen (UI_MODE_LIST) ---- */
     {
         UiCommand cmd = UI_NONE;
-        Rect      gear;
         int       wasFocus = u->settingsFocus;
-        SetRect(&gear, (short)(GEAR_X - 4), 3, (short)(GEAR_X + GEAR_W - 4), (short)(HEADER_H - 2));
         u->settingsFocus = 0;                        /* a click takes focus off the gear */
 
-        if (PtInRect(pt, &gear)) {                   /* the pop-up affordance -> Quick-Launch menu */
-            if (wasFocus) ui_draw(u);                /* clear any focus frame first */
-            return UI_OPEN_MENU;
+        /* The Settings button is a real control (caught by FindControl in main.c before
+         * this runs); the category little-arrows + the active view own the rest. */
+        if ((u->view == VIEW_CAROUSEL || u->view == VIEW_ICON) && model_cur_cat(u->m)) {
+            Rect step;
+            cat_stepper_rect(u, &step);
+            if (PtInRect(pt, &step)) {
+                model_move_cat(u->m, pt.v < (short)((step.top + step.bottom) / 2) ? -1 : +1);
+                browse_redraw(u);
+                return UI_NONE;
+            }
         }
-        /* The active view owns selection / launch / category hit-testing. */
+        /* The active view owns selection / launch / category hit-testing. A click while
+         * the gear was focused forces a full redraw so its focus ring (in the header,
+         * which the incremental blit never touches) is cleared. */
         if (cur_view(u)->click && cur_view(u)->click(u, pt, &cmd)) {
-            if (cmd != UI_LAUNCH) browse_redraw(u);  /* a launch tears down the window */
+            if (cmd != UI_LAUNCH) { if (wasFocus) ui_draw(u); else browse_redraw(u); }
             return cmd;
         }
         /* A click on empty space changed nothing — repaint only if it actually did

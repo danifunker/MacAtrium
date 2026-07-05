@@ -313,7 +313,7 @@ static void rebuild_window(void)
     gWin = make_window(&gEnv, gUi.hideMenuBar, gUi.hideTitleBar);
     gUi.win = gWin;
     gUi.controlsReady = 0;                /* the controls belonged to the old port */
-    gUi.scrollV = gUi.launch = gUi.quitBtn = gUi.cancelBtn = gUi.catPrev = gUi.catNext = 0;
+    gUi.scrollV = gUi.launch = gUi.quitBtn = gUi.cancelBtn = gUi.settingsBtn = 0;
     render_reset_for_depth(&gRender, &gEnv, display_current_depth());  /* GWorld re-fits */
     gUi.bgValid = 0;                      /* the fresh GWorld is blank: repaint the
                                            * whole browse screen, not just the overlay */
@@ -1136,9 +1136,17 @@ static void handle_ui_command(UiCommand cmd)
             UiCommand mc = run_quicklaunch_menu();
             gUi.mode = UI_MODE_LIST;
             SetPort(gWin);
-            ui_reblit(&gUi);                  /* the menu window never touched the buffer */
-            ValidRect(&gWin->portRect);
-            if (mc != UI_NONE) handle_ui_command(mc);   /* dispatch the chosen action */
+            if (mc == UI_OPEN_SETTINGS) {
+                /* Going straight into another modal window: don't re-blit the whole
+                 * browse now (that full-screen flash is what the user sees "redraw
+                 * before the Settings appear"). The Settings window opens on top; its
+                 * update handler repaints just the sliver the closed menu exposed. */
+                handle_ui_command(mc);
+            } else {
+                ui_reblit(&gUi);              /* the menu window never touched the buffer */
+                ValidRect(&gWin->portRect);
+                if (mc != UI_NONE) handle_ui_command(mc);   /* dispatch the chosen action */
+            }
             break;
         }
         default: break;
@@ -1222,13 +1230,19 @@ int main(void)
         short want = (gPrefs.haveDepth && gPrefs.depth > 0)
                      ? display_depth_at_most((short)gPrefs.depth)
                      : display_depth_at_most(8);
-        if (want >= 1) {
-            (void)display_set_default_depth(want);             /* persist as the boot default */
-            if (want != display_current_depth() && display_set_depth(want) == noErr) {
-                gEnv.pixelSize = want;                          /* so art/UI pick the colour variant */
-                gEnv.useColor  = (gEnv.hasColorQD && want >= 4);
-                render_reset_for_depth(&gRender, &gEnv, want);
-            }
+        /* Only touch the screen AND slot PRAM when the machine didn't already boot at
+         * the depth we want. Re-asserting an already-correct boot default on EVERY boot
+         * was needless slot-PRAM churn (and every write is a chance to brick the boot on
+         * a fussy card). If the depth is already right, leave PRAM alone. When it isn't,
+         * set the live screen FIRST, then persist the now-running mode as the default
+         * (display_set_default_depth only writes a depth that's actually live). A card
+         * that can't reach `want` (SetDepth fails) writes nothing — no bad boot mode. */
+        if (want >= 1 && want != display_current_depth() && display_set_depth(want) == noErr) {
+            short got = display_current_depth();               /* what we actually got */
+            gEnv.pixelSize = got;                              /* so art/UI pick the colour variant */
+            gEnv.useColor  = (gEnv.hasColorQD && got >= 4);
+            render_reset_for_depth(&gRender, &gEnv, got);
+            (void)display_set_default_depth(got);              /* persist as the boot default */
         }
     }
 
@@ -1358,12 +1372,9 @@ int main(void)
                         if (cp && ctl == gUi.launch) {
                             if (TrackControl(ctl, p, (ControlActionUPP)0) == inButton)
                                 handle_ui_command(UI_LAUNCH);
-                        } else if (cp && ctl == gUi.catPrev) {
+                        } else if (cp && ctl == gUi.settingsBtn) {
                             if (TrackControl(ctl, p, (ControlActionUPP)0) == inButton)
-                                ui_step_category(&gUi, -1);
-                        } else if (cp && ctl == gUi.catNext) {
-                            if (TrackControl(ctl, p, (ControlActionUPP)0) == inButton)
-                                ui_step_category(&gUi, +1);
+                                handle_ui_command(UI_OPEN_MENU);   /* the Quick-Launch menu */
                         } else if (cp && ctl == gUi.quitBtn) {
                             if (TrackControl(ctl, p, (ControlActionUPP)0) == inButton)
                                 handle_ui_command(UI_QUIT);   /* confirmed quit */

@@ -82,18 +82,45 @@ short display_depth_at_most(short cap)
     return best;
 }
 
+/* cscGetMode (Status csCode 2): read the depth-mode id the card is CURRENTLY
+ * running (VDPageInfo.csMode, a word). That id is, by definition, a mode the card
+ * can display and boot — unlike the assumed 128..133 family, which isn't guaranteed
+ * to be the id a given card actually uses for that depth. 0 on failure. */
+#define kCscGetMode 2
+static short display_current_mode_id(GDHandle gd)
+{
+    CntrlParam pb;
+    if (!gd) return 0;
+    memset(&pb, 0, sizeof pb);
+    pb.ioCRefNum = (**gd).gdRefNum;
+    pb.csCode    = kCscGetMode;
+    if (PBStatusSync((ParmBlkPtr)&pb) != noErr) return 0;
+    return pb.csParam[0];                 /* VDPageInfo.csMode */
+}
+
+/* Persist `depth` as the card's boot default (slot PRAM), so the *system* comes up
+ * at that depth from PrimaryInit. Writing slot PRAM is delicate — an id the card
+ * can't cold-boot leaves the machine black until a PRAM reset — so this now REFUSES
+ * to write unless the live screen is ALREADY at `depth` (the caller sets it first via
+ * display_set_depth). We then persist the exact mode the card is proven to be running
+ * (cscGetMode), not a hardcoded 128..133 guess. If the driver won't report its mode we
+ * fall back to the standard family id, still gated on the depth being live. The driver
+ * reads the id as a byte at csParam offset 0. */
 OSErr display_set_default_depth(short depth)
 {
-    GDHandle      gd   = GetMainDevice();
-    unsigned char spID = spid_for_depth(depth);
+    GDHandle      gd = GetMainDevice();
+    short         mode;
+    unsigned char spID;
     CntrlParam    pb;
 
-    if (!gd || spID == 0) return paramErr;
+    if (!gd) return paramErr;
+    if (display_current_depth() != depth) return paramErr;   /* only persist a live, proven depth */
 
-    /* Control(cscSetDefaultMode): save spID as the card's boot default in slot
-     * PRAM. Sets the *boot* depth only — applying it to the live screen is the
-     * caller's job (display_set_depth). The driver reads the spID as a byte at
-     * csParam offset 0. */
+    mode = display_current_mode_id(gd);                      /* the id the card actually runs */
+    if (mode <= 0 || mode > 255) mode = spid_for_depth(depth);   /* fall back to the family id */
+    if (mode <= 0 || mode > 255) return paramErr;
+    spID = (unsigned char)mode;
+
     memset(&pb, 0, sizeof pb);
     pb.ioCRefNum = (**gd).gdRefNum;
     pb.csCode    = kCscSetDefaultMode;
