@@ -1,0 +1,29 @@
+{
+  "base_os": "7.1",
+  "out": "/home/dani/MacAtrium-7.1-fullcolor.hda",
+  "launcher": "/home/dani/repos/MacAtrium/build/MacAtrium.bin",
+  "dataset": "/home/dani/repos/MacAtrium/data/library.jsonl",
+  "compatibility": "/home/dani/repos/MacAtrium/data/compatibility.jsonl",
+  "mg_archive": "/home/dani/macgarden-archive",
+  "selection": {
+    "mode": "list",
+    "ids": [
+      "prince-of-persia",
+      "dark-castle",
+      "beyond-dark-castle",
+      "arkanoid-1-10",
+      "space-invaders"
+    ]
+  },
+  "art_depths": [
+    "1",
+    "8",
+    "24"
+  ],
+  "app_mem_kb": [
+    3584,
+    3072
+  ],
+  "disk_size_mb": 80,
+  "rb_cli": "/home/dani/.local/bin/rb-cli"
+}
