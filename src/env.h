@@ -27,4 +27,8 @@ void env_probe(Env *e);
  * and v <= 0 yields "System (unknown)". */
 void env_os_name(long sysVers, char *out);
 
+/* Format just the version digits of a gestaltSystemVersion (e.g. "7.1.1") into
+ * `out` (>= 12 bytes); "?" when unknown. For "MacOS Version: X"-style labels. */
+void env_os_version(long sysVers, char *out);
+
 #endif /* MACATRIUM_ENV_H */

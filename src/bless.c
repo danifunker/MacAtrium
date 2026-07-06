@@ -9,6 +9,7 @@
 
 #include <Files.h>
 #include <Memory.h>
+#include <Resources.h>
 #include <string.h>
 
 /* "is a directory" bit of ioFlAttrib (leaner Retro68 headers may omit it). */
@@ -50,7 +51,27 @@ static long blessed_dir(short vref)
     return hp.volumeParam.ioVFndrInfo[0];
 }
 
-int bless_enumerate(SysFolder *out, int max)
+/* The version of a System Folder's `System` file, from its 'vers' (id 1) resource
+ * (numeric version, BCD: [major][minor<<4 | bug]). 0 if unreadable. HOpenResFile
+ * (dirID-based) works on 6.0.8 and 7.x alike. */
+static long system_version_of(short vref, long dirID)
+{
+    short  saved  = CurResFile();
+    short  refNum = HOpenResFile(vref, dirID, "\pSystem", fsRdPerm);
+    long   v = 0;
+    if (refNum != -1) {
+        Handle h = Get1Resource('vers', 1);
+        if (h && GetHandleSize(h) >= 2) {
+            const unsigned char *p = (const unsigned char *)*h;
+            v = ((long)p[0] << 8) | (long)p[1];
+        }
+        CloseResFile(refNum);
+    }
+    UseResFile(saved);
+    return v;
+}
+
+int bless_enumerate(SysFolder *out, int max, long runningVersion)
 {
     short vref;
     long  blessed;
@@ -81,6 +102,11 @@ int bless_enumerate(SysFolder *out, int max)
         out[n].dirID   = pb.dirInfo.ioDrDirID;
         BlockMoveData(nm, out[n].name, (long)nm[0] + 1);
         out[n].blessed = (pb.dirInfo.ioDrDirID == blessed);
+        /* The running (blessed) System's version comes from Gestalt — never re-open
+         * its in-use System file; other folders read their own 'vers' resource. */
+        out[n].version = (out[n].blessed && runningVersion > 0)
+                         ? runningVersion
+                         : system_version_of(vref, pb.dirInfo.ioDrDirID);
         n++;
     }
     return n;

@@ -18,11 +18,15 @@ typedef struct {
     long  dirID;      /* the System Folder's dir ID (the bless target) */
     Str63 name;       /* folder name (Pascal string) for display */
     int   blessed;    /* 1 = currently the blessed (bootable) folder */
+    long  version;    /* the System file's version (BCD, e.g. 0x0711); 0 = unknown */
 } SysFolder;
 
 /* Enumerate blessable System Folders on the boot volume's root into out[max],
- * flagging the currently-blessed one. Returns the count (0 on error). */
-int bless_enumerate(SysFolder *out, int max);
+ * flagging the currently-blessed one and filling each folder's System version.
+ * `runningVersion` (the Gestalt version of the running System) is used for the
+ * blessed/running folder rather than re-opening its in-use System file; other
+ * folders are read from their `System` file's 'vers' resource. Returns the count. */
+int bless_enumerate(SysFolder *out, int max, long runningVersion);
 
 /* Set the boot volume's blessed System Folder to `dirID` and flush to disk.
  * (PBHSetVInfo ioVFndrInfo[0] — the drFndrInfo blessed-folder dir ID.) */

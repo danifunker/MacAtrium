@@ -953,9 +953,12 @@ static SettingsResult run_settings_dialog(int *chromeChanged)
 #define QL_PITCH 30
 #define QL_TOP   16
 #define QL_MAXITEMS 8
+#define QL_HDR   24                  /* header band (the "MacOS Version" line) above the buttons */
+
+static char gQlHeader[48];           /* "MacOS Version: X", set before each modal loop */
 
 static void ql_btn_rect(int i, Rect *r)
-{ short y = (short)(QL_TOP + i * QL_PITCH); SetRect(r, QL_LM, y, (short)(QL_CW - QL_LM), (short)(y + QL_BTNH)); }
+{ short y = (short)(QL_TOP + QL_HDR + i * QL_PITCH); SetRect(r, QL_LM, y, (short)(QL_CW - QL_LM), (short)(y + QL_BTNH)); }
 
 static void ql_focus_frame(int i, int on)
 {
@@ -970,6 +973,14 @@ static void ql_draw(WindowPtr dlg, int focus)
     Rect content = dlg->portRect;
     SetPort(dlg);
     EraseRect(&content);
+    if (gQlHeader[0]) {                                  /* the "MacOS Version: X" header band */
+        Str255 h; short w;
+        TextFont(0); TextSize(12);
+        c2p255(gQlHeader, h);
+        w = StringWidth(h);
+        MoveTo((short)((content.right - content.left - w) / 2), (short)(QL_TOP + 6));
+        DrawString(h);
+    }
     DrawControls(dlg);
     ql_focus_frame(focus, 1);
 }
@@ -993,7 +1004,8 @@ static UiCommand run_quicklaunch_menu(void)
 
     if (n < 1) return UI_NONE;
     if (n > QL_MAXITEMS) n = QL_MAXITEMS;
-    CH = (short)(QL_TOP + n * QL_PITCH + 14);
+    strcpy(gQlHeader, "MacOS Version: "); env_os_version(gEnv.sysVers, gQlHeader + 15);
+    CH = (short)(QL_TOP + QL_HDR + n * QL_PITCH + 14);
     {
         short L = (short)(sb.left + ((sb.right - sb.left) - QL_CW) / 2);
         short T = (short)(sb.top  + ((sb.bottom - sb.top) - CH) / 2);
@@ -1066,9 +1078,16 @@ static UiCommand run_quicklaunch_menu(void)
  * (bless_and_restart returns only on failure). */
 static void osc_label(const SysFolder *s, Str255 out)
 {
-    int n = 0, i;
+    int  n = 0, i;
+    char v[16];
     if (s->blessed) { out[++n] = 0xA5; out[++n] = ' '; }        /* 0xA5 = • (MacRoman) */
-    for (i = 1; i <= s->name[0] && n < 250; i++) out[++n] = s->name[i];
+    for (i = 1; i <= s->name[0] && n < 200; i++) out[++n] = s->name[i];
+    if (s->version > 0) {                                       /* + the real System version */
+        env_os_version(s->version, v);
+        out[++n] = ' '; out[++n] = ' '; out[++n] = '(';
+        for (i = 0; v[i] && n < 250; i++) out[++n] = v[i];
+        out[++n] = ')';
+    }
     out[0] = (unsigned char)n;
 }
 
@@ -1077,7 +1096,7 @@ static void run_os_chooser(void)
     SysFolder     sys[BLESS_MAX_SYS];
     WindowPtr     dlg;
     Rect          bounds, sb = qd.screenBits.bounds;
-    int           nsys = bless_enumerate(sys, BLESS_MAX_SYS);
+    int           nsys = bless_enumerate(sys, BLESS_MAX_SYS, gEnv.sysVers);
     int           n, i, focus = 0, running = 1;
     short         CH;
     ControlHandle btn[QL_MAXITEMS];
@@ -1087,7 +1106,8 @@ static void run_os_chooser(void)
     n = nsys + 1;
     for (i = 0; i < nsys; i++) if (sys[i].blessed) focus = i;   /* start on the current OS */
 
-    CH = (short)(QL_TOP + n * QL_PITCH + 14);
+    strcpy(gQlHeader, "MacOS Version: "); env_os_version(gEnv.sysVers, gQlHeader + 15);
+    CH = (short)(QL_TOP + QL_HDR + n * QL_PITCH + 14);
     {
         short L = (short)(sb.left + ((sb.right - sb.left) - QL_CW) / 2);
         short T = (short)(sb.top  + ((sb.bottom - sb.top) - CH) / 2);

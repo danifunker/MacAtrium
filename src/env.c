@@ -61,3 +61,19 @@ void env_os_name(long v, char *out)
     if (bug) { *p++ = '.'; *p++ = (char)('0' + bug); }
     *p = '\0';
 }
+
+void env_os_version(long v, char *out)
+{
+    int   major = (int)((v >> 8) & 0xFF);
+    int   minor = (int)((v >> 4) & 0x0F);
+    int   bug   = (int)(v & 0x0F);
+    char *p = out;
+
+    if (v <= 0) { *p++ = '?'; *p = '\0'; return; }
+    if (major >= 10) *p++ = (char)('0' + major / 10);
+    *p++ = (char)('0' + major % 10);
+    *p++ = '.';
+    *p++ = (char)('0' + minor);
+    if (bug) { *p++ = '.'; *p++ = (char)('0' + bug); }
+    *p = '\0';
+}
