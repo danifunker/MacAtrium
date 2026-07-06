@@ -27,6 +27,7 @@
 #include "prefs.h"
 #include "controlpanels.h"
 #include "display.h"
+#include "bless.h"
 #include "mem.h"
 #include "mac_compat.h"
 
@@ -129,7 +130,7 @@ static void bring_self_front(void)
 enum { mApple = 128, mFile = 129, mEdit = 130, mView = 131, mSpecial = 132 };
 enum { kFileLaunch = 1, kFileGetInfo = 2 };  /* then a sep, then Show Finder / Quit */
 enum { kViewSettings = 5 };                  /* views are items 1..VIEW_N; 4 = sep   */
-enum { kSpecialRestart = 1, kSpecialShutdown = 2 };
+enum { kSpecialChooser = 1, kSpecialRestart = 3, kSpecialShutdown = 4 };  /* +sep at 2 */
 
 static MenuHandle gAppleMenu, gFileMenu, gEditMenu, gViewMenu, gSpecialMenu;
 /* File > Show Finder / Quit item numbers, or 0 when omitted — the System-6 boot
@@ -163,7 +164,7 @@ static void install_menus(void)
     InsertMenu(gViewMenu, 0);
 
     gSpecialMenu = NewMenu(mSpecial, "\pSpecial");
-    AppendMenu(gSpecialMenu, "\pRestart;Shut Down");
+    AppendMenu(gSpecialMenu, "\pSystem Folder Chooser\311;(-;Restart;Shut Down");  /* \311 = … */
     InsertMenu(gSpecialMenu, 0);
 
     DrawMenuBar();
@@ -1058,6 +1059,105 @@ static UiCommand run_quicklaunch_menu(void)
     return result;
 }
 
+/* ---- the System Folder Chooser (docs/36/37 Phase 2) ---------------------------
+ * A movable modal window of standard push buttons — one per blessable System Folder
+ * (the current one bulleted) plus Cancel — reusing the Quick-Launch menu's built-in
+ * widgets + focus-ring model. Choosing a folder blesses it and restarts into it
+ * (bless_and_restart returns only on failure). */
+static void osc_label(const SysFolder *s, Str255 out)
+{
+    int n = 0, i;
+    if (s->blessed) { out[++n] = 0xA5; out[++n] = ' '; }        /* 0xA5 = • (MacRoman) */
+    for (i = 1; i <= s->name[0] && n < 250; i++) out[++n] = s->name[i];
+    out[0] = (unsigned char)n;
+}
+
+static void run_os_chooser(void)
+{
+    SysFolder     sys[BLESS_MAX_SYS];
+    WindowPtr     dlg;
+    Rect          bounds, sb = qd.screenBits.bounds;
+    int           nsys = bless_enumerate(sys, BLESS_MAX_SYS);
+    int           n, i, focus = 0, running = 1;
+    short         CH;
+    ControlHandle btn[QL_MAXITEMS];
+
+    if (nsys < 1) { SysBeep(1); return; }                       /* nothing blessable */
+    if (nsys > QL_MAXITEMS - 1) nsys = QL_MAXITEMS - 1;         /* leave a slot for Cancel */
+    n = nsys + 1;
+    for (i = 0; i < nsys; i++) if (sys[i].blessed) focus = i;   /* start on the current OS */
+
+    CH = (short)(QL_TOP + n * QL_PITCH + 14);
+    {
+        short L = (short)(sb.left + ((sb.right - sb.left) - QL_CW) / 2);
+        short T = (short)(sb.top  + ((sb.bottom - sb.top) - CH) / 2);
+        if (T < (short)(sb.top + 44)) T = (short)(sb.top + 44);
+        SetRect(&bounds, L, T, (short)(L + QL_CW), (short)(T + CH));
+    }
+    dlg = NewWindow(0L, &bounds, "\pSystem Folder Chooser", true, movableDBoxProc, (WindowPtr)-1L, false, 0L);
+    if (!dlg) return;
+    SetPort(dlg);
+    TextFont(0); TextSize(12);
+    for (i = 0; i < n; i++) {
+        Rect r; Str255 t;
+        ql_btn_rect(i, &r);
+        if (i < nsys) osc_label(&sys[i], t);
+        else BlockMoveData("\pCancel", t, 7);
+        btn[i] = NewControl(dlg, &r, t, true, 0, 0, 0, pushButProc, 0L);
+    }
+    ql_draw(dlg, focus);
+    ValidRect(&dlg->portRect);
+
+    while (running) {
+        EventRecord evt;
+        if (!next_event(&evt)) continue;
+        switch (evt.what) {
+            case updateEvt: {
+                WindowPtr w = (WindowPtr)evt.message;
+                if (w == dlg) { BeginUpdate(w); ql_draw(dlg, focus); EndUpdate(w); }
+                else { BeginUpdate(w); SetPort(w); ui_draw(&gUi); EndUpdate(w); SetPort(dlg); }
+                break;
+            }
+            case mouseDown: {
+                WindowPtr w; short part = FindWindow(evt.where, &w);
+                if (part == inDrag && w == dlg) { DragWindow(w, evt.where, &sb); SetPort(dlg); }
+                else if (part == inContent && w == dlg) {
+                    Point p = evt.where; ControlHandle ctl; short cp;
+                    SetPort(dlg); GlobalToLocal(&p);
+                    cp = FindControl(p, dlg, &ctl);
+                    if (cp && ctl && TrackControl(ctl, p, (ControlActionUPP)0))
+                        for (i = 0; i < n; i++)
+                            if (ctl == btn[i]) {
+                                if (i >= nsys) running = 0;                              /* Cancel */
+                                else if (bless_and_restart(sys[i].dirID) != noErr) SysBeep(1); /* success reboots */
+                                break;
+                            }
+                } else if (w != dlg) { SysBeep(1); }
+                break;
+            }
+            case keyDown:
+            case autoKey: {
+                char c = (char)(evt.message & charCodeMask);
+                if (evt.modifiers & cmdKey) { if (c == '.') running = 0; break; }
+                switch (c) {
+                    case kCharEscape: running = 0; break;
+                    case kCharUp:     ql_set_focus(&focus, (focus - 1 + n) % n); break;
+                    case '\t':
+                    case kCharDown:   ql_set_focus(&focus, (focus + 1) % n); break;
+                    case ' ':
+                    case kCharReturn:
+                    case kCharEnter:
+                        if (focus >= nsys) running = 0;
+                        else if (bless_and_restart(sys[focus].dirID) != noErr) SysBeep(1);
+                        break;
+                }
+                break;
+            }
+        }
+    }
+    DisposeWindow(dlg);
+}
+
 static void handle_ui_command(UiCommand cmd)
 {
     switch (cmd) {
@@ -1147,6 +1247,14 @@ static void handle_ui_command(UiCommand cmd)
             }
             break;
         }
+        case UI_OPEN_CHOOSER: {              /* the System Folder Chooser (bless + restart) */
+            run_os_chooser();
+            gUi.mode = UI_MODE_LIST;
+            SetPort(gWin);
+            ui_reblit(&gUi);                 /* the chooser window never touched the buffer */
+            ValidRect(&gWin->portRect);
+            break;
+        }
         default: break;
     }
 }
@@ -1186,7 +1294,8 @@ static void do_menu(long mr)
             else if (item == kViewSettings)      handle_ui_command(UI_OPEN_SETTINGS);
             break;
         case mSpecial:
-            if (item == kSpecialRestart)         handle_ui_command(UI_RESTART);
+            if (item == kSpecialChooser)         handle_ui_command(UI_OPEN_CHOOSER);
+            else if (item == kSpecialRestart)    handle_ui_command(UI_RESTART);
             else if (item == kSpecialShutdown)   handle_ui_command(UI_SHUTDOWN);
             break;
     }

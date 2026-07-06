@@ -33,8 +33,8 @@ static const char *kGridStyle[GRID_N] = { "Finder", "Tiles" };
 
 /* Esc-menu row kinds and their labels (indexed by kind). The visible set per run
  * is built into Ui::menuRows by ui_init (Finder rows omitted on the boot shell). */
-enum { MROW_SETTINGS, MROW_SHOW_FINDER, MROW_EXIT, MROW_RESTART, MROW_SHUTDOWN };
-static const char *kMenuLabel[] = { "Settings", "Show Finder", "Exit to Finder", "Restart", "Shut Down" };
+enum { MROW_SETTINGS, MROW_SHOW_FINDER, MROW_EXIT, MROW_RESTART, MROW_SHUTDOWN, MROW_CHOOSE_OS };
+static const char *kMenuLabel[] = { "Settings", "Show Finder", "Exit to Finder", "Restart", "Shut Down", "System Folder Chooser" };
 
 /* ---- small helpers -------------------------------------------------------- */
 
@@ -177,6 +177,7 @@ void ui_init(Ui *u, Env *env, Render *r, Model *m, WindowPtr win, int safe)
             u->menuRows[k++] = MROW_SHOW_FINDER;
             u->menuRows[k++] = MROW_EXIT;
         }
+        u->menuRows[k++] = MROW_CHOOSE_OS;
         u->menuRows[k++] = MROW_RESTART;
         u->menuRows[k++] = MROW_SHUTDOWN;
         u->nmenu = k;
@@ -2513,6 +2514,7 @@ UiCommand ui_menu_command(Ui *u, int i)
         case MROW_EXIT:        return UI_QUIT;
         case MROW_RESTART:     return UI_RESTART;
         case MROW_SHUTDOWN:    return UI_SHUTDOWN;
+        case MROW_CHOOSE_OS:   return UI_OPEN_CHOOSER;
     }
     return UI_NONE;
 }

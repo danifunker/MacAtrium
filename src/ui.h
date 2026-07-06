@@ -25,7 +25,8 @@ typedef enum {
     UI_CHROME_DIRTY, /* menu-bar / title-bar visibility changed; main re-lays
                       * out the window + menu bar (rebuild_window) AND saves    */
     UI_OPEN_SETTINGS,/* open the real Settings window (main.c run_settings_dialog)  */
-    UI_OPEN_MENU     /* open the real Quick-Launch menu window (run_quicklaunch_menu) */
+    UI_OPEN_MENU,    /* open the real Quick-Launch menu window (run_quicklaunch_menu) */
+    UI_OPEN_CHOOSER  /* open the System Folder Chooser (main.c run_os_chooser)        */
 } UiCommand;
 
 enum { UI_MODE_LIST = 0, UI_MODE_MENU /* unused: now a real window */, UI_MODE_PREVIEW,
@@ -46,7 +47,7 @@ typedef struct {
     WindowPtr  win;
     int        mode;
     int        menuSel;
-    int        menuRows[5];   /* visible Esc-menu rows (MROW_*), built per-environment */
+    int        menuRows[8];   /* visible Esc-menu rows (MROW_*), built per-environment */
     int        nmenu;         /* count in menuRows[] */
     int        safe;          /* 1 = "no catalog" recoverable screen */
     char       status[96];    /* transient line (e.g. launch error)  */
