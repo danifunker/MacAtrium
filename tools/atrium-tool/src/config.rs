@@ -165,6 +165,12 @@ pub struct BuildConfig {
     /// Generate multiple depth variants (e.g. ["1","8"]) named `<id>.<depth>.pict`.
     #[serde(default)]
     pub art_depths: Vec<String>,
+    /// Pack each item's depth variants into ONE per-item resource fork
+    /// (`images/<id>.rsrc`: a 1-bit `ABMP` + a `PICT` per colour depth, id =
+    /// 128+bits) instead of loose `.pict`/`.raw` files — far fewer files on the
+    /// volume (docs/36 Phase 1). The launcher tries `.rsrc` first, else loose files.
+    #[serde(default)]
+    pub art_forks: bool,
     /// Legacy: downscale art so its longest side is at most this many pixels
     /// (a square bound). Prefer `max_art_size`. When neither is set the default
     /// bound applies (see [`BuildConfig::art_bounds`]).
@@ -425,6 +431,7 @@ impl Default for BuildConfig {
             art_dir: None,
             art_depth: d_artdepth(),
             art_depths: Vec::new(),
+            art_forks: false,
             art_max: None,
             max_art_size: None,
             download_art: false,

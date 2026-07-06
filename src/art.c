@@ -6,6 +6,7 @@
 #include "macfs.h"
 
 #include <Memory.h>
+#include <Resources.h>
 #include <string.h>
 
 /* Raw-bitmap sidecar header: "AB", u16 version, u16 w, u16 h, u16 rowBytes,
@@ -27,20 +28,17 @@ static unsigned short rd16(const unsigned char *p)
 
 /* ---- loading -------------------------------------------------------------- */
 
-static Art *load_raw(const char *relToRoot)
+/* Parse a raw "AB" 1-bit bitmap buffer (takes ownership of `buf`, a Ptr). Returns
+ * an Art on the raw/CopyBits path, or disposes `buf` and returns 0 on a short or
+ * malformed buffer. Shared by the file loader (load_raw) and the resource-fork
+ * loader (art_load_rsrc, which copies an `ABMP` resource into a Ptr first). */
+static Art *raw_from_buffer(char *buf, long len)
 {
-    FSSpec               spec;
-    char                *buf;
-    long                 len;
-    const unsigned char *p;
+    const unsigned char *p = (const unsigned char *)buf;
     short                w, h, rb;
     Art                 *a;
 
-    if (macfs_make_spec(relToRoot, &spec) != noErr) return 0;
-    if (macfs_read_all(&spec, &buf, &len) != noErr) return 0;
     if (len < RAW1_HEADER_LEN) { DisposePtr(buf); return 0; }
-
-    p = (const unsigned char *)buf;
     if (p[0] != 'A' || p[1] != 'B' || rd16(p + 2) != 1) { DisposePtr(buf); return 0; }
     w  = (short)rd16(p + 4);
     h  = (short)rd16(p + 6);
@@ -60,6 +58,17 @@ static Art *load_raw(const char *relToRoot)
     a->raw = buf;                            /* pixels start at buf + header */
     a->w = w; a->h = h; a->rowBytes = rb;
     return a;
+}
+
+static Art *load_raw(const char *relToRoot)
+{
+    FSSpec spec;
+    char  *buf;
+    long   len;
+
+    if (macfs_make_spec(relToRoot, &spec) != noErr) return 0;
+    if (macfs_read_all(&spec, &buf, &len) != noErr) return 0;
+    return raw_from_buffer(buf, len);
 }
 
 static Art *load_pict(const char *relToRoot)
@@ -90,6 +99,76 @@ Art *art_load(const char *relToRoot)
     if (n >= 4 && strcmp(relToRoot + n - 4, ".raw") == 0)
         return load_raw(relToRoot);
     return load_pict(relToRoot);
+}
+
+/* ---- resource-fork loading (docs/36: per-item images/<id>.rsrc) ------------ */
+
+/* Depth-preference search order for a screen of `depth` bits: the exact colour
+ * depth, then deeper colour PICTs (QuickDraw down-converts), then shallower
+ * colour, and the 1-bit ABMP last; a 1-/2-bit screen prefers the 1-bit ABMP.
+ * Fills `out` (>=6 entries) with the bit-depths to try, returns the count. */
+static short art_rsrc_order(short depth, short *out)
+{
+    static const short colour[4] = { 4, 8, 16, 24 };
+    short n = 0, i;
+    if (depth >= 4) {
+        for (i = 0; i < 4; i++) if (colour[i] == depth) out[n++] = colour[i];
+        for (i = 0; i < 4; i++) if (colour[i] >  depth) out[n++] = colour[i];
+        for (i = 3; i >= 0; i--) if (colour[i] <  depth) out[n++] = colour[i];
+        out[n++] = 1;
+    } else {
+        out[n++] = 1;
+        for (i = 0; i < 4; i++) out[n++] = colour[i];
+    }
+    return n;
+}
+
+Art *art_load_rsrc(const char *relToRoot, short depth)
+{
+    FSSpec spec;
+    short  refNum, saved, order[6], n, i;
+    Art   *a = 0;
+
+    if (macfs_make_spec(relToRoot, &spec) != noErr) return 0;
+    saved  = CurResFile();
+    refNum = FSpOpenResFile(&spec, fsRdPerm);
+    if (refNum == -1) return 0;
+    UseResFile(refNum);
+
+    /* id = 128 + bits (matches art_res_id in the host tool, image.rs): the 1-bit
+     * raw is an `ABMP` (id 129), colour depths are `PICT` (132/136/144/152). */
+    n = art_rsrc_order(depth, order);
+    for (i = 0; i < n && !a; i++) {
+        if (order[i] == 1) {
+            Handle h = Get1Resource('ABMP', (short)(128 + 1));
+            if (h) {
+                long len = GetHandleSize(h);
+                Ptr  buf = NewPtr(len);
+                if (buf) {
+                    BlockMoveData(*h, buf, len);   /* own a Ptr copy of the payload */
+                    a = raw_from_buffer(buf, len); /* frees buf on a bad payload    */
+                }
+                /* h stays owned by the res file; CloseResFile releases it */
+            }
+        } else {
+            Handle h = Get1Resource('PICT', (short)(128 + order[i]));
+            if (h) {
+                DetachResource(h);                 /* keep it past CloseResFile */
+                a = (Art *)NewPtr(sizeof(Art));
+                if (a) {
+                    a->pic = (PicHandle)h;         /* PICT resource = picture data */
+                    a->raw = 0;
+                    a->w = a->h = a->rowBytes = 0;
+                } else {
+                    DisposeHandle(h);
+                }
+            }
+        }
+    }
+
+    CloseResFile(refNum);
+    UseResFile(saved);
+    return a;
 }
 
 void art_dispose(Art *a)

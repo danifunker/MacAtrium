@@ -195,6 +195,70 @@ fn bake_icon(
     Ok(Some(format!("{images_rel}/{id}.icon")))
 }
 
+/// Resource id for a depth's art variant: `128 + bits`, so 1-bit → 129 (`ABMP`),
+/// 4 → 132, 8 → 136, 16 → 144, 24 → 152 (`PICT`). IDs stay ≥128 (Apple reserves
+/// 0–127). **Must match the launcher's `art.c` resource loader.**
+fn art_res_id(bits: u16) -> i16 {
+    (128 + bits) as i16
+}
+
+/// Per-item art fork (docs/36 Phase 1): bake each requested depth and pack them
+/// all into one `images/<name>.rsrc` — a 1-bit `ABMP` + one `PICT` per colour
+/// depth — instead of loose files. The data fork is empty; the resources go in
+/// the resource fork via `rb-cli setrsrc` (the `bake_sound` pattern). A `PICT`
+/// resource is the picture data with the 512-byte file header stripped; the raw
+/// 1-bit `ABMP` body is used as-is. Returns `<images_rel>/<name>.rsrc`, or None.
+fn bake_variants_rsrc(
+    rb: &RbCli,
+    cfg: &BuildConfig,
+    stage: &Path,
+    images_rel: &str,
+    name: &str,
+    src: &Path,
+    depths: &[pict::Depth],
+    aw: u32,
+    ah: u32,
+) -> Result<Option<String>> {
+    let mut bodies: Vec<(crate::resfork::OsType, i16, Vec<u8>)> = Vec::new();
+    for d in depths {
+        let raw = *d == pict::Depth::One;
+        let ext = if raw { "raw" } else { "pict" };
+        let f = stage.join(format!("{name}.{}.{ext}", d.bits()));
+        let ok = if raw {
+            pict::run_raw1(src, &f, aw, ah).is_ok()
+        } else {
+            pict::run(src, &f, *d, true, aw, ah).is_ok()
+        };
+        if !ok {
+            continue; // skip art that won't decode rather than fail the build
+        }
+        let bytes = std::fs::read(&f)?;
+        let (tag, body): (crate::resfork::OsType, Vec<u8>) = if raw {
+            (*b"ABMP", bytes) // AB payload as-is (art.c parses its header)
+        } else {
+            let cut = bytes.len().min(512); // strip the 512-byte PICT file header
+            (*b"PICT", bytes[cut..].to_vec())
+        };
+        bodies.push((tag, art_res_id(d.bits()), body));
+    }
+    if bodies.is_empty() {
+        return Ok(None);
+    }
+    let resources: Vec<crate::resfork::Res> = bodies
+        .iter()
+        .map(|(t, i, b)| crate::resfork::Res::new(*t, *i, b))
+        .collect();
+    let fork = crate::resfork::build(&resources);
+    let rfile = stage.join(format!("{name}.rsrc.bin"));
+    std::fs::write(&rfile, &fork)?;
+    let empty = stage.join(format!("{name}.rsrc.empty"));
+    std::fs::write(&empty, b"")?;
+    let dst = format!("{}/{}.rsrc", cfg.images_dir.trim_end_matches('/'), name);
+    rb.put_typed(&cfg.out, &empty, &dst, "rsrc", "ttxt")?; // empty data fork
+    rb.set_rsrc(&cfg.out, &dst, &rfile)?; // depth variants in the resource fork
+    Ok(Some(format!("{images_rel}/{name}.rsrc")))
+}
+
 /// Bake the depth variants for one source image under `name` (e.g. "prince" for
 /// box art or "prince.shot" for the screenshot), inject them, and return the
 /// catalog path to record — a base path for multi-variant, an explicit `.ext`
@@ -209,8 +273,11 @@ fn bake_variants(
     depths: &[pict::Depth],
     multi: bool,
 ) -> Result<Option<String>> {
-    let mut any = false;
     let (aw, ah) = cfg.art_bounds();
+    if cfg.art_forks {
+        return bake_variants_rsrc(rb, cfg, stage, images_rel, name, src, depths, aw, ah);
+    }
+    let mut any = false;
     for d in depths {
         let sfx = if multi { format!(".{}", d.bits()) } else { String::new() };
         // 1-bit ships as a raw CopyBits bitmap (.raw); colour depths as PICT.

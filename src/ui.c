@@ -2560,6 +2560,8 @@ static Art *load_item_art(Ui *u, const char *image)
     Art *p;
     int cand[5], nc = 0, i, depth;
 
+    if (n >= 5 && strcmp(image + n - 5, ".rsrc") == 0)
+        return art_load_rsrc(image, (short)u->env->pixelSize);
     if ((n >= 5 && strcmp(image + n - 5, ".pict") == 0) ||
         (n >= 4 && strcmp(image + n - 4, ".raw") == 0))
         return art_load(image);
