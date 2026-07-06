@@ -169,7 +169,8 @@ pub struct BuildConfig {
     /// (`images/<id>.rsrc`: a 1-bit `ABMP` + a `PICT` per colour depth, id =
     /// 128+bits) instead of loose `.pict`/`.raw` files — far fewer files on the
     /// volume (docs/36 Phase 1). The launcher tries `.rsrc` first, else loose files.
-    #[serde(default)]
+    /// Defaults ON as of Phase 1 completion; set false to keep the loose-file layout.
+    #[serde(default = "d_art_forks")]
     pub art_forks: bool,
     /// Legacy: downscale art so its longest side is at most this many pixels
     /// (a square bound). Prefer `max_art_size`. When neither is set the default
@@ -217,6 +218,10 @@ pub struct BuildConfig {
     #[serde(default)]
     pub app_mem_kb: Option<[u32; 2]>,
 }
+
+/// `art_forks` defaults ON (Phase 1 complete, docs/36): builds pack art into
+/// per-item `images/<id>.rsrc` unless a config sets `"art_forks": false`.
+pub fn d_art_forks() -> bool { true }
 
 /// Recommended colour-build (System 7.x) partition in KB: `(preferred, minimum)`.
 /// A 7.x colour build's measured partition peak is ~472 KB — the off-screen GWorld
@@ -431,7 +436,7 @@ impl Default for BuildConfig {
             art_dir: None,
             art_depth: d_artdepth(),
             art_depths: Vec::new(),
-            art_forks: false,
+            art_forks: d_art_forks(),
             art_max: None,
             max_art_size: None,
             download_art: false,
