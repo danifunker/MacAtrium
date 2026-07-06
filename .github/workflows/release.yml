@@ -125,7 +125,8 @@ jobs:
     container: ghcr.io/autc04/retro68:latest
     steps:
       - name: Install build deps
-        run: apt-get update && apt-get install -y --no-install-recommends cmake make git ca-certificates
+        # macutils provides `binhex`, used below to package the launcher as .hqx.
+        run: apt-get update && apt-get install -y --no-install-recommends cmake make git ca-certificates macutils
       - uses: actions/checkout@v6
       - name: Build launcher
         run: |
@@ -135,8 +136,17 @@ jobs:
       - name: Stage launcher
         run: |
           mkdir -p out
-          cp build/MacAtrium.bin out/
-          cp build/MacAtrium.APPL out/ 2>/dev/null || true
+          # Ship the launcher two ways:
+          #  - MacAtrium.hqx: BinHex 4.0, a 7-bit-safe download that Stuffit
+          #    Expander decodes on any classic Mac (both forks preserved). binhex
+          #    reads the MacBinary and writes BinHex to stdout.
+          #  - MacAtrium.dsk: the Retro68 disk image, mountable in Mini vMac /
+          #    Basilisk II for emulator users.
+          # The bare data fork (.APPL) is empty for a resource-based 68k app and is
+          # not shipped. build/MacAtrium.bin (MacBinary) stays for atrium/rb-cli.
+          binhex build/MacAtrium.bin > out/MacAtrium.hqx
+          cp build/MacAtrium.dsk out/
+          ls -l out/
       - uses: actions/upload-artifact@v7
         with:
           name: MacAtrium-launcher-${{ needs.generate-version.outputs.version }}
@@ -470,13 +480,18 @@ jobs:
       - name: Flatten release files
         run: |
           mkdir -p release-files
-          # CLI tarballs/zips + 68k launcher + Manager GUI (dmg / Setup.exe /
-          # AppImage[.zsync]). The Manager .zip is already caught by *.zip.
+          # CLI tarballs/zips + 68k launcher (.hqx BinHex + .dsk disk image) +
+          # Manager GUI (dmg / Setup.exe / AppImage[.zsync]). The Manager .zip is
+          # already caught by *.zip.
           find artifacts -type f \( \
             -name "*.tar.gz" -o -name "*.zip" \
-            -o -name "MacAtrium.bin" -o -name "MacAtrium.APPL" \
+            -o -name "*.hqx" -o -name "*.dsk" \
             -o -name "*.dmg" -o -name "*.exe" -o -name "*.AppImage" -o -name "*.AppImage.zsync" \
           \) -exec cp {} release-files/ \;
+          # GitHub's release API rejects zero-byte assets (size must be >= 1), so
+          # drop any empty file — one otherwise fails the entire publish after all
+          # builds have already succeeded.
+          find release-files -type f -empty -print -delete
           ls -lh release-files/
 
       - name: Create release
