@@ -206,10 +206,37 @@ just reuses the same three binaries, one per System Folder.
 - **Snow = Color QD on Mac II+MDC** — B&W/direct-draw (ABMP + sys6) must be tested on a
   6.0.8 disk.
 
-## Task checklist
-**Phase 0** — [ ] apt deps · [ ] Retro68 (`--no-ppc --no-carbon`) · [ ] rb-cli · [ ] atrium tool · [ ] snow harness · [ ] smoke-build `MacAtrium.bin`
+## Status (2026-07-06)
+**Phase 0 DONE**; **Phase 1 DONE + Snow-verified** (B&W/`ABMP` path). Commits: resfork `1b75d30`,
+per-item forks `0886427`, `pict-rsrc` tool `92ac20a`. (Env details: memory `macatrium-wsl-env`.)
 
-**Phase 1** — [ ] `resfork.rs` writer · [ ] host per-item `.rsrc` + `setrsrc` inject · [ ] `art_load_rsrc` + fallback · [ ] Snow verify (6.0.8 + colour)
+### Verify recipe (this WSL)
+- **Rebuild the Snow harness** — source is `tools/snow-harness/macatrium_harness.rs`; it is NOT in the
+  fresh snow clone (only `snowemu`). Snow pins Rust 1.95.0 via `rust-toolchain.toml`, so build from a
+  neutral cwd to use the installed stable:
+  ```sh
+  cp tools/snow-harness/macatrium_harness.rs ~/repos/snow/testrunner/src/bin/
+  cd ~ && cargo build -r --manifest-path ~/repos/snow/Cargo.toml -p testrunner --bin macatrium_harness
+  ```
+- **Test disk:** `/mnt/c/Temp/mistercore/HD20SC-With-Benchmarking-and-CDROM.vhd` — multi-System,
+  **blessed to System 7.1.2**, boots B&W on the Mac II ROM (`~/repos/boot0.rom` + MDC `~/repos/341-0868.BIN`).
+  It ships **System Picker 1.1a3** — a working multi-System chooser to study for Phase 2.
+- **Bake a fork + assemble + boot** (harness key `return` picks Carousel):
+  ```sh
+  atrium pict-rsrc --input art.png --out foo.rsrc --depths 1,8
+  rb-cli put DISK empty /MacAtrium/images/foo.rsrc --type rsrc --creator ttxt
+  rb-cli setrsrc DISK /MacAtrium/images/foo.rsrc --from-file foo.rsrc
+  # + catalog item {"image":"images/foo.rsrc",...}; launcher in "/System 7.1.2/Startup Items"
+  macatrium_harness ~/repos/boot0.rom ~/repos/341-0868.BIN DISK out/ 2200000000 \
+      --snap-every 200000000 --keys "1000000000:return"
+  ```
+- **Still open:** verify the **colour `PICT`** resource path on a colour-depth boot (same `art_load_rsrc`
+  code, different resource); flip `art_forks` on by default once colour is confirmed.
+
+## Task checklist
+**Phase 0** — [x] apt deps · [x] Retro68 (`--no-ppc --no-carbon`) · [x] rb-cli · [x] atrium tool · [x] snow harness · [x] smoke-build `MacAtrium.bin`
+
+**Phase 1** — [x] `resfork.rs` writer · [x] host per-item `.rsrc` + `setrsrc` inject · [x] `art_load_rsrc` + fallback · [x] Snow verify B&W/`ABMP` · [ ] colour `PICT` path verify · [ ] flip `art_forks` default
 
 **Phase 2** — [ ] multi-System image assembly + `systems.jsonl` · [ ] per-System theme-matched startup app · [ ] `bless.c` (verify fields) · [ ] chooser screen · [ ] Snow verify switch+reboot
 
