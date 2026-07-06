@@ -1,0 +1,36 @@
+{
+  "_comment": "MacAtrium OS-compatibility tiers. OS support is a function of CPU/ROM generation, not model. Detect the tier at runtime from gestaltSysArchitecture + gestaltNativeCPUtype (works for 68k AND PowerPC, including New-World Macs that report no machine ID). Then a candidate System version is bootable on this machine iff minOSbcd <= version <= maxOSbcd. Version encoding matches gestaltSystemVersion BCD (0xMMmb).",
+  "envelope": { "minOS": "6.0.4", "maxOS": "9.2.2", "minBcd": "0x0604", "maxBcd": "0x0922" },
+  "tiers": [
+    {
+      "id": "m68k_early", "label": "68000 / 68020",
+      "detect": { "arch": "68k", "nativeCPU": ["gestaltCPU68000", "gestaltCPU68020"], "procType": ["gestalt68000", "gestalt68020"] },
+      "minOS": "6.0.4", "maxOS": "7.5.5", "minBcd": "0x0604", "maxBcd": "0x0755",
+      "colorQD": false, "models": 12
+    },
+    {
+      "id": "m68030", "label": "68030",
+      "detect": { "arch": "68k", "nativeCPU": ["gestaltCPU68030"], "procType": ["gestalt68030"] },
+      "minOS": "6.0.4", "maxOS": "7.6.1", "minBcd": "0x0604", "maxBcd": "0x0761",
+      "colorQD": "optional", "models": 34
+    },
+    {
+      "id": "m68040", "label": "68040 / 68LC040",
+      "detect": { "arch": "68k", "nativeCPU": ["gestaltCPU68040"], "procType": ["gestalt68040"] },
+      "minOS": "7.1", "maxOS": "8.1", "minBcd": "0x0710", "maxBcd": "0x0810",
+      "colorQD": true, "models": 30
+    },
+    {
+      "id": "ppc_oldworld", "label": "PowerPC (Old World, 601/603/604)",
+      "detect": { "arch": "ppc", "nativeCPU": ["gestaltCPU601", "gestaltCPU603", "gestaltCPU603e", "gestaltCPU603ev", "gestaltCPU604", "gestaltCPU604e", "gestaltCPU604ev"] },
+      "minOS": "7.1.2", "maxOS": "9.1", "minBcd": "0x0712", "maxBcd": "0x0910",
+      "colorQD": true, "models": 52
+    },
+    {
+      "id": "ppc_newworld", "label": "PowerPC (New World, G3/G4)",
+      "detect": { "arch": "ppc", "nativeCPU": ["gestaltCPU750", "gestaltCPUG4"], "machineType": 406 },
+      "minOS": "8.1", "maxOS": "9.2.2", "minBcd": "0x0810", "maxBcd": "0x0922",
+      "colorQD": true, "models": 24
+    }
+  ]
+}

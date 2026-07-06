@@ -1,0 +1,4 @@
+# local build artifacts — canonical copies live in ../../data and ../../docs
+macatrium-models.jsonl
+macatrium-models.md
+models-table.html
