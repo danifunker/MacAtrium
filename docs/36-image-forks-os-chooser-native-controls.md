@@ -146,6 +146,42 @@ it, and reboots into it.
 Boot the multi-System image in Snow; drive the chooser with `--keys` (arrows/enter,
 `click@`); confirm the post-reboot snapshot shows the chosen System's launcher.
 
+### Implemented (2026-07-06)
+Done and Snow-verified: `bless.c` (`bless_enumerate` + `bless_set` via `PBHGetVInfo` /
+`PBSetVInfo` `ioVFndrInfo[0]` + `FlushVol` + `sysctl_restart`; the mechanism was
+de-risked offline first with `rb-cli bless`, which switched HD20SC 7.1.2 → 6.0.8 in
+Snow) and `run_os_chooser` — a **built-in-widget** modal (standard push buttons + focus
+ring) reachable from the **Quick-Launch list** ("System Folder Chooser") **and** the
+**Special menu**. Choosing a folder blesses it and restarts into it (verified: picked
+6.0.8 → the Mac rebooted into System 6). Scope change: enumeration is **live** (walk the
+volume root for folders holding a `zsys` System file), so **no host `systems.jsonl` is
+needed**. The chooser shows each folder's **name + real System version** (read from the
+`System` file's `vers` resource), and the Quick-Launch menu + chooser show a
+**"MacOS Version: X"** header (running Gestalt version; also in About). Commits
+`d32dad5` / `a8cd9c2` / `16a003c` / `e4a6b6e`.
+
+### Compatibility gating (chooser) — TODO
+Show **every** System Folder, but classify each for **this machine** (Gestalt
+`gestaltMachineType` / CPU / Color-QD × the folder's System version, using the
+[compatibility matrix](38-compatibility-matrix.md)):
+- **Compatible** → normal, selectable.
+- **Needs a System Enabler** → selectable but **flagged** — a marker (e.g. `⚠`) plus a
+  status line *"System Enablers must be installed in the selected System Folder for it to
+  boot correctly."* We can't tell offline whether the enabler is actually present, so we
+  **warn, not block** (the image may already have it; builds assume enablers are present).
+- **Incompatible** on this machine (e.g. a pre-6 System on a 68020+, or an OS the ROM
+  can't run) → **grayed out** (disabled push button via `HiliteControl(ctl, 255)`), shown
+  for transparency but not blessable.
+- Implementation: extend `env` with Gestalt machine/CPU/Color-QD; a small compat table
+  distilled from docs/38; disabled-button rendering + a per-selection status line in
+  `run_os_chooser`.
+
+**Host-side blessing (rusty-backup):** independent of the in-UI chooser, `rb-cli bless
+set <img> "<folder>"` and `rb-cli bless show <img>` change/read a disk's blessed System
+Folder **offline** — for build scripts and to fix/verify a disk without booting (exactly
+how the mechanism was de-risked). `rb-cli make-bootable` also blesses a System Folder as
+part of its auto-repair.
+
 ---
 
 ## Phase 3 — Per-OS native window controls (compile-time themes)
@@ -246,6 +282,6 @@ just reuses the same three binaries, one per System Folder.
 
 **Phase 1 DONE** — [x] `resfork.rs` writer · [x] host per-item `.rsrc` + `setrsrc` inject · [x] `art_load_rsrc` + fallback · [x] Snow verify B&W/`ABMP` · [x] flip `art_forks` default ON · [~] colour `PICT` verify (proven-equivalent; live verify → HW / boot-8-bit disk)
 
-**Phase 2** — [ ] multi-System image assembly + `systems.jsonl` · [ ] per-System theme-matched startup app · [ ] `bless.c` (verify fields) · [ ] chooser screen · [ ] Snow verify switch+reboot
+**Phase 2** — [x] `bless.c` (enumerate + `PBSetVInfo`; de-risked vs `rb-cli bless`) · [x] chooser UI (built-in widgets, Quick-Launch + Special menu) · [x] Snow verify swap (7.1.2 → 6.0.8) · [x] per-folder System version + MacOS-version header · [ ] compatibility gating (gray incompatible, flag enabler-needed — needs docs/38) · [ ] host per-System startup placement · [ ] filter/handle pre-6 Systems in the chooser
 
 **Phase 3** — [ ] `theme.h` + extract sys7 (parity) · [ ] `theme_sys6` · [ ] `theme_sys8` (Appearance) · [ ] CMake 3-binary matrix · [ ] atrium picks per-target binary · [ ] per-OS Snow verify
