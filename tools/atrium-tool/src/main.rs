@@ -232,6 +232,24 @@ enum Cmd {
         max: Option<u32>,
     },
 
+    /// Bake PNG/JPEG artwork into a per-item resource fork (images/<id>.rsrc): a
+    /// 1-bit `ABMP` + a `PICT` per colour depth (docs/36). Same fork the `image`
+    /// build injects when `art_forks` is set; write it with `rb-cli setrsrc`.
+    PictRsrc {
+        /// Source image (PNG or JPEG).
+        #[arg(long)]
+        input: PathBuf,
+        /// Output .rsrc file (resource-fork bytes).
+        #[arg(long)]
+        out: PathBuf,
+        /// Comma-separated depths to include, e.g. "1,8" or "1,8,16".
+        #[arg(long, default_value = "1,8")]
+        depths: String,
+        /// Downscale so the longest side is at most this many pixels.
+        #[arg(long)]
+        max: Option<u32>,
+    },
+
     /// Extract an app's Finder icon (ICN#) from a BinHex (.hqx) export
     /// (`rb-cli get-binhex`) to a raw 1-bit bitmap (.raw) the launcher can blit.
     Icon {
@@ -584,6 +602,27 @@ fn main() -> Result<()> {
                 out.display(),
                 s.bytes
             );
+        }
+        Cmd::PictRsrc { input, out, depths, max } => {
+            let (mw, mh) = max.map(|m| (m, m)).unwrap_or((u32::MAX, u32::MAX));
+            let ds: Vec<pict::Depth> = depths
+                .split(',')
+                .map(|s| pict::Depth::parse(s.trim()))
+                .collect::<Result<_>>()?;
+            let stage = std::env::temp_dir().join("atrium-pict-rsrc");
+            std::fs::create_dir_all(&stage)?;
+            match image::art_rsrc_bytes(&input, &ds, mw, mh, &stage)? {
+                Some(fork) => {
+                    std::fs::write(&out, &fork)?;
+                    eprintln!(
+                        "pict-rsrc: {} depth(s) -> {} ({} bytes)",
+                        ds.len(),
+                        out.display(),
+                        fork.len()
+                    );
+                }
+                None => anyhow::bail!("no art decoded from {}", input.display()),
+            }
         }
         Cmd::Icon { hqx, out } => {
             let bytes = std::fs::read(&hqx)?;

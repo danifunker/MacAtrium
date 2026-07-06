@@ -208,35 +208,36 @@ fn art_res_id(bits: u16) -> i16 {
 /// the resource fork via `rb-cli setrsrc` (the `bake_sound` pattern). A `PICT`
 /// resource is the picture data with the 512-byte file header stripped; the raw
 /// 1-bit `ABMP` body is used as-is. Returns `<images_rel>/<name>.rsrc`, or None.
-fn bake_variants_rsrc(
-    rb: &RbCli,
-    cfg: &BuildConfig,
-    stage: &Path,
-    images_rel: &str,
-    name: &str,
+/// Build the resource-fork BYTES for one item's depth variants: a 1-bit `ABMP` +
+/// a `PICT` per colour depth (id 128+bits), staging intermediate `.pict`/`.raw`
+/// under `stage`. A `PICT` resource is the picture data with the 512-byte file
+/// header stripped; the raw 1-bit `ABMP` body is used as-is. `None` if nothing
+/// decoded. Shared by the image pipeline and the `atrium pict-rsrc` command.
+pub fn art_rsrc_bytes(
     src: &Path,
     depths: &[pict::Depth],
     aw: u32,
     ah: u32,
-) -> Result<Option<String>> {
+    stage: &Path,
+) -> Result<Option<Vec<u8>>> {
     let mut bodies: Vec<(crate::resfork::OsType, i16, Vec<u8>)> = Vec::new();
     for d in depths {
         let raw = *d == pict::Depth::One;
         let ext = if raw { "raw" } else { "pict" };
-        let f = stage.join(format!("{name}.{}.{ext}", d.bits()));
+        let f = stage.join(format!("art-rsrc-{}.{ext}", d.bits()));
         let ok = if raw {
             pict::run_raw1(src, &f, aw, ah).is_ok()
         } else {
             pict::run(src, &f, *d, true, aw, ah).is_ok()
         };
         if !ok {
-            continue; // skip art that won't decode rather than fail the build
+            continue; // skip a depth that won't decode rather than fail
         }
         let bytes = std::fs::read(&f)?;
         let (tag, body): (crate::resfork::OsType, Vec<u8>) = if raw {
-            (*b"ABMP", bytes) // AB payload as-is (art.c parses its header)
+            (*b"ABMP", bytes)
         } else {
-            let cut = bytes.len().min(512); // strip the 512-byte PICT file header
+            let cut = bytes.len().min(512);
             (*b"PICT", bytes[cut..].to_vec())
         };
         bodies.push((tag, art_res_id(d.bits()), body));
@@ -248,7 +249,24 @@ fn bake_variants_rsrc(
         .iter()
         .map(|(t, i, b)| crate::resfork::Res::new(*t, *i, b))
         .collect();
-    let fork = crate::resfork::build(&resources);
+    Ok(Some(crate::resfork::build(&resources)))
+}
+
+fn bake_variants_rsrc(
+    rb: &RbCli,
+    cfg: &BuildConfig,
+    stage: &Path,
+    images_rel: &str,
+    name: &str,
+    src: &Path,
+    depths: &[pict::Depth],
+    aw: u32,
+    ah: u32,
+) -> Result<Option<String>> {
+    let fork = match art_rsrc_bytes(src, depths, aw, ah, stage)? {
+        Some(f) => f,
+        None => return Ok(None),
+    };
     let rfile = stage.join(format!("{name}.rsrc.bin"));
     std::fs::write(&rfile, &fork)?;
     let empty = stage.join(format!("{name}.rsrc.empty"));
