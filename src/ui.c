@@ -2595,13 +2595,16 @@ static Art *load_item_art(Ui *u, const char *image)
     return art_load(buf);
 }
 
-/* Switch the screen to `depth` bits and re-fit our rendering to it. */
+/* Switch the screen to `depth` bits and re-fit our rendering to it. Called ONLY from
+ * the Settings "Color Depth" stepper — the sole place we persist a boot default. */
 static void apply_depth(Ui *u, short depth)
 {
     if (display_set_depth(depth) != noErr) return;
     u->env->pixelSize = display_current_depth();   /* re-read what we actually got */
-    /* Persist it as the boot default in slot PRAM so the system comes up here next
-     * time (the launcher then just matches it). main also saves the depth to prefs. */
+    /* THE ONE slot-PRAM write in the whole app: an explicit user depth choice becomes
+     * the system's boot default (display_set_default_depth only commits it because the
+     * screen is now live at this depth). Nowhere else touches slot PRAM. main also saves
+     * the depth to prefs so the launcher re-applies it live on the next boot. */
     (void)display_set_default_depth(u->env->pixelSize);
     u->env->useColor  = (u->env->hasColorQD && u->env->pixelSize >= 4);
     render_reset_for_depth(u->r, u->env, u->env->pixelSize);

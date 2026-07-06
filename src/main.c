@@ -542,10 +542,9 @@ static void do_launch(void)
             short target = display_depth_at_most((short)maxd);   /* highest ≤ cap */
             if (target > 0 && target < cur && display_set_depth(target) == noErr) {
                 savedDepth = cur;                      /* restore this on the app's quit */
-                /* Commit to slot PRAM too, even though this is a temporary per-game
-                 * cap: a bare SetDepth doesn't always stick, and the appliance reads
-                 * its boot depth from PRAM when the game quits and relaunches us. */
-                (void)display_set_default_depth(target);
+                /* LIVE depth only — a per-game cap is temporary and must NOT touch the
+                 * boot default in slot PRAM (that's Settings-only). We put the live
+                 * depth back when the game quits (osEvt resume / below). */
                 /* Re-fit our backend to the new depth, but DON'T repaint: the game is
                  * about to take over the screen, so a "setting up the display" redraw
                  * here is just an extra flash on top of the depth switch itself. (We
@@ -574,8 +573,7 @@ static void do_launch(void)
      * non-returning (System 6) launch that only returns on failure. Put the capped
      * depth back, repaint our menu bar (the child drew its own), re-front and report. */
     if (savedDepth > 0) {
-        (void)display_set_depth(savedDepth);
-        (void)display_set_default_depth(savedDepth);   /* keep PRAM in step (docs/15) */
+        (void)display_set_depth(savedDepth);           /* live only — never the boot default */
         render_reset_for_depth(&gRender, &gEnv, savedDepth);
     }
     bring_self_front();
@@ -1215,34 +1213,24 @@ int main(void)
     render_init(&gRender, &gEnv);
     install_menus();                   /* real System menu bar (docs/28) */
 
-    /* Colour depth persists in the video card's slot PRAM (display_set_default_depth
-     * → cscSetDefaultMode), so the *system* boots at the chosen depth and we just
-     * match it. Two cases:
-     *   • saved choice (prefs `depth`): re-assert it as the boot default (self-heals
-     *     if PRAM was zapped) and apply it to the live screen if it isn't already;
-     *   • first boot / no saved choice: bootstrap to the best colour depth ≤ 8-bit
-     *     and make THAT the boot default, so the next boot comes up in colour from
-     *     the system — out-of-box colour without forcing it every boot.
-     * The chosen depth is recorded by save_prefs (current depth) on the next save,
-     * which makes the bootstrap one-time: a user who picks 1-bit then stays 1-bit.
+    /* Match the LIVE screen to the saved/bootstrap depth — but NEVER write slot PRAM
+     * here. Slot PRAM (the *boot* default) is only ever changed from the Settings
+     * "Color Depth" stepper (ui.c apply_depth); a stray boot-default write is what left
+     * some machines needing a PRAM reset. So we just raise the live depth each boot:
+     *   • saved choice (prefs `depth`): re-apply it live if it isn't already;
+     *   • first boot / no saved choice: bootstrap to the best colour depth ≤ 8-bit,
+     *     live only — the system still cold-boots at whatever PRAM says (typically the
+     *     ROM default) until the user picks a depth in Settings, which persists it.
      * display_depth_at_most() clamps a saved depth to what this card supports. */
     if (gEnv.hasColorQD) {
         short want = (gPrefs.haveDepth && gPrefs.depth > 0)
                      ? display_depth_at_most((short)gPrefs.depth)
                      : display_depth_at_most(8);
-        /* Only touch the screen AND slot PRAM when the machine didn't already boot at
-         * the depth we want. Re-asserting an already-correct boot default on EVERY boot
-         * was needless slot-PRAM churn (and every write is a chance to brick the boot on
-         * a fussy card). If the depth is already right, leave PRAM alone. When it isn't,
-         * set the live screen FIRST, then persist the now-running mode as the default
-         * (display_set_default_depth only writes a depth that's actually live). A card
-         * that can't reach `want` (SetDepth fails) writes nothing — no bad boot mode. */
         if (want >= 1 && want != display_current_depth() && display_set_depth(want) == noErr) {
             short got = display_current_depth();               /* what we actually got */
             gEnv.pixelSize = got;                              /* so art/UI pick the colour variant */
             gEnv.useColor  = (gEnv.hasColorQD && got >= 4);
             render_reset_for_depth(&gRender, &gEnv, got);
-            (void)display_set_default_depth(got);              /* persist as the boot default */
         }
     }
 
@@ -1428,12 +1416,11 @@ int main(void)
                             SelectWindow(gWin);
                             show_menu_bar();      /* honor the hide-menu-bar setting */
                             SetPort(gWin);
-                            /* A depth-capped game just quit: put our depth back now
-                             * that we're front again (ui_draw re-fits the backend to
-                             * the new depth). */
+                            /* A depth-capped game just quit: put our LIVE depth back now
+                             * that we're front again (ui_draw re-fits the backend). Never
+                             * the boot default — slot PRAM is Settings-only. */
                             if (gPendingDepthRestore > 0) {
                                 (void)display_set_depth(gPendingDepthRestore);
-                                (void)display_set_default_depth(gPendingDepthRestore);
                                 gPendingDepthRestore = 0;
                             }
                             ui_draw(&gUi);
