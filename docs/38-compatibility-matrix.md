@@ -14,6 +14,15 @@ mode, and memory/storage configuration. It **builds on** the locked decisions in
 [03-architecture.md](03-architecture.md) and does not restate their reasoning —
 follow the cross-links for the *why*.
 
+> **Maintaining this doc.** This is a **hand-curated** reference, not generated —
+> **edit the tables directly** when you learn something more precise. The columns
+> are deliberately atomic (one fact per cell: CPU, Colour QD, screen, OS min, OS
+> max, status) so a wrong value is a one-cell fix. Keep the `Notes` column to a
+> single short clause. The machine-readable **per-title** compatibility (which
+> *games* need colour / a min CPU / an OS range) lives separately in
+> [`data/compatibility.jsonl`](../data/compatibility.jsonl) and is consumed by the
+> build; this doc is the human-facing **hardware/OS** map for the launcher itself.
+
 ## How MacAtrium adapts (why one binary covers the range)
 
 MacAtrium never hardcodes a machine. At launch, `env_probe()`
@@ -37,10 +46,10 @@ The two decisive derived flags:
   ([15](15-settings-and-color-depth.md)).
 - **`canLaunchReturn`** — gates the resident launch path. When absent (bare
   System 6, no MultiFinder) MacAtrium still runs, but a launch is a *cold* one
-  (see the launch-model note below).
+  (see [§2](#2-system-software-608--922) and [§8](#8-feature-level-caveats-cross-cutting)).
 
 Because adaptation is at runtime, "compatibility" is mostly about **whether the
-required capability physically exists on that machine/OS**, not about a separate
+required capability physically exists** on that machine/OS, not about a separate
 build.
 
 ### Assumption: system software is already complete
@@ -60,7 +69,12 @@ OS outside the 6.0.8–9.2.2 envelope, too little RAM, or an unimplemented featu
 | ✅ | **Supported** — works as designed |
 | ⚠️ | **Supported with caveats** — works, with a documented limitation |
 | ❌ | **Not supported** — a genuine incompatibility |
-| 🔬 | Supported *by design* but **on-target validation still pending** (per [09-roadmap.md](09-roadmap.md)) |
+| 🔬 | Supported *by design* but **on-target validation still pending** ([09-roadmap.md](09-roadmap.md)) |
+
+**OS min / OS max** columns give each machine's realistic range **clamped to
+MacAtrium's 6.0.8–9.2.2 envelope**: `OS min` is the earliest System that machine
+supports (or 6.0.8, the envelope floor, whichever is later); `OS max` is the
+highest it can boot (a genuine CPU/ROM hardware ceiling — see [§1](#1-cpu--architecture)).
 
 **Validated on-target so far** (Snow / QEMU harnesses, per [09](09-roadmap.md) &
 [11](11-derisk-log.md)): System **6.0.8** (as the Finder, 8-bit colour), **7.0.1
@@ -73,23 +87,21 @@ by the same probes but has **not yet been booted** on that exact target.
 
 ## 1. CPU / architecture
 
-The processor sets two hard ceilings: the **highest OS** it can boot, and
-whether **Color QuickDraw** can exist at all.
+The processor sets three things: the **lowest** and **highest** OS it can boot,
+and whether **Color QuickDraw** can exist at all. `OS min`/`OS max` here are the
+CPU-family bounds (individual models floor higher — see [§4](#4-models)).
 
-| CPU | Colour QD possible? | OS ceiling (hardware limit) | MacAtrium | Notes |
-|---|---|---|---|---|
-| **68000** | ❌ never (original QuickDraw only) | 7.5.5 | ✅ B&W only | Plus/SE/Classic/Portable/PB100. Always the B&W backend; colour art skipped. Slowest — favour the compact partition ([§6](#6-ram--memory-partition)) |
-| **68020** | ✅ with Color-QD ROM + video (Mac II, LC) | 7.5.5 (7.6 needs 68030) | ✅ | First Color QD generation. Colour needs a colour card/display present |
-| **68030** | ✅ | 7.6.1 (8.0 needs 68040) | ✅ | The broad classic middle. Dirty-ROM models (SE/30, IIx, IIcx, Mac II) assume MODE32 present |
-| **68040 / 68LC040** | ✅ | 8.1 (8.5 needs PowerPC) | ✅🔬 8.x | Quadra/Centris, LC/Performa 475/575. 8.0/8.1 not yet booted on-target |
-| **PowerPC 601/603/604** | ✅ (always) | 9.1 for 601/603/604; **9.2.2 needs G3/G4** | ✅🔬 | Runs the **68k binary under the built-in 68k emulator**. No native PPC build ([00](00-vision.md) non-goal). Emulation is ample for a launcher |
+| CPU | Colour QD | OS min | OS max | MacAtrium | Notes |
+|---|---|---|---|---|---|
+| **68000** | ❌ never | 6.0.8 | 7.5.5 | ✅ B&W only | Original QuickDraw only; compacts/portables; 4 MB RAM cap. Always the B&W backend |
+| **68020** | ✅ (card/ROM) | 6.0.8 | 7.5.5 | ✅ | First Color QD generation; 7.6 needs a 68030. Colour needs a colour card/display |
+| **68030** | ✅ | 6.0.8 | 7.6.1 | ✅ | The broad classic middle; MODE32 assumed for dirty-ROM models (Mac II/IIx/IIcx/SE/30) |
+| **68040 / 68LC040** | ✅ | 7.1 | 8.1 | ✅🔬 8.x | No 68040 Mac boots System 6 (min 7.1); 8.5 needs PowerPC |
+| **PowerPC 601/603/604** | ✅ always | 7.1.2 | 9.2.2 | ✅🔬 | Runs the **68k binary under the built-in 68k emulator** — no native PPC build ([00](00-vision.md)). 601/603/604 top at **9.1**; only a G3/G4 reaches 9.2.2 |
 
-**Envelope note.** MacAtrium's supported OS envelope is 6.0.8 → 9.2.2, but no
-single machine spans it — each CPU tops out where the table says. "68k + Mac OS
-8.5/9.x" is therefore ❌ **as a hardware combination** (8.5+ is PowerPC-only), not
-a MacAtrium limitation. The first-generation PowerPC parts (601/603/604) top out
-at **9.1**; reaching **9.2.2** specifically requires a G3/G4 — still inside
-MacAtrium's range, so any of these run it.
+**Envelope note.** No single machine spans 6.0.8 → 9.2.2 — each CPU tops out
+where the table says. "68k + Mac OS 8.5/9.x" is therefore ❌ **as a hardware
+combination** (8.5+ is PowerPC-only), not a MacAtrium limitation.
 
 ---
 
@@ -112,8 +124,8 @@ non-returning.
 | **7.6 / 7.6.1** | Process Manager | ✅🔬 | 68k still fully supported; needs a 68030+. Not yet booted on-target |
 | **8.0 / 8.1** | Process Manager | ✅🔬 | 68040 or PowerPC only. Same resident launch API; not yet validated |
 | **8.5 / 8.6** | Process Manager (PPC) | ✅🔬 | PowerPC-only OS → MacAtrium runs under the 68k emulator |
-| **9.0 – 9.2.2** | Process Manager (PPC) | ✅🔬 | PowerPC-only. Top of the envelope. 9.2.x needs G3/G4 hardware |
-| **< 6.0.8** (6.0.x, System 4/5) | — | ❌ | Below the supported floor; MultiFinder/Gestalt behaviour not covered |
+| **9.0 – 9.2.2** | Process Manager (PPC) | ✅🔬 | PowerPC-only. Top of the envelope; 9.2.x needs G3/G4 hardware |
+| **< 6.0.8** (6.0.x, System 4/5) | — | ❌ | Below the supported floor |
 | **Mac OS X / Classic env.** | — | ❌ | Out of scope; not a classic boot shell |
 
 > On System 6, `WaitNextEvent` is a MultiFinder/System-7 trap, so the event loop
@@ -145,11 +157,10 @@ consequences:
 - A **2-bit** screen (Color QD present) still uses the **B&W** backend — the
   colour path starts at 4-bit.
 - 32-bit QuickDraw is built into System 7; on 6.0.5+ it is an installable INIT
-  (assume present per the enablers assumption) — so **Thousands/Millions** need
-  both Color QD *and* 32-bit QD.
+  (assume present) — so **Thousands/Millions** need both Color QD *and* 32-bit QD.
 - The off-screen composition **GWorld** (colour path) is allocated from
   **MultiFinder temp memory** (`useTempMem`); on System 6 it draws direct (no
-  GWorld). See [§6](#6-ram--memory-partition) for the memory implication.
+  GWorld). See [§6](#6-ram--memory-partition).
 
 Startup **matches the OS depth** (never forces one); the Settings panel can
 switch depth live via `SetDepth`, and the art re-colours on the next draw
@@ -167,92 +178,96 @@ up. The menu-bar height is accounted for (`GetMBarHeight`).
 
 ## 4. Models
 
-Grouped by family. Columns: CPU, built-in screen / colour, realistic **OS
-ceiling** (with all enablers assumed present), MacAtrium status, and the reason.
-Every row is within the 6.0.8–9.2.2 envelope unless noted. Colour rows depend on
-[§3](#3-graphics--quickdraw-generation-depth-and-backend); memory on
+One row per machine, atomic columns for easy correction. `OS min → OS max` is the
+range clamped to the 6.0.8–9.2.2 envelope; `Status` is MacAtrium's call. Colour
+depends on [§3](#3-graphics--quickdraw-generation-depth-and-backend); memory on
 [§6](#6-ram--memory-partition).
 
-### 4.1 Compact & portable 68000 (B&W only)
+**`Colour QD` values:** `Yes` = colour on the built-in display · `Ext` = colour
+only on an external monitor · `Card` = needs a NuBus video card + display ·
+`No` = B&W only (no Color QuickDraw).
 
-| Model | CPU | Built-in screen | OS ceiling | MacAtrium | Notes |
-|---|---|---|---|---|---|
-| Mac Plus | 68000 | 512×342 B&W | 7.5.5 | ✅ B&W | 4 MB RAM cap; use the **compact partition**. No Color QD ever. Bare-6 = installed as Finder |
-| Mac SE | 68000 | 512×342 B&W | 7.5.5 | ✅ B&W | As Plus |
-| Mac Classic | 68000 | 512×342 B&W | 7.5.5 | ✅ B&W | As Plus |
-| Mac Portable | 68000 | 640×400 B&W | 7.5.5 | ✅ B&W | Wide compact layout; B&W |
-| PowerBook 100 | 68000 | 640×400 B&W | 7.5.5 | ✅ B&W | As Portable |
+**`OS max` follows the CPU ceiling** ([§1](#1-cpu--architecture)): 68000/68020 →
+7.5.5, 68030 → 7.6.1 (MODE32 assumed), 68040 → 8.1, PowerPC → 9.1 (601/603/604).
 
-### 4.2 Compact & AIO 68030 (SE/30, Classic II, Color Classic)
+### 4.1 Compact & portable — 68000 (B&W only)
 
-| Model | CPU | Built-in screen | OS ceiling | MacAtrium | Notes |
-|---|---|---|---|---|---|
-| Mac SE/30 | 68030 | 512×342 B&W (Color QD in ROM) | 7.5.5 | ✅ | B&W built-in; **colour on an external monitor** (Color QD present). MODE32 assumed |
-| Mac Classic II | 68030 | 512×342 B&W | 7.6.1 | ✅ B&W | 16-bit bus; B&W built-in |
-| Color Classic / Classic II (CC) | 68030 | **512×384 colour** (10″ Trinitron) | 7.6.1 | ✅ colour | First colour compact; native colour backend |
+| Model | CPU | Colour QD | Built-in display | OS min | OS max | Status | Notes |
+|---|---|---|---|---|---|---|---|
+| Mac Plus | 68000 | No | 512×342 B&W | 6.0.8 | 7.5.5 | ✅ | 4 MB cap; use the compact partition |
+| Mac SE | 68000 | No | 512×342 B&W | 6.0.8 | 7.5.5 | ✅ | as Plus |
+| Mac Classic | 68000 | No | 512×342 B&W | 6.0.8 | 7.5.5 | ✅ | as Plus |
+| Mac Portable | 68000 | No | 640×400 B&W | 6.0.8 | 7.5.5 | ✅ | wide B&W layout |
+| PowerBook 100 | 68000 | No | 640×400 B&W | 6.0.8 | 7.5.5 | ✅ | as Portable |
+
+### 4.2 Compact & all-in-one — 68030
+
+| Model | CPU | Colour QD | Built-in display | OS min | OS max | Status | Notes |
+|---|---|---|---|---|---|---|---|
+| Mac SE/30 | 68030 | Ext | 512×342 B&W | 6.0.8 | 7.6.1 | ✅ | colour only on an external monitor; MODE32 |
+| Mac Classic II | 68030 | No | 512×342 B&W | 6.0.8 | 7.6.1 | ✅ | CQD in ROM but 1-bit built-in, no external video → B&W; min via 6.0.8L |
+| Color Classic / CC II | 68030 | Yes | 512×384 colour | 7.1 | 7.6.1 | ✅ | first colour compact |
 
 ### 4.3 Mac II family
 
-| Model | CPU | Video | OS ceiling | MacAtrium | Notes |
-|---|---|---|---|---|---|
-| Mac II | 68020 | NuBus card (no built-in) | 7.5.5 | ⚠️→✅ | Colour **iff** a colour card + display are fitted; else B&W. First Color QD Mac. MODE32 assumed |
-| Mac IIx | 68030 | NuBus card | 7.6.1 | ⚠️→✅ | As Mac II; needs a video card for any display |
-| Mac IIcx | 68030 | NuBus card | 7.6.1 | ⚠️→✅ | As IIx |
-| Mac IIci | 68030 | **built-in** | 7.6.1 | ✅ | 32-bit-clean ROM, built-in video |
-| Mac IIsi | 68030 | built-in | 7.6.1 | ✅ | Built-in video |
-| Mac IIfx | 68030 | NuBus card | 7.6.1 | ⚠️→✅ | Fast 030; needs a video card |
-| Mac IIvi / IIvx | 68030 | built-in | 7.6.1 | ✅ | Built-in video |
-
-> "⚠️→✅": ✅ when a colour card + monitor are present (the normal desktop
-> config); ⚠️ B&W-only if run headless-of-colour. MacAtrium adapts either way.
+| Model | CPU | Colour QD | Built-in display | OS min | OS max | Status | Notes |
+|---|---|---|---|---|---|---|---|
+| Mac II | 68020 | Card | none (NuBus) | 6.0.8 | 7.5.5 | ✅ | colour needs a video card + display, else B&W; MODE32 |
+| Mac IIx | 68030 | Card | none (NuBus) | 6.0.8 | 7.6.1 | ✅ | needs a video card; MODE32 |
+| Mac IIcx | 68030 | Card | none (NuBus) | 6.0.8 | 7.6.1 | ✅ | needs a video card |
+| Mac IIci | 68030 | Yes | built-in | 6.0.8 | 7.6.1 | ✅ | 32-bit-clean ROM, built-in video |
+| Mac IIsi | 68030 | Yes | built-in | 6.0.8 | 7.6.1 | ✅ | built-in video |
+| Mac IIfx | 68030 | Card | none (NuBus) | 6.0.8 | 7.6.1 | ✅ | fast 030; needs a video card; MODE32 |
+| Mac IIvi / IIvx | 68030 | Yes | built-in | 7.1 | 7.6.1 | ✅ | built-in video |
 
 ### 4.4 LC family
 
-| Model | CPU | Built-in screen | OS ceiling | MacAtrium | Notes |
-|---|---|---|---|---|---|
-| Mac LC | 68020 | 512×384 colour | 7.5.5 | ✅ colour | 10 MB RAM cap; Color QD |
-| Mac LC II | 68030 | 512×384 colour | 7.6.1 | ✅ colour | 16-bit bus |
-| Mac LC III | 68030 | 512×384 / 640×480 | 7.6.1 | ✅ colour | |
-| Mac LC 475 | 68LC040 | 640×480+ colour | 8.1 | ✅🔬 8.x | = Quadra 605 / Performa 475 board |
-| Mac LC 575 | 68LC040 | 640×480 colour (AIO) | 8.1 | ✅🔬 8.x | Color-Classic-style all-in-one |
+| Model | CPU | Colour QD | Built-in display | OS min | OS max | Status | Notes |
+|---|---|---|---|---|---|---|---|
+| Mac LC | 68020 | Yes | 512×384 colour | 6.0.8 | 7.5.5 | ✅ | 10 MB RAM cap |
+| Mac LC II | 68030 | Yes | 512×384 colour | 6.0.8 | 7.6.1 | ✅ | min via 6.0.8L |
+| Mac LC III | 68030 | Yes | 512×384 / 640×480 | 7.1 | 7.6.1 | ✅ | |
+| Mac LC 475 | 68LC040 | Yes | 640×480+ colour | 7.1 | 8.1 | ✅🔬 8.x | = Quadra 605 / Performa 475 board |
+| Mac LC 575 | 68LC040 | Yes | 640×480 colour (AIO) | 7.1 | 8.1 | ✅🔬 8.x | Color-Classic-style all-in-one |
 
 ### 4.5 Quadra / Centris (incl. AV)
 
-| Model | CPU | OS ceiling | MacAtrium | Notes |
-|---|---|---|---|---|
-| Centris 610 / 650 | 68LC040 / 68040 | 8.1 | ✅🔬 8.x | Colour |
-| Quadra 605 / 610 / 650 / 700 / 800 / 900 / 950 | 68040 (605/610 may be LC040) | 8.1 | ✅🔬 8.x | Fastest 68k; colour |
-| Centris/Quadra 660AV, Quadra 840AV | 68040 + DSP | 8.1 | ✅🔬 8.x | AV models; 68k app unaffected by the DSP |
+| Model | CPU | Colour QD | Built-in display | OS min | OS max | Status | Notes |
+|---|---|---|---|---|---|---|---|
+| Centris 610 / 650 | 68(LC)040 | Yes | onboard / card | 7.1 | 8.1 | ✅🔬 8.x | |
+| Quadra 605 / 610 / 650 / 700 / 800 / 900 / 950 | 68040 | Yes | onboard / card | 7.1 | 8.1 | ✅🔬 8.x | fastest 68k |
+| Quadra 660AV / 840AV | 68040 | Yes | onboard | 7.1 | 8.1 | ✅🔬 8.x | AV models; the DSP is irrelevant to the 68k app |
 
 ### 4.6 PowerBook & Duo
 
-| Model | CPU | Screen | OS ceiling | MacAtrium | Notes |
-|---|---|---|---|---|---|
-| PowerBook 1xx (140–180) | 68030 | B&W / grayscale (180c colour) | 7.6.1 | ✅ | B&W/grayscale → B&W backend; 180c → colour |
-| PowerBook Duo 2xx (210–280c) | 68030 (280/280c 68040) | grayscale / colour (c) | 7.6.1 / 8.1 | ✅🔬 | Docked or bare; adapts to the panel |
-| PowerBook 500 (520 / 540 / c) | 68LC040 / 68040 | grayscale / colour (c) | 8.1 | ✅🔬 8.x | |
+| Model | CPU | Colour QD | Built-in display | OS min | OS max | Status | Notes |
+|---|---|---|---|---|---|---|---|
+| PowerBook 1xx (140–180) | 68030 | mono/gray | passive panel | 7.0.1 | 7.6.1 | ✅ | B&W/grayscale → B&W backend; 180c is colour |
+| PowerBook Duo 2xx (210–280c) | 68030 / 68040 | gray / colour | panel | 7.1 | 7.6.1 / 8.1 | ✅🔬 | Duo 280/280c are 68040 → 8.1 |
+| PowerBook 520 / 540(c) | 68LC040 / 68040 | gray / colour | panel | 7.1 | 8.1 | ✅🔬 8.x | |
 
 ### 4.7 Performa
 
 Performa models are **rebadged LC / Quadra / PowerPC** boards — a Performa
-inherits the row of its underlying machine (e.g. Performa 475 = LC 475 = 68LC040
-→ 8.1; Performa 630 = 68040; Performa 5200/6200 = PowerPC, [§4.8](#48-powerpc-68k-app-under-the-built-in-emulator)).
-✅ per that board's CPU/graphics/OS ceiling.
+**inherits the row of its underlying machine** and gets that board's CPU /
+Colour-QD / OS range / status. Examples: Performa 475 = LC 475 (68LC040, 8.1);
+Performa 630 = 68040; Performa 5200/6200 = PowerPC ([§4.8](#48-powerpc-68k-app-under-the-built-in-emulator)).
+✅ per the underlying board.
 
 ### 4.8 PowerPC (68k app under the built-in emulator)
 
 All PowerPC Macs ship with Color QuickDraw and run MacAtrium's **68k binary under
 the built-in 68k emulator** — no native build ([00](00-vision.md)).
 
-| Model | CPU | OS ceiling | MacAtrium | Notes |
-|---|---|---|---|---|
-| Power Mac 6100 / 7100 / 8100 | PPC 601 | 9.1 | ✅🔬 | First-gen "PDM"; earliest system 7.1.2. 9.2.x needs G3/G4 |
-| Performa/Power Mac 52xx / 62xx / 63xx | PPC 603 / 603e | 9.1 | ✅🔬 | |
-| Power Mac 7500 / 8500 / 9500 | PPC 604 | 9.1 | ✅🔬 | |
-| PowerBook 5300 | PPC 603e | 9.1 | ✅🔬 | First PPC PowerBook |
+| Model | CPU | Colour QD | Built-in display | OS min | OS max | Status | Notes |
+|---|---|---|---|---|---|---|---|
+| Power Mac 6100 / 7100 / 8100 | PPC 601 | Yes | onboard / card | 7.1.2 | 9.1 | ✅🔬 | first-gen "PDM"; 9.2.x needs G3/G4 |
+| Performa/Power Mac 52xx / 62xx / 63xx | PPC 603 / 603e | Yes | onboard | 7.5 | 9.1 | ✅🔬 | |
+| Power Mac 7500 / 8500 / 9500 | PPC 604 | Yes | onboard / card | 7.5 | 9.1 | ✅🔬 | |
+| PowerBook 5300 | PPC 603e | Yes | colour panel | 7.5.2 | 9.1 | ✅🔬 | first PPC PowerBook |
 
 > Reaching **9.2.2** specifically needs a **G3/G4** (beyond the 601/603/604 parts
-> listed); those still run MacAtrium — they're simply above this table's parts.
+> listed); those still run MacAtrium — they are simply above this table's parts.
 
 ---
 
@@ -260,7 +275,7 @@ the built-in 68k emulator** — no native build ([00](00-vision.md)).
 
 Not hardware, but the primary way MacAtrium is exercised ([02](02-compatibility.md)).
 
-| Surface | Config | MacAtrium |
+| Surface | Config | Status |
 |---|---|---|
 | **Snow** (dev harness) | Mac II / Quadra, System 6.0.8 / 7.x, 1–24 bit | ✅ primary validation ([11](11-derisk-log.md)) |
 | **QEMU Quadra 800** | System 7.5.5, multi-SCSI | ✅ boot/volume-cap harness ([23](23-multi-volume-library.md)) |
@@ -288,7 +303,7 @@ Minimum realistic **machine RAM** (partition + OS + a launched game):
 | Target | Practical machine RAM | Notes |
 |---|---|---|
 | Compact B&W, System 6 | **2–4 MB** | 512 KB launcher + System 6 (~1 MB) + a small game. 4 MB is the compacts' cap |
-| Compact B&W, System 7.1 | **4 MB** | System 7 itself wants ~2 MB; tight but the compact preset is sized for it |
+| Compact B&W, System 7.1 | **4 MB** | System 7 wants ~2 MB; tight but the compact preset is sized for it |
 | Colour, System 7.x | **4 MB min, 8 MB comfortable** | 1 MB partition + System 7 + ~300 KB 8-bit GWorld (temp mem) + game |
 | 68040 / PowerPC, OS 8/9 | **8–16 MB+** | Ample; never the constraint |
 
@@ -301,13 +316,13 @@ Minimum realistic **machine RAM** (partition + OS + a launched game):
 
 ## 7. Storage, boot volume & media
 
-| Aspect | Limit | MacAtrium | Reason |
+| Aspect | Limit | Status | Reason |
 |---|---|---|---|
 | **Boot volume size** | **≤ 2 GB** | ✅ (build capped at `MAX_DISK_MB` = 2048) | Classic ROMs won't *boot* a >2 GB startup volume — a 3.0 GB 7.5.5 disk Sad-Macs on the q800 ([23](23-multi-volume-library.md)). HFS structure goes to ~4 GiB, but **booting** is the wall |
-| **Non-boot data volume** | ~4 GiB (HFS) | 🕗 backlog | Not capped at 2 GB; the plan to span the library across extra SCSI volumes is [23](23-multi-volume-library.md) (not started) |
+| **Non-boot data volume** | ~4 GiB (HFS) | 🕗 backlog | Not capped at 2 GB; spanning the library across extra SCSI volumes is [23](23-multi-volume-library.md) (not started) |
 | **Multiple `/MacAtrium` disks** | — | 🕗 scoping | Aggregating N independent library disks at startup: [37](37-multi-disk-libraries.md) |
 | **SCSI / IDE hard disk** | — | ✅ | The normal library medium; read-write (prefs persist, [17](17-prefs-persistence.md)) |
-| **Floppy (400 K–1.4 MB)** | tiny + **read-only** | ⚠️ / ❌ as a library | **Floppies are read-only** for our purposes → **prefs don't persist** (theme/volume/last selection); and a real library won't fit 1.4 MB. Fine only as a minimal boot/test stub |
+| **Floppy (400 K–1.4 MB)** | tiny + **read-only** | ⚠️ / ❌ as a library | **Floppies are read-only** for our purposes → **prefs don't persist** (theme/volume/last selection); a real library won't fit 1.4 MB. Fine only as a minimal boot/test stub |
 | **CD-ROM** | read-only | 🕗 | Removable/read-only media handling is an open question in [37](37-multi-disk-libraries.md) |
 
 ---
@@ -326,8 +341,8 @@ The constraints that recur above, in one place:
    [09 §M4](09-roadmap.md)). Process Manager, `WaitNextEvent`, Alias Manager,
    `FindFolder`, and AppleEvents are all guarded off there.
 3. **Colour artwork needs Color QuickDraw** *and* a ≥ 4-bit screen (`useColor`).
-   Otherwise the **B&W backend** renders and the 1-bit `.raw` art is used — this
-   is the designed 68000 / low-depth path, not a failure.
+   Otherwise the **B&W backend** renders and the 1-bit `.raw` art is used — the
+   designed 68000 / low-depth path, not a failure.
 4. **Floppies are read-only** → no prefs persistence; not a library medium
    ([§7](#7-storage-boot-volume--media)).
 5. **No file-manager features.** No desktop/Trash/copy/format, no Finder
@@ -366,5 +381,6 @@ Everything else in the envelope is ✅/⚠️. The real incompatibilities:
 - **Colour depth & backends:** [15-settings-and-color-depth.md](15-settings-and-color-depth.md)
 - **Prefs persistence:** [17-prefs-persistence.md](17-prefs-persistence.md)
 - **Volume caps & multi-disk:** [23-multi-volume-library.md](23-multi-volume-library.md), [37-multi-disk-libraries.md](37-multi-disk-libraries.md)
+- **Per-title compatibility data:** [`data/compatibility.jsonl`](../data/compatibility.jsonl)
 - **Roadmap / what's validated:** [09-roadmap.md](09-roadmap.md), [11-derisk-log.md](11-derisk-log.md)
 - **Runtime probe source:** [src/env.c](../src/env.c), [src/main.c](../src/main.c)
