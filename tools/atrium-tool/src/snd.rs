@@ -109,42 +109,11 @@ fn snd_format1(samples: &[u8], rate_hz: u32) -> Vec<u8> {
     s
 }
 
-/// Wrap one `snd ` resource (id 128) into a complete classic resource fork. Data
-/// starts at the conventional 256-byte offset; the map holds a single type with
-/// a single reference.
+/// Wrap one `snd ` resource (id 128) into a complete classic resource fork, via
+/// the shared [`crate::resfork`] writer (byte-identical to the old hand-rolled
+/// single-resource layout — see the resfork round-trip tests).
 fn build_resfork(snd: &[u8]) -> Vec<u8> {
-    const DATA_OFF: usize = 256;
-    let data_len = 4 + snd.len();
-    let map_off = DATA_OFF + data_len;
-
-    // Resource map: 24-byte header area, then typeList/nameList offsets + lists.
-    let mut tl = Vec::new();
-    tl.extend_from_slice(&0u16.to_be_bytes());      // (number of types) - 1
-    tl.extend_from_slice(b"snd ");                  // type
-    tl.extend_from_slice(&0u16.to_be_bytes());      // (count of this type) - 1
-    tl.extend_from_slice(&10u16.to_be_bytes());     // ref list offset from type-list start
-    tl.extend_from_slice(&128i16.to_be_bytes());    // resource id 128
-    tl.extend_from_slice(&0xFFFFu16.to_be_bytes()); // name offset (none)
-    tl.push(0);                                     // attributes
-    tl.extend_from_slice(&[0u8, 0, 0]);             // u24 data offset (first/only)
-    tl.extend_from_slice(&0u32.to_be_bytes());      // reserved (handle)
-
-    let type_list_off: u16 = 28; // from the start of the map
-    let name_list_off = type_list_off as usize + tl.len();
-    let mut map = vec![0u8; 24];
-    map.extend_from_slice(&type_list_off.to_be_bytes());
-    map.extend_from_slice(&(name_list_off as u16).to_be_bytes());
-    map.extend_from_slice(&tl);
-
-    let mut out = vec![0u8; DATA_OFF];
-    out[0..4].copy_from_slice(&(DATA_OFF as u32).to_be_bytes());
-    out[4..8].copy_from_slice(&(map_off as u32).to_be_bytes());
-    out[8..12].copy_from_slice(&(data_len as u32).to_be_bytes());
-    out[12..16].copy_from_slice(&(map.len() as u32).to_be_bytes());
-    out.extend_from_slice(&(snd.len() as u32).to_be_bytes()); // data: resource length
-    out.extend_from_slice(snd);
-    out.extend_from_slice(&map);
-    out
+    crate::resfork::build(&[crate::resfork::Res::new(*b"snd ", 128, snd)])
 }
 
 /// Build the resource fork bytes for a sound file from a WAV, plus the clip's

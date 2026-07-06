@@ -20,6 +20,7 @@ pub mod mgdb;
 pub mod pict;
 pub mod preflight;
 pub mod rbcli;
+pub mod resfork;
 pub mod selection;
 pub mod settings;
 pub mod size_rsrc;
