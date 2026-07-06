@@ -44,6 +44,7 @@ add_application(MacAtrium
     src/ui.c
     src/launch.c
     src/sysctl.c
+    src/bless.c              # Phase 2: enumerate System Folders + set the blessed one
     src/controlpanels.c
     src/display.c
     src/sound.c
