@@ -23,3 +23,6 @@ tests/host_test
 
 # macOS
 .DS_Store
+
+# Prebuilt launcher is a build artifact, never tracked (Retro68 or a release drop)
+tools/atrium-tool/assets/MacAtrium.bin

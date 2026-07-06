@@ -62,17 +62,10 @@ if(MEM_DEBUG)
     target_compile_definitions(MacAtrium PRIVATE MEM_DEBUG)
 endif()
 
-# Keep the embedded launcher (tools/atrium-tool/assets/MacAtrium.bin, baked into
-# the atrium tooling via include_bytes! so users build images without Retro68) in
-# sync with the freshly built launcher. copy_if_different avoids spurious diffs
-# when the bytes are unchanged; commit the asset when it does change.
-if(TARGET MacAtrium_APPL)
-    add_custom_command(TARGET MacAtrium_APPL POST_BUILD
-        COMMAND ${CMAKE_COMMAND} -E copy_if_different
-            ${CMAKE_BINARY_DIR}/MacAtrium.bin
-            ${CMAKE_SOURCE_DIR}/tools/atrium-tool/assets/MacAtrium.bin
-        COMMENT "Refreshing embedded launcher -> tools/atrium-tool/assets/MacAtrium.bin")
-endif()
+# The atrium build tool reads the launcher from build/MacAtrium.bin at build time
+# (config.rs launcher_path) — it is NOT embedded in the tool or committed to git, so
+# there's nothing to copy/sync here. `cmake --build build` produces build/MacAtrium.bin;
+# a "release" user can drop a prebuilt MacAtrium.bin there instead.
 
 # Keep the binary small: drop unused code and MacsBug symbols.
 set_target_properties(MacAtrium PROPERTIES COMPILE_OPTIONS -ffunction-sections)

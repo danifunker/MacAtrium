@@ -11,13 +11,11 @@ use anyhow::{Context, Result};
 use serde::{Deserialize, Serialize};
 use std::path::PathBuf;
 
-/// The prebuilt 68k launcher (`build/MacAtrium.bin`), embedded into this tool at
-/// compile time so an image can be built without compiling it with Retro68. The
-/// CMake launcher build refreshes `assets/MacAtrium.bin` (copy_if_different), so a
-/// rebuild of this crate re-embeds the current launcher. A build can override it
-/// per [`BuildConfig::launcher`].
-pub const EMBEDDED_LAUNCHER: &[u8] =
-    include_bytes!(concat!(env!("CARGO_MANIFEST_DIR"), "/assets/MacAtrium.bin"));
+/// The 68k launcher (`MacAtrium.bin`) is NOT embedded in this tool — a build reads
+/// it from a file (see [`BuildConfig::launcher_bytes`]): `build/MacAtrium.bin`, which
+/// Retro68's `cmake --build build` produces, or a prebuilt binary a "release" user
+/// drops there. Keeping the binary out of the tool (and out of git) means the build
+/// tooling carries only text data, not a compiled artifact.
 
 /// The curated comprehensive library + its compatibility companion, embedded at
 /// compile time so a user can build an image without supplying either path. They
@@ -115,10 +113,10 @@ pub struct BuildConfig {
     pub base_os: Option<String>,
     /// Output image to produce (overwritten).
     pub out: PathBuf,
-    /// The launcher MacBinary to install. `None` (the default) uses the prebuilt
-    /// launcher embedded in this tool ([`EMBEDDED_LAUNCHER`]), so a user can build
-    /// an image without compiling the 68k launcher with Retro68. Set it to point at
-    /// a freshly-built `build/MacAtrium.bin` to override (e.g. during launcher dev).
+    /// The launcher MacBinary to install. `None` (the default) reads
+    /// `build/MacAtrium.bin` (or `$MACATRIUM_LAUNCHER`) — see [`Self::launcher_bytes`].
+    /// The launcher is never embedded in this tool; you either build it with Retro68
+    /// (`cmake --build build`) or drop a release `MacAtrium.bin` into `build/`.
     #[serde(default)]
     pub launcher: Option<PathBuf>,
     /// Curated dataset (the library of titles). `None` (the default) uses the
@@ -292,15 +290,29 @@ impl BuildConfig {
         self.app_mem_kb.map(|[p, m]| (p, m.min(p)))
     }
 
-    /// The launcher MacBinary bytes to install: the file at [`Self::launcher`] if
-    /// set, otherwise the [`EMBEDDED_LAUNCHER`] baked into this tool — so a build
-    /// needs no Retro68. (The bytes are patched — name, bundle bit, `SIZE` — before
-    /// injection, so the embedded copy is never mutated.)
+    /// The path the launcher MacBinary is read from: [`Self::launcher`] if set, else
+    /// `$MACATRIUM_LAUNCHER`, else `build/MacAtrium.bin` (relative to the working dir —
+    /// the same convention as `data/templates.json`). It is NOT embedded in this tool.
+    pub fn launcher_path(&self) -> PathBuf {
+        self.launcher
+            .clone()
+            .or_else(|| std::env::var_os("MACATRIUM_LAUNCHER").map(PathBuf::from))
+            .unwrap_or_else(|| PathBuf::from("build/MacAtrium.bin"))
+    }
+
+    /// The launcher MacBinary bytes to install, read from [`Self::launcher_path`].
+    /// (The bytes are patched — name, bundle bit, `SIZE` — before injection, so the
+    /// on-disk file is never mutated.) A missing file is a clear, actionable error:
+    /// build it with Retro68 (`cmake --build build`) or drop a release binary there.
     pub fn launcher_bytes(&self) -> Result<Vec<u8>> {
-        match &self.launcher {
-            Some(p) => std::fs::read(p).with_context(|| format!("reading launcher {}", p.display())),
-            None => Ok(EMBEDDED_LAUNCHER.to_vec()),
-        }
+        let path = self.launcher_path();
+        std::fs::read(&path).with_context(|| {
+            format!(
+                "reading launcher {} — build it with Retro68 (cmake --build build) or \
+                 drop a prebuilt MacAtrium.bin there",
+                path.display()
+            )
+        })
     }
 
     /// The library (dataset) bytes: the file at [`Self::dataset`] if set, otherwise
@@ -363,22 +375,22 @@ mod tests {
         let c: BuildConfig =
             serde_json::from_str(r#"{"out":"o","dataset":"d"}"#).unwrap();
         assert_eq!(c.app_mem_kb, None);
-        assert_eq!(c.launcher, None); // launcher is optional too -> embedded
+        assert_eq!(c.launcher, None); // launcher is optional -> resolved to a path
     }
 
     #[test]
-    fn embedded_launcher_is_a_valid_macbinary() {
-        // The prebuilt launcher baked in via include_bytes! must be a real
-        // MacBinary the injector can read + patch (else users get a broken image).
-        assert!(EMBEDDED_LAUNCHER.len() > 128, "embedded launcher too small");
-        let (pref, min) = crate::size_rsrc::read_app_mem(EMBEDDED_LAUNCHER).unwrap();
-        assert!(pref >= min && pref > 0, "embedded SIZE looks wrong: {pref}/{min}");
+    fn launcher_path_defaults_to_build_dir() {
+        // No config path + no env override -> build/MacAtrium.bin (the launcher is
+        // never embedded; it's built by Retro68 or dropped in from a release).
+        let c = BuildConfig::default();
+        assert_eq!(c.launcher_path(), PathBuf::from("build/MacAtrium.bin"));
     }
 
     #[test]
-    fn launcher_bytes_defaults_to_embedded() {
-        let c = BuildConfig::default(); // launcher: None
-        assert_eq!(c.launcher_bytes().unwrap(), EMBEDDED_LAUNCHER);
+    fn launcher_path_honors_config() {
+        let c: BuildConfig =
+            serde_json::from_str(r#"{"out":"o","launcher":"/x/MacAtrium.bin"}"#).unwrap();
+        assert_eq!(c.launcher_path(), PathBuf::from("/x/MacAtrium.bin"));
     }
 
     #[test]

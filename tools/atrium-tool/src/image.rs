@@ -384,6 +384,47 @@ fn bake_art(cfg: &BuildConfig, rb: &RbCli, stage: &Path, work: &Path) -> Result<
     Ok(())
 }
 
+/// Copy `src` to `dst` preserving sparse holes, WITHOUT shelling out (portable —
+/// Windows included). Streams the source in blocks and seeks over all-zero blocks
+/// instead of writing them, so the mostly-empty regions of a base image stay holes:
+/// a real sparse hole on Unix; on Windows the gap reads back as zeros (correct, just
+/// not physically sparse unless the volume makes it so). A final `set_len` pins the
+/// exact source length so a trailing zero run is preserved. `std::fs::copy` is not
+/// used because its `copy_file_range` fast-path de-sparsifies on some filesystems.
+fn copy_sparse(src: &Path, dst: &Path) -> Result<()> {
+    use std::io::{Read, Seek, SeekFrom, Write};
+    let mut r = std::fs::File::open(src)
+        .with_context(|| format!("opening base image {}", src.display()))?;
+    let mut w = std::fs::File::create(dst)
+        .with_context(|| format!("creating output image {}", dst.display()))?;
+    let total = r.metadata()?.len();
+    const BLK: usize = 1 << 20; // 1 MiB
+    let mut buf = vec![0u8; BLK];
+    loop {
+        // A single File::read may return short; fill the block (or hit EOF) first.
+        let mut got = 0usize;
+        while got < BLK {
+            match r.read(&mut buf[got..])? {
+                0 => break,
+                n => got += n,
+            }
+        }
+        if got == 0 {
+            break;
+        }
+        if buf[..got].iter().all(|&b| b == 0) {
+            w.seek(SeekFrom::Current(got as i64))?; // leave a hole
+        } else {
+            w.write_all(&buf[..got])?;
+        }
+        if got < BLK {
+            break; // short read == EOF
+        }
+    }
+    w.set_len(total)?; // exact length; preserves a trailing hole
+    Ok(())
+}
+
 /// CLI convenience (a *view* helper): load a [`BuildConfig`] from a JSON file and
 /// run it. The GUI builds the `BuildConfig` directly and calls [`run`].
 pub fn run_from_path(config: &Path) -> Result<()> {
@@ -439,19 +480,12 @@ pub fn run(cfg: &BuildConfig) -> Result<()> {
     // 1. base system -> out
     let system = cfg.system.as_ref().expect("resolve() guarantees system is set");
     eprintln!("[1/7] base system  {} -> {}", system.display(), cfg.out.display());
-    // Use `cp --sparse=always`, not std::fs::copy: the latter's copy_file_range
-    // path de-sparsifies on some filesystems, writing every zero byte — which blows
-    // up on large (e.g. 10 GB Mac OS 9) base images. cp keeps the holes, so the
-    // output stays as small as the data it actually holds.
-    let cp = std::process::Command::new("cp")
-        .arg("--sparse=always")
-        .arg(system)
-        .arg(&cfg.out)
-        .status()
-        .with_context(|| format!("running cp {} -> {}", system.display(), cfg.out.display()))?;
-    if !cp.success() {
-        anyhow::bail!("cp {} -> {} failed", system.display(), cfg.out.display());
-    }
+    // Portable sparse-preserving copy (no shell-out — runs on Windows too). We avoid
+    // std::fs::copy: its copy_file_range fast-path de-sparsifies on some filesystems,
+    // writing every zero byte and blowing a mostly-empty multi-GB base (e.g. a 10 GB
+    // Mac OS 9 image) up to its full nominal size. copy_sparse seeks past zero blocks.
+    copy_sparse(system, &cfg.out)
+        .with_context(|| format!("copying base image {} -> {}", system.display(), cfg.out.display()))?;
 
     // 1b. preflight: project disk usage before doing the expensive work, and warn
     // if it won't fit the target (~95% estimate; not a hard gate).
