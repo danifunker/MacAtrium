@@ -22,4 +22,9 @@ typedef struct {
 
 void env_probe(Env *e);
 
+/* Format a Gestalt gestaltSystemVersion value (e.g. 0x0755) as a human string
+ * like "System 7.5.5" into `out` (>= 24 bytes); a trailing ".0" bugfix is dropped,
+ * and v <= 0 yields "System (unknown)". */
+void env_os_name(long sysVers, char *out);
+
 #endif /* MACATRIUM_ENV_H */

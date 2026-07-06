@@ -43,3 +43,21 @@ void env_probe(Env *e)
      * colour depth; otherwise the B&W path (also the graceful fallback). */
     e->useColor = (e->hasColorQD && e->pixelSize >= 4);
 }
+
+void env_os_name(long v, char *out)
+{
+    int         major = (int)((v >> 8) & 0xFF);   /* BCD high byte: 6/7/8/9 */
+    int         minor = (int)((v >> 4) & 0x0F);
+    int         bug   = (int)(v & 0x0F);
+    char       *p = out;
+    const char *s = "System ";
+
+    while (*s) *p++ = *s++;
+    if (v <= 0) { s = "(unknown)"; while (*s) *p++ = *s++; *p = '\0'; return; }
+    if (major >= 10) *p++ = (char)('0' + major / 10);
+    *p++ = (char)('0' + major % 10);
+    *p++ = '.';
+    *p++ = (char)('0' + minor);
+    if (bug) { *p++ = '.'; *p++ = (char)('0' + bug); }
+    *p = '\0';
+}

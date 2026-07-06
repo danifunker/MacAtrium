@@ -1041,6 +1041,9 @@ static void draw_about(Ui *u)
     cy = (short)(cy + 30);
     strcpy(ver, "build "); strcat(ver, MACATRIUM_VERSION);
     cw = render_text_width(r, ver); render_text(r, (short)((W - cw) / 2), cy, ver, INK_DIM);
+    cy = (short)(cy + 22);
+    { char os[40]; strcpy(os, "Running on "); env_os_name(u->env->sysVers, os + 11);
+      cw = render_text_width(r, os); render_text(r, (short)((W - cw) / 2), cy, os, INK_NORMAL); }
 
     { const char *t = "Press any key to continue.";
       cw = render_text_width(r, t); render_text(r, (short)((W - cw) / 2), (short)(H - 14), t, INK_DIM); }
