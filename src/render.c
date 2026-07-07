@@ -11,6 +11,10 @@ void render_init(Render *r, const Env *e)
 {
     r->color        = e->useColor;
     r->theme        = THEME_LIGHT;     /* classic black-on-white by default; 'T' toggles to dark */
+    /* Era control look: default to matching the running System (docs/36 Phase 3);
+     * a saved prefs/Settings choice overrides via render_set_appearance. */
+    r->appearance   = appearance_resolve(e->sysVers, e->hasAppearanceMgr, APPEAR_AUTO);
+    r->look         = theme_for(r->appearance);
     r->depth        = e->pixelSize > 0 ? e->pixelSize : 1;
     /* Off-screen compositing needs Color QD *and* System 7+: on base System 6 the
      * GWorld/temp-memory path can bomb with dsMemFullErr (out of memory) at launch,
@@ -46,6 +50,12 @@ int render_toggle_theme(Render *r)
 {
     r->theme = (r->theme == THEME_DARK) ? THEME_LIGHT : THEME_DARK;
     return r->theme;
+}
+
+void render_set_appearance(Render *r, int appearance)
+{
+    r->appearance = appearance;
+    r->look       = theme_for(appearance);
 }
 
 static void c2p(const char *s, Str255 out)
@@ -199,10 +209,12 @@ void render_frame(Render *r, const Rect *rr)
 
 void render_round_frame(Render *r, const Rect *rr)
 {
+    short c = r->look ? r->look->capCorner : 6;   /* per-era corner (sys7 = 6, today) */
     if (r->color) cqd_set_line(r);
     else          qd_set_line(r);
     PenSize(1, 1);
-    FrameRoundRect(rr, 6, 6);          /* gentle key-cap corners */
+    if (c > 0) FrameRoundRect(rr, c, c);          /* gentle key-cap corners */
+    else       FrameRect(rr);                     /* sys6: square, lined look */
 }
 
 void render_hline(Render *r, short x0, short x1, short y)

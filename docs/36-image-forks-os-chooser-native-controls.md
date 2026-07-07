@@ -12,11 +12,16 @@ Working plan for three stacked pieces of work, all built and tested in **WSL onl
    Chosen for the simplest 68k change and the smallest resident footprint (only the
    current cover is ever in RAM; the resource map per file is tiny). *Not* one big
    library file (map would stay resident) and *not* per-category (deferred).
-2. **Per-OS native controls → compile-time themes.** Three separately-built APPLs,
-   `-DATRIUM_THEME=sys6|sys7|sys8`, each hard-locked to one design language. "Publish
-   3 versions" is literal. The in-UI OS chooser still works on a multi-System image
-   because **each System Folder carries its own theme-matched binary** as its startup
-   app — bless+reboot lands on the right System *and* the right-looking launcher.
+2. **Per-OS native controls → runtime themes, one universal binary.** *(Revised
+   2026-07-07 — supersedes the original compile-time / 3-binary plan.)* The single
+   `MacAtrium.bin` selects the sys6/sys7/sys8 chrome **at startup** from the detected
+   System version (`env.sysVers`), consistent with the locked single-binary goal
+   ([01](01-decisions.md)) and the runtime backend/tier detection already in
+   `env`/`render`. The look is a configurable **Appearance** setting (Auto / System 6 /
+   System 7 / Platinum) in Settings + prefs, with an optional per-build default baked by
+   `atrium`. On a multi-System image the *same* binary drops into every System Folder and
+   always matches the booted OS — no per-folder binary juggling. On 8+ it delegates to
+   the **Appearance Manager** for true Platinum.
 
 Order of work (per request): **setup → image forks → OS chooser → native controls.**
 
@@ -184,12 +189,17 @@ part of its auto-repair.
 
 ---
 
-## Phase 3 — Per-OS native window controls (compile-time themes)
+## Phase 3 — Per-OS native window controls (runtime themes, one binary)
+
+*(Binary model revised 2026-07-07 to runtime selection — see Locked decision #2.)*
 
 ### Selection
-`-DATRIUM_THEME=sys6|sys7|sys8` (default `sys7`) compiles one of
-`src/theme_sys{6,7,8}.c` against a shared `src/theme.h`; stamped into `vers`/About and
-the binary name (`MacAtrium-sys6.bin`, …).
+`src/theme.h` defines the chrome interface; `src/theme_sys{6,7,8}.c` each implement it,
+and a runtime `Theme` (function-pointer set) is chosen once at startup. The default is
+resolved from `env.sysVers` (`< 0x0700` → sys6; `>= 0x0800` with the Appearance Manager
+→ sys8; else sys7); a **prefs `appearance`** value (Auto/sys6/sys7/sys8) overrides it and
+is surfaced as a Settings row. `atrium` may bake a default `appearance` per target, but
+ships **one** binary.
 
 ### `theme.h` interface (metrics + draw hooks)
 Title-bar height/style, close/zoom/collapse box rects + draw, window-frame draw,
@@ -214,23 +224,44 @@ draw, default-button ring, list/grid cell chrome, background fill/pattern, focus
 2. Add `theme_sys6.c`; verify on a 6.0.8 disk.
 3. Add `theme_sys8.c`; verify on an 8.x disk.
 
-### Build matrix
-A small CMake function loops the theme list → `build/MacAtrium-sys{6,7,8}.bin`. The
-`atrium` tool (`targets.rs`/`templates.json`, already OS-keyed) selects the theme-matched
-binary per target when assembling disks.
+### Build
+One binary as today (`build/MacAtrium.bin`) — all three `theme_sys{6,7,8}.c` link in (the
+extra chrome code is a few KB, negligible even in a Mac Plus partition). No per-theme build
+matrix; `atrium` places the same binary in every System Folder and may set a default
+`appearance` per target.
+
+### Implemented — Increment 1 (2026-07-07): runtime Appearance foundation
+Landed and Snow-verified on the Mac II (7.1.1):
+- **`src/theme.{h,c}`** — the `Appearance` model (`APPEAR_AUTO/SYS6/SYS7/SYS8`), a data-driven
+  `Theme` trait table, `appearance_resolve()` (AUTO → sys6 `<7.0` / sys8 `>=8.0` w/ Appearance
+  Mgr / else sys7), `appearance_name()`. Pure C, host-testable.
+- **`env`** — `hasAppearanceMgr` (`gestaltAppearanceAttr`) so sys8 only claims true Platinum
+  where the Appearance Manager is real.
+- **`render`** — `Render.appearance`/`.look`; resolved from `env.sysVers` at `render_init`
+  (auto-match the OS), overridable via `render_set_appearance`.
+- **`prefs`** — an `appearance` key (`auto`/`sys6`/`sys7`/`sys8`); a saved value beats the OS
+  default (`main.c`). (Pre-seedable for headless verify.)
+- **First themed trait** — `render_round_frame` reads `look->capCorner`: **sys7 = rounded
+  (6px, exact parity with today)**, **sys6 = square** — visibly flips the Icon-Grid tiles and
+  the key-cap hints. Verified: sys7 rounded == baseline; sys6 square.
+
+**Remaining (next increments):** route more chrome through the theme (panel/window frames →
+`frameBevel` for Platinum, selection style, background/desktop pattern); real **sys8 Platinum**
+via the Appearance Manager (needs an 8.x disk to verify); the **Settings "Appearance" row**
+(prefs override works now; the in-UI picker is the follow-up). Consider splitting the trait
+table into `theme_sys{6,7,8}.c` once the per-era drawing outgrows a data table.
 
 ---
 
 ## Release matrix
-| Deliverable | System Folder(s) | Launcher binary |
-|-------------|------------------|-----------------|
-| 6.0.8 disk | System 6.0.8 | `MacAtrium-sys6` |
-| 7.x disk | System 7.x | `MacAtrium-sys7` |
-| 8–9.2.2 disk | System 8/9 | `MacAtrium-sys8` |
-| **Multi-OS chooser disk** | all three | each folder's theme-matched binary |
-
-No separate "adaptive" binary — the compile-time-theme decision means the multi-OS image
-just reuses the same three binaries, one per System Folder.
+One universal `MacAtrium.bin` for every deliverable; the look is chosen at runtime from the
+booted System (overridable via the Appearance setting).
+| Deliverable | System Folder(s) | Launcher binary | Look (default) |
+|-------------|------------------|-----------------|----------------|
+| 6.0.8 disk | System 6.0.8 | `MacAtrium.bin` | sys6 |
+| 7.x disk | System 7.x | `MacAtrium.bin` | sys7 |
+| 8–9.2.2 disk | System 8/9 | `MacAtrium.bin` | sys8 (Platinum) |
+| **Multi-OS chooser disk** | all | the same `MacAtrium.bin` in each | matches each booted System |
 
 ## Risks / to verify
 - **Bless fields:** `ioVFndrInfo[0]` + possible boot-block name update — confirm against a
@@ -284,4 +315,4 @@ just reuses the same three binaries, one per System Folder.
 
 **Phase 2** — [x] `bless.c` (enumerate + `PBSetVInfo`; de-risked vs `rb-cli bless`) · [x] chooser UI (built-in widgets, Quick-Launch + Special menu) · [x] Snow verify swap (7.1.2 → 6.0.8) · [x] per-folder System version + MacOS-version header · [ ] compatibility gating (gray incompatible, flag enabler-needed — needs docs/38) · [ ] host per-System startup placement · [ ] filter/handle pre-6 Systems in the chooser
 
-**Phase 3** — [ ] `theme.h` + extract sys7 (parity) · [ ] `theme_sys6` · [ ] `theme_sys8` (Appearance) · [ ] CMake 3-binary matrix · [ ] atrium picks per-target binary · [ ] per-OS Snow verify
+**Phase 3** (runtime themes, one binary) — [~] `theme.h` + route chrome through it (capCorner done; frames/selection/bg TODO) · [x] runtime select from `env.sysVers` + prefs override ([ ] Settings row) · [~] `theme_sys6` (square caps/tiles ✓) · [ ] `theme_sys8` (Appearance Mgr) · [ ] `atrium` optional per-target default · [~] per-OS Snow verify (sys6/sys7 on 7.1.1 ✓)

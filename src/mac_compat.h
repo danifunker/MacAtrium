@@ -62,6 +62,15 @@
 #define gestaltCPUG4 0x10C      /* PowerPC G4 (and later sort >= this) */
 #endif
 
+/* Appearance Manager (Appearance.h) — built into Mac OS 8+, an optional extension
+ * on 7.x. Gates the true-Platinum sys8 look (docs/36 Phase 3). */
+#ifndef gestaltAppearanceAttr
+#define gestaltAppearanceAttr 'appr'
+#endif
+#ifndef gestaltAppearanceExists
+#define gestaltAppearanceExists 0
+#endif
+
 /* Folders.h — FindFolder volume selector + HFS root dir id */
 #ifndef kOnSystemDisk
 #define kOnSystemDisk ((short)0x8000)   /* the startup disk */

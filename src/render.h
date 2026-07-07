@@ -12,6 +12,7 @@
 
 #include <Quickdraw.h>
 #include "env.h"
+#include "theme.h"
 
 /* Fill kinds (background, list panel, selection highlight, At Ease tile face). */
 enum { FILL_BG = 0, FILL_PANEL, FILL_SEL, FILL_TILE };
@@ -24,8 +25,10 @@ enum { INK_NORMAL = 0, INK_DIM, INK_SELECTED, INK_TITLE };
 enum { THEME_DARK = 0, THEME_LIGHT };
 
 typedef struct {
-    int       color;       /* 1 = Color QD backend, 0 = B&W backend */
-    int       theme;       /* THEME_DARK (default) / THEME_LIGHT */
+    int          color;    /* 1 = Color QD backend, 0 = B&W backend */
+    int          theme;    /* THEME_DARK (default) / THEME_LIGHT */
+    int          appearance; /* resolved era look: APPEAR_SYS6/7/8 (docs/36) */
+    const Theme *look;     /* trait table for `appearance` (never NULL)       */
     int       depth;       /* pixelSize */
     short     contentFont; /* Geneva — the Finder content/filename face; all of the
                             * launcher's own text uses it (the menu bar + WM title bar
@@ -52,6 +55,10 @@ void  render_reset_for_depth(Render *r, const Env *e, int depth);
 
 void  render_set_theme(Render *r, int theme);   /* THEME_DARK / THEME_LIGHT */
 int   render_toggle_theme(Render *r);           /* flip; returns new theme */
+
+/* Set the era control look. `appearance` is an already-resolved APPEAR_SYS6/7/8
+ * (resolve a prefs/Settings value with appearance_resolve first). */
+void  render_set_appearance(Render *r, int appearance);
 
 void  render_begin(Render *r, WindowPtr w);     /* SetPort + Chicago font */
 void  render_end(Render *r, WindowPtr w);

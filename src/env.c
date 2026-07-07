@@ -25,6 +25,12 @@ void env_probe(Env *e)
      * implemented since the Mac II. Treat as available. */
     e->hasShutdown = 1;
 
+    /* Appearance Manager: built into Mac OS 8+, optional 7.x extension. Gates the
+     * true-Platinum sys8 control look (docs/36 Phase 3). */
+    e->hasAppearanceMgr = 0;
+    if (Gestalt(gestaltAppearanceAttr, &v) == noErr)
+        e->hasAppearanceMgr = (v & (1L << gestaltAppearanceExists)) != 0;
+
     /* Screen bounds are valid on every machine via the QD globals. */
     e->screen     = qd.screenBits.bounds;
     e->mbarHeight = LMGetMBarHeight();

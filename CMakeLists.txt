@@ -40,6 +40,7 @@ add_application(MacAtrium
     src/render.c
     src/render_qd.c
     src/render_cqd.c
+    src/theme.c              # Phase 3: runtime per-OS control appearance (docs/36)
     src/art.c
     src/ui.c
     src/launch.c

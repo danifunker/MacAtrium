@@ -13,6 +13,7 @@
 #include "prefs.h"
 #include "macfs.h"        /* macfs_read_all */
 #include "mac_compat.h"
+#include "theme.h"        /* APPEAR_AUTO/SYS6/SYS7/SYS8 */
 
 #include <Files.h>        /* FindFolder, FSp* — multiversal header */
 #include <Gestalt.h>      /* gestaltSystemVersion — System-6 path selection */
@@ -100,6 +101,7 @@ void prefs_load(Prefs *p)
     p->carousel = 7; p->haveCarousel = 0;
     p->view = 0; p->haveView = 0;
     p->depth = 0; p->haveDepth = 0;
+    p->appearance = APPEAR_AUTO; p->haveAppearance = 0;
     p->category[0] = '\0';
     p->item[0]     = '\0';
     p->haveSel = 0;
@@ -182,6 +184,12 @@ void prefs_load(Prefs *p)
         } else if (strcmp(key, "depth") == 0) {
             int v = parse_int(val);
             if (v > 0) { p->depth = v; p->haveDepth = 1; }
+        } else if (strcmp(key, "appearance") == 0) {
+            if      (strcmp(val, "sys6") == 0) p->appearance = APPEAR_SYS6;
+            else if (strcmp(val, "sys7") == 0) p->appearance = APPEAR_SYS7;
+            else if (strcmp(val, "sys8") == 0) p->appearance = APPEAR_SYS8;
+            else                               p->appearance = APPEAR_AUTO;
+            p->haveAppearance = 1;
         } else if (strcmp(key, "category") == 0) {
             strncpy(p->category, val, sizeof p->category - 1);
             p->category[sizeof p->category - 1] = '\0';
@@ -216,7 +224,7 @@ OSErr prefs_save(const Prefs *p)
     FSSpec spec;
     short  vref = 0, refNum;
     OSErr  err, first = noErr;
-    char   body[320];
+    char   body[384];
     int    n = 0;
     long   count;
 
@@ -302,6 +310,14 @@ OSErr prefs_save(const Prefs *p)
     if (p->haveDepth) {
         append_str(body, &n, sizeof body, "depth=");
         append_int(body, &n, sizeof body, p->depth);
+        append_str(body, &n, sizeof body, "\r");
+    }
+    if (p->haveAppearance) {
+        append_str(body, &n, sizeof body, "appearance=");
+        append_str(body, &n, sizeof body,
+                   p->appearance == APPEAR_SYS6 ? "sys6" :
+                   p->appearance == APPEAR_SYS7 ? "sys7" :
+                   p->appearance == APPEAR_SYS8 ? "sys8" : "auto");
         append_str(body, &n, sizeof body, "\r");
     }
     if (p->haveSel && p->category[0]) {

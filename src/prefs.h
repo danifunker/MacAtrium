@@ -47,6 +47,8 @@ typedef struct {
     int  haveView;                 /* 1 if set; 0 = first run (show the chooser) */
     int  depth;                    /* saved colour depth in bits (0 = unset)    */
     int  haveDepth;                /* 1 if `depth` was loaded                   */
+    int  appearance;               /* era look override: APPEAR_AUTO/SYS6/7/8    */
+    int  haveAppearance;           /* 1 if `appearance` was loaded              */
     char category[ITEM_CAT_LEN];   /* last category name ("" if none)          */
     char item[ITEM_ID_LEN];        /* last item id ("" if none)                */
     int  haveSel;                  /* 1 if a category was loaded               */

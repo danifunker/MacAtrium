@@ -1428,6 +1428,9 @@ int main(void)
     }
 
     if (gPrefs.haveTheme) render_set_theme(&gRender, gPrefs.theme);
+    if (gPrefs.haveAppearance)             /* saved era-look override beats the OS default */
+        render_set_appearance(&gRender,
+            appearance_resolve(gEnv.sysVers, gEnv.hasAppearanceMgr, gPrefs.appearance));
     if (gPrefs.haveVol && sound_available()) sound_apply_vol(gPrefs.vol);  /* no boot beep */
 
     if (load_index()) {

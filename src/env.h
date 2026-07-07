@@ -27,6 +27,7 @@ typedef struct {
     int   useColor;         /* chosen render backend: 1 = color, 0 = B&W */
     int   canLaunchReturn;  /* gestaltLaunchCanReturn — resident launch  */
     int   hasShutdown;      /* Shutdown Manager available                */
+    int   hasAppearanceMgr; /* Appearance Manager present (Platinum on 8+) */
     int   tier;             /* CPU→OS tier (TIER_*); OS ceiling class    */
     long  maxOSbcd;         /* highest bootable System for this Mac (BCD) */
     Rect  screen;           /* full main-screen bounds (global coords)   */
