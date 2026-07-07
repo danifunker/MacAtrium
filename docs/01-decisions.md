@@ -15,7 +15,12 @@ with this one, this one wins. Status markers: ✅ locked, 🔬 verify on target,
 ## Target systems
 
 - ✅ System **7.1, 7.5.5, 7.6.1** — first-class, built and validated first.
-- ✅ System **6.0.8** — hard requirement, delivered **after** 7.x is working.
+- ✅ System **6.0.8** — the primary/validated System-6 target, delivered **after**
+  7.x is working. The launcher's *technical* floor is **6.0.4** (where the Gestalt
+  Manager the whole `env` probe relies on first shipped); 6.0.4–6.0.7 are
+  in-envelope but untested, and below 6.0.4 would need a `SysEnvirons` fallback
+  (deferred). See [38-compatibility-matrix.md](38-compatibility-matrix.md) and
+  `data/os-tiers.json`.
 - ✅ **MultiFinder is required** under System 6 (gives us a resident shell and
   one launch code path with System 7 — see [03-architecture.md](03-architecture.md)).
 - ✅ **Prefer a single binary** across all four systems. If a clean single

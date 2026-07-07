@@ -1091,6 +1091,63 @@ static void osc_label(const SysFolder *s, Str255 out)
     out[0] = (unsigned char)n;
 }
 
+#define OSC_STATUS_H 34   /* band below the buttons for one status / warning line */
+
+/* Compatibility gating (docs/40). A candidate System Folder is bootable on THIS
+ * Mac iff its System version is within [envelope floor 6.0.4, this CPU tier's
+ * ceiling `gEnv.maxOSbcd`]. The running System, an unreadable version, and a
+ * failed tier probe are always allowed, so we never falsely grey a folder. */
+static int osc_bootable(const SysFolder *s)
+{
+    if (s->blessed) return 1;                 /* the running System obviously boots */
+    if (s->version <= 0) return 1;            /* version unreadable: don't disable  */
+    if (gEnv.maxOSbcd <= 0) return 1;         /* tier probe failed: don't disable   */
+    return (s->version >= 0x0604 && s->version <= gEnv.maxOSbcd);
+}
+
+/* One-line status for the focused item: why a folder is greyed (too new for this
+ * Mac), or that a swap there would land in the Finder (docs/40 #3). Empty when
+ * there's nothing to flag — Cancel, or a folder MacAtrium already runs under. */
+static void osc_status_text(int i, const SysFolder *sys, int nsys, char *out)
+{
+    out[0] = '\0';
+    if (i < 0 || i >= nsys) return;                       /* Cancel / out of range */
+    if (!osc_bootable(&sys[i])) {
+        char v[12];
+        env_os_version(gEnv.maxOSbcd, v);
+        strcpy(out, "Won't boot on this Mac - max System ");
+        strcat(out, v);
+    } else if (!sys[i].blessed && !sys[i].macatriumReady) {
+        strcpy(out, "MacAtrium not installed - boots to Finder");
+    }
+}
+
+static void osc_status_rect(WindowPtr dlg, int nbtn, Rect *r)
+{
+    short y = (short)(QL_TOP + QL_HDR + nbtn * QL_PITCH + 2);
+    SetRect(r, 8, y, (short)(dlg->portRect.right - dlg->portRect.left - 8),
+            (short)(y + OSC_STATUS_H - 4));
+}
+
+/* Redraw just the status band for the focused item (called after focus moves, so
+ * the buttons/frames aren't disturbed). */
+static void osc_draw_status(WindowPtr dlg, int focus, const SysFolder *sys, int nsys, int nbtn)
+{
+    Rect   r;
+    char   msg[64];
+    Str255 p;
+    osc_status_rect(dlg, nbtn, &r);
+    EraseRect(&r);
+    osc_status_text(focus, sys, nsys, msg);
+    if (msg[0]) {
+        TextFont(0); TextSize(9);
+        c2p255(msg, p);
+        MoveTo(r.left, (short)(r.top + 12));
+        DrawString(p);
+        TextSize(12);                                     /* restore for header/buttons */
+    }
+}
+
 static void run_os_chooser(void)
 {
     SysFolder     sys[BLESS_MAX_SYS];
@@ -1107,7 +1164,7 @@ static void run_os_chooser(void)
     for (i = 0; i < nsys; i++) if (sys[i].blessed) focus = i;   /* start on the current OS */
 
     strcpy(gQlHeader, "MacOS Version: "); env_os_version(gEnv.sysVers, gQlHeader + 15);
-    CH = (short)(QL_TOP + QL_HDR + n * QL_PITCH + 14);
+    CH = (short)(QL_TOP + QL_HDR + n * QL_PITCH + OSC_STATUS_H);
     {
         short L = (short)(sb.left + ((sb.right - sb.left) - QL_CW) / 2);
         short T = (short)(sb.top  + ((sb.bottom - sb.top) - CH) / 2);
@@ -1125,7 +1182,10 @@ static void run_os_chooser(void)
         else BlockMoveData("\pCancel", t, 7);
         btn[i] = NewControl(dlg, &r, t, true, 0, 0, 0, pushButProc, 0L);
     }
+    for (i = 0; i < nsys; i++)                          /* grey out un-bootable Systems */
+        if (!osc_bootable(&sys[i])) HiliteControl(btn[i], 255);
     ql_draw(dlg, focus);
+    osc_draw_status(dlg, focus, sys, nsys, n);
     ValidRect(&dlg->portRect);
 
     while (running) {
@@ -1134,7 +1194,7 @@ static void run_os_chooser(void)
         switch (evt.what) {
             case updateEvt: {
                 WindowPtr w = (WindowPtr)evt.message;
-                if (w == dlg) { BeginUpdate(w); ql_draw(dlg, focus); EndUpdate(w); }
+                if (w == dlg) { BeginUpdate(w); ql_draw(dlg, focus); osc_draw_status(dlg, focus, sys, nsys, n); EndUpdate(w); }
                 else { BeginUpdate(w); SetPort(w); ui_draw(&gUi); EndUpdate(w); SetPort(dlg); }
                 break;
             }
@@ -1149,6 +1209,7 @@ static void run_os_chooser(void)
                         for (i = 0; i < n; i++)
                             if (ctl == btn[i]) {
                                 if (i >= nsys) running = 0;                              /* Cancel */
+                                else if (!osc_bootable(&sys[i])) SysBeep(1);             /* greyed: can't boot */
                                 else if (bless_and_restart(sys[i].dirID) != noErr) SysBeep(1); /* success reboots */
                                 break;
                             }
@@ -1161,13 +1222,16 @@ static void run_os_chooser(void)
                 if (evt.modifiers & cmdKey) { if (c == '.') running = 0; break; }
                 switch (c) {
                     case kCharEscape: running = 0; break;
-                    case kCharUp:     ql_set_focus(&focus, (focus - 1 + n) % n); break;
+                    case kCharUp:     ql_set_focus(&focus, (focus - 1 + n) % n);
+                                      osc_draw_status(dlg, focus, sys, nsys, n); break;
                     case '\t':
-                    case kCharDown:   ql_set_focus(&focus, (focus + 1) % n); break;
+                    case kCharDown:   ql_set_focus(&focus, (focus + 1) % n);
+                                      osc_draw_status(dlg, focus, sys, nsys, n); break;
                     case ' ':
                     case kCharReturn:
                     case kCharEnter:
-                        if (focus >= nsys) running = 0;
+                        if (focus >= nsys) running = 0;                          /* Cancel */
+                        else if (!osc_bootable(&sys[focus])) SysBeep(1);         /* greyed: can't boot */
                         else if (bless_and_restart(sys[focus].dirID) != noErr) SysBeep(1);
                         break;
                 }

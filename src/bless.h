@@ -15,14 +15,19 @@
 #define BLESS_MAX_SYS 16
 
 typedef struct {
-    long  dirID;      /* the System Folder's dir ID (the bless target) */
-    Str63 name;       /* folder name (Pascal string) for display */
-    int   blessed;    /* 1 = currently the blessed (bootable) folder */
-    long  version;    /* the System file's version (BCD, e.g. 0x0711); 0 = unknown */
+    long  dirID;          /* the System Folder's dir ID (the bless target) */
+    Str63 name;           /* folder name (Pascal string) for display */
+    int   blessed;        /* 1 = currently the blessed (bootable) folder */
+    long  version;        /* the System file's version (BCD, e.g. 0x0711); 0 = unknown */
+    int   macatriumReady; /* 1 = MacAtrium is set to auto-launch under this folder
+                             (an 'ATRM' file/alias in its Startup Items); else a swap
+                             here boots to the Finder. Always 0 for System 6 (no
+                             Startup Items — the finder_replace install is docs/09 M4). */
 } SysFolder;
 
 /* Enumerate blessable System Folders on the boot volume's root into out[max],
- * flagging the currently-blessed one and filling each folder's System version.
+ * flagging the currently-blessed one and filling each folder's System version and
+ * whether MacAtrium is installed to auto-launch there (`macatriumReady`).
  * `runningVersion` (the Gestalt version of the running System) is used for the
  * blessed/running folder rather than re-opening its in-use System file; other
  * folders are read from their `System` file's 'vers' resource. Returns the count. */

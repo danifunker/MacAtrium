@@ -7,10 +7,19 @@ doc enumerates the axes and the runtime checks that drive adaptation.
 
 | System | Era | Process model | Notes |
 |--------|-----|---------------|-------|
-| 6.0.8 | 1991 | Single app, or **MultiFinder** (we require MultiFinder) | Oldest target; ships after 7.x works |
+| 6.0.8 | 1991 | Single app, or **MultiFinder** (we require MultiFinder) | Oldest *validated* target; envelope floor is **6.0.4** (see below) |
 | 7.1 | 1992 | Process Manager (always multitasking) | Baseline "modern" target |
 | 7.5.5 | 1996 | Process Manager | Most-used classic release |
 | 7.6.1 | 1997 | Process Manager | Last before Mac OS 8; 68k still supported |
+
+The **envelope floor is 6.0.4** — the first System with the Gestalt Manager the
+runtime probe needs (6.0.8 is the oldest *validated* build; 6.0.4–6.0.7 are
+in-envelope but untested). OS support clusters by **CPU/ROM into five tiers**
+(68k-early / 68030 / 68040 / PPC-old-world / PPC-new-world), each with an OS
+ceiling; `env_probe` detects the tier (`gestaltSysArchitecture` +
+`gestaltNativeCPUtype`) and the System Folder Chooser greys out Systems this Mac
+can't boot. Full grid + data: [38-compatibility-matrix.md](38-compatibility-matrix.md),
+`data/os-tiers.json`.
 
 **Detection:** `Gestalt(gestaltSystemVersion, …)` for the OS version;
 `Gestalt(gestaltOSAttr, …)` → `gestaltLaunchControl` / `gestaltLaunchCanReturn`

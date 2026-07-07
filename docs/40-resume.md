@@ -4,8 +4,28 @@ Paste into a fresh session **on the WSL box** to continue. **State: the hardware
 compatibility work is now a data model the launcher can consume.** Built this session
 (Mac side — data/docs/tooling only, **no C compiled**): a Gestalt-verified 155-model →
 System table, a 5-tier CPU→OS-range table, a browsable matrix, and the pipeline that
-makes them. The project floor moved **6.0.8 → 6.0.4**. Nothing is wired into the C
-launcher yet — that's the remaining work, specced below with code.
+makes them. The project floor moved **6.0.8 → 6.0.4**.
+
+## Update — now wired into the launcher (Snow-verified)
+
+Items **1, 2, 3, 5** below are implemented in C, built with Retro68, and verified
+headlessly in Snow (Mac II, multi-System HD20SC disk); item **4** (docs → 6.0.4) is
+reconciled in docs/01, docs/02, docs/38.
+- **#1/#5 tier probe + baked ceilings** — `env.c` sets `Env.tier`/`Env.maxOSbcd` from
+  `gestaltSysArchitecture` + `gestaltNativeCPUtype` (constants in `mac_compat.h`, tier
+  enum in `env.h`); the 5-row `kTierMaxBcd[]` is baked from `data/os-tiers.json`.
+- **#2 chooser gating** — `run_os_chooser` greys (`HiliteControl(ctl,255)`) and blocks
+  activation of any System Folder outside `[0x0604, maxOSbcd]`. Verified: forcing a
+  7.0.1 ceiling greys out System 7.5.5; the running/blessed System is never greyed.
+- **#3 swap warning** — `bless.c::macatrium_ready` scans a folder's `Startup Items`
+  for an `'ATRM'` file/alias → `SysFolder.macatriumReady`; the chooser shows
+  *"MacAtrium not installed - boots to Finder"* on bootable folders without it.
+  Verified on the 7.0.1 / 6.0.8 folders.
+
+**Still open** (unchanged): host per-System startup **placement** (docs/39 #2 — the
+build should drop MacAtrium into *every* System Folder's startup so a swap lands back
+in MacAtrium; today only the launcher-side *warning* exists), Phase 1 colour HW
+verify, multi-disk (docs/37), Phase 3 native controls.
 
 ## 0. Environment (don't re-learn) — full recipe in docs/39 §0
 - 68k C launcher, **Retro68 in WSL** at `~/repos/MacAtrium`. Build:

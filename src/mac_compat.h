@@ -21,6 +21,47 @@
 #define gestaltLaunchControl 3
 #endif
 
+/* Gestalt CPU / architecture selectors + response codes (GestaltEqu.h) for the
+ * OS-compatibility tier probe in env.c (docs/40). Guarded — Retro68's leaner
+ * multiversal headers define only some. Values from Apple's Gestalt.h. The tier
+ * is detected from the *native* CPU so it is correct even under the PowerPC 68k
+ * emulator (gestaltProcessorType would report the emulated 68LC040). */
+#ifndef gestaltSysArchitecture
+#define gestaltSysArchitecture 'sysa'
+#endif
+#ifndef gestalt68k
+#define gestalt68k 1
+#endif
+#ifndef gestaltPowerPC
+#define gestaltPowerPC 2
+#endif
+#ifndef gestaltNativeCPUtype
+#define gestaltNativeCPUtype 'cput'
+#endif
+#ifndef gestaltProcessorType
+#define gestaltProcessorType 'proc'
+#endif
+/* gestaltProcessorType ('proc') responses */
+#ifndef gestalt68030
+#define gestalt68030 4
+#endif
+#ifndef gestalt68040
+#define gestalt68040 5
+#endif
+/* gestaltNativeCPUtype ('cput') responses (68k = small ints; PPC = 0x01xx) */
+#ifndef gestaltCPU68030
+#define gestaltCPU68030 3
+#endif
+#ifndef gestaltCPU68040
+#define gestaltCPU68040 4
+#endif
+#ifndef gestaltCPU750
+#define gestaltCPU750 0x108     /* PowerPC G3 */
+#endif
+#ifndef gestaltCPUG4
+#define gestaltCPUG4 0x10C      /* PowerPC G4 (and later sort >= this) */
+#endif
+
 /* Folders.h — FindFolder volume selector + HFS root dir id */
 #ifndef kOnSystemDisk
 #define kOnSystemDisk ((short)0x8000)   /* the startup disk */

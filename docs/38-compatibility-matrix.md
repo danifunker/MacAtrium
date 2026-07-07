@@ -5,7 +5,7 @@ MacAtrium is a *universal* classic-Mac launcher: **one 68k C application** (buil
 with Retro68, [04](04-toolchain-build.md)) that probes its environment at
 startup and adapts. The same binary is meant to run on **every 68K Mac** and, via
 the built-in 68k emulator, on **PowerPC Macs** too — from a Mac Plus on System
-**6.0.8** up to a Power Mac on **Mac OS 9.2.2**.
+**6.0.4** up to a Power Mac on **Mac OS 9.2.2**.
 
 This doc turns the axes in [02-compatibility.md](02-compatibility.md) into
 concrete Supported / caveat / Not-supported calls per CPU, model, OS, graphics
@@ -35,6 +35,7 @@ MacAtrium never hardcodes a machine. At launch, `env_probe()`
 | `gestaltOSAttr` → `gestaltLaunchCanReturn` | `canLaunchReturn` | Resident sub-launch-and-return (the keystone) |
 | `GetMainDevice` → `gdPMap.pixelSize` | `pixelSize` | Screen depth → art variant + layout |
 | `qd.screenBits.bounds`, `LMGetMBarHeight()` | `screen`, `mbarHeight` | Layout (rows/pages/margins) |
+| `gestaltSysArchitecture` + `gestaltNativeCPUtype` | `tier`, `maxOSbcd` | CPU→OS tier: the OS chooser greys Systems this Mac can't boot (docs/40) |
 
 The two decisive derived flags:
 
@@ -60,7 +61,7 @@ and standard extensions installed** to reach its target OS. A model is **never**
 marked incompatible merely because it needs an Enabler or a point-release update
 to boot its OS — those are treated as present. Only *genuine* incompatibilities
 are flagged: CPU too old or too new for the OS, no Color QuickDraw for colour, an
-OS outside the 6.0.8–9.2.2 envelope, too little RAM, or an unimplemented feature.
+OS outside the 6.0.4–9.2.2 envelope, too little RAM, or an unimplemented feature.
 
 ### Legend
 
@@ -72,9 +73,13 @@ OS outside the 6.0.8–9.2.2 envelope, too little RAM, or an unimplemented featu
 | 🔬 | Supported *by design* but **on-target validation still pending** ([09-roadmap.md](09-roadmap.md)) |
 
 **OS min / OS max** columns give each machine's realistic range **clamped to
-MacAtrium's 6.0.8–9.2.2 envelope**: `OS min` is the earliest System that machine
-supports (or 6.0.8, the envelope floor, whichever is later); `OS max` is the
+MacAtrium's 6.0.4–9.2.2 envelope**: `OS min` is the earliest System that machine
+supports (or 6.0.4, the envelope floor, whichever is later); `OS max` is the
 highest it can boot (a genuine CPU/ROM hardware ceiling — see [§1](#1-cpu--architecture)).
+The floor is **6.0.4** — the first System with the **Gestalt Manager** the whole
+`env` probe relies on; **6.0.8 stays the oldest *validated* System-6** (6.0.4–6.0.7
+are in-envelope but untested; below 6.0.4 would need a `SysEnvirons` fallback,
+deferred). The CPU→OS tiers live in [data/os-tiers.json](../data/os-tiers.json).
 
 **Validated on-target so far** (Snow / QEMU harnesses, per [09](09-roadmap.md) &
 [11](11-derisk-log.md)): System **6.0.8** (as the Finder, 8-bit colour), **7.0.1
@@ -93,19 +98,19 @@ CPU-family bounds (individual models floor higher — see [§4](#4-models)).
 
 | CPU | Colour QD | OS min | OS max | MacAtrium | Notes |
 |---|---|---|---|---|---|
-| **68000** | ❌ never | 6.0.8 | 7.5.5 | ✅ B&W only | Original QuickDraw only; compacts/portables; 4 MB RAM cap. Always the B&W backend |
-| **68020** | ✅ (card/ROM) | 6.0.8 | 7.5.5 | ✅ | First Color QD generation; 7.6 needs a 68030. Colour needs a colour card/display |
-| **68030** | ✅ | 6.0.8 | 7.6.1 | ✅ | The broad classic middle; MODE32 assumed for dirty-ROM models (Mac II/IIx/IIcx/SE/30) |
+| **68000** | ❌ never | 6.0.4 | 7.5.5 | ✅ B&W only | Original QuickDraw only; compacts/portables; 4 MB RAM cap. Always the B&W backend |
+| **68020** | ✅ (card/ROM) | 6.0.4 | 7.5.5 | ✅ | First Color QD generation; 7.6 needs a 68030. Colour needs a colour card/display |
+| **68030** | ✅ | 6.0.4 | 7.6.1 | ✅ | The broad classic middle; MODE32 assumed for dirty-ROM models (Mac II/IIx/IIcx/SE/30) |
 | **68040 / 68LC040** | ✅ | 7.1 | 8.1 | ✅🔬 8.x | No 68040 Mac boots System 6 (min 7.1); 8.5 needs PowerPC |
 | **PowerPC 601/603/604** | ✅ always | 7.1.2 | 9.2.2 | ✅🔬 | Runs the **68k binary under the built-in 68k emulator** — no native PPC build ([00](00-vision.md)). 601/603/604 top at **9.1**; only a G3/G4 reaches 9.2.2 |
 
-**Envelope note.** No single machine spans 6.0.8 → 9.2.2 — each CPU tops out
+**Envelope note.** No single machine spans 6.0.4 → 9.2.2 — each CPU tops out
 where the table says. "68k + Mac OS 8.5/9.x" is therefore ❌ **as a hardware
 combination** (8.5+ is PowerPC-only), not a MacAtrium limitation.
 
 ---
 
-## 2. System software (6.0.8 → 9.2.2)
+## 2. System software (6.0.4 → 9.2.2)
 
 MacAtrium's launch model ([03](03-architecture.md)) wants a **Process Manager**
 so the shell stays resident and control **returns** when a launched app quits.
@@ -125,12 +130,23 @@ non-returning.
 | **8.0 / 8.1** | Process Manager | ✅🔬 | 68040 or PowerPC only. Same resident launch API; not yet validated |
 | **8.5 / 8.6** | Process Manager (PPC) | ✅🔬 | PowerPC-only OS → MacAtrium runs under the 68k emulator |
 | **9.0 – 9.2.2** | Process Manager (PPC) | ✅🔬 | PowerPC-only. Top of the envelope; 9.2.x needs G3/G4 hardware |
-| **< 6.0.8** (6.0.x, System 4/5) | — | ❌ | Below the supported floor |
+| **< 6.0.4** (System 4/5, ≤ 6.0.3) | — | ❌ | Below the 6.0.4 Gestalt-Manager floor the `env` probe needs |
 | **Mac OS X / Classic env.** | — | ❌ | Out of scope; not a classic boot shell |
 
 > On System 6, `WaitNextEvent` is a MultiFinder/System-7 trap, so the event loop
 > falls back to `GetNextEvent + SystemTask` (still yields under MultiFinder) —
 > `main.c`, set from the probed version.
+
+**The launcher enforces the range at runtime.** `env_probe` detects the CPU tier
+from `gestaltSysArchitecture` + `gestaltNativeCPUtype` (correct even under the PPC
+68k emulator, where `gestaltProcessorType` reports the emulated 68LC040) and
+derives `maxOSbcd`, the highest System this Mac can boot. The **System Folder
+Chooser** ([main.c](../src/main.c) `run_os_chooser`) then **greys out** any System
+Folder whose version falls outside `[0x0604, maxOSbcd]`, and shows a **swap
+warning** — *"MacAtrium not installed - boots to Finder"* — when a bootable target
+folder has no launcher in its Startup Items. Tier ceilings are baked from
+[data/os-tiers.json](../data/os-tiers.json); per-machine data lives in
+[data/models.jsonl](../data/models.jsonl). See docs/40.
 
 ---
 
@@ -179,9 +195,11 @@ up. The menu-bar height is accounted for (`GetMBarHeight`).
 ## 4. Models
 
 One row per machine, atomic columns for easy correction. `OS min → OS max` is the
-range clamped to the 6.0.8–9.2.2 envelope; `Status` is MacAtrium's call. Colour
+range clamped to the 6.0.4–9.2.2 envelope; `Status` is MacAtrium's call. Colour
 depends on [§3](#3-graphics--quickdraw-generation-depth-and-backend); memory on
-[§6](#6-ram--memory-partition).
+[§6](#6-ram--memory-partition). Per-model `OS min` is that unit's practical earliest
+System (≥ the 6.0.4 envelope floor — some cells show the tested-6.0.8 floor);
+authoritative per-machine minimums are in [data/models.jsonl](../data/models.jsonl).
 
 **`Colour QD` values:** `Yes` = colour on the built-in display · `Ext` = colour
 only on an external monitor · `Card` = needs a NuBus video card + display ·
@@ -362,7 +380,7 @@ Everything else in the envelope is ✅/⚠️. The real incompatibilities:
 | Not supported | Why |
 |---|---|
 | Macs older than the **Plus** (128K, 512K/512Ke) | 64 KB ROM, too little RAM, can't boot 6.0.8/7.x — below the floor |
-| **System < 6.0.8** (System 4/5, 6.0.x) | Below the supported OS floor |
+| **System < 6.0.4** (System 4/5, ≤ 6.0.3) | Below the 6.0.4 Gestalt-Manager floor the `env` probe needs |
 | **68k CPU + Mac OS 8.5 / 8.6 / 9.x** | 8.5+ is **PowerPC-only** — no such hardware combination exists; not a MacAtrium limit |
 | **Mac OS X (native) / other OSes** | MacAtrium is a *classic* boot shell only |
 | **Native PowerPC execution** | No PPC build; PPC runs the 68k binary under the emulator |
@@ -382,5 +400,6 @@ Everything else in the envelope is ✅/⚠️. The real incompatibilities:
 - **Prefs persistence:** [17-prefs-persistence.md](17-prefs-persistence.md)
 - **Volume caps & multi-disk:** [23-multi-volume-library.md](23-multi-volume-library.md), [37-multi-disk-libraries.md](37-multi-disk-libraries.md)
 - **Per-title compatibility data:** [`data/compatibility.jsonl`](../data/compatibility.jsonl)
+- **CPU→OS tier model & data:** [data/os-tiers.json](../data/os-tiers.json), [data/models.jsonl](../data/models.jsonl), [src/bless.c](../src/bless.c) (chooser gating)
 - **Roadmap / what's validated:** [09-roadmap.md](09-roadmap.md), [11-derisk-log.md](11-derisk-log.md)
 - **Runtime probe source:** [src/env.c](../src/env.c), [src/main.c](../src/main.c)

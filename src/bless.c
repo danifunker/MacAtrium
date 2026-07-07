@@ -71,6 +71,45 @@ static long system_version_of(short vref, long dirID)
     return v;
 }
 
+/* Is MacAtrium set to auto-launch under the System Folder `sysDir` (version `v`)?
+ * On 7.x it (or an alias to it — an alias carries the target's creator) lives in
+ * the folder's `Startup Items`; we scan that folder for a file with creator
+ * 'ATRM'. System 6 (v < 0x0700) has no Startup Items — MacAtrium is instead
+ * installed *as* the Finder (docs/09 M4), a path the chooser doesn't set up, so
+ * we report "not ready" and the caller warns that a swap there boots to Finder. */
+static int macatrium_ready(short vref, long sysDir, long v)
+{
+    CInfoPBRec pb;
+    Str63      nm;
+    long       siDir;
+    short      i;
+
+    if (v > 0 && v < 0x0700) return 0;             /* System 6: no Startup Items */
+
+    BlockMoveData("\pStartup Items", nm, 14);      /* find the Startup Items subfolder */
+    memset(&pb, 0, sizeof pb);
+    pb.dirInfo.ioNamePtr   = nm;
+    pb.dirInfo.ioVRefNum   = vref;
+    pb.dirInfo.ioDrDirID   = sysDir;
+    pb.dirInfo.ioFDirIndex = 0;                    /* look ioNamePtr up in ioDrDirID */
+    if (PBGetCatInfoSync(&pb) != noErr) return 0;
+    if (!(pb.dirInfo.ioFlAttrib & ioDirMask)) return 0;   /* no Startup Items folder */
+    siDir = pb.dirInfo.ioDrDirID;
+
+    for (i = 1; i < 256; i++) {                    /* scan it for an 'ATRM' file/alias */
+        nm[0] = 0;
+        memset(&pb, 0, sizeof pb);
+        pb.hFileInfo.ioNamePtr   = nm;
+        pb.hFileInfo.ioVRefNum   = vref;
+        pb.hFileInfo.ioDirID     = siDir;
+        pb.hFileInfo.ioFDirIndex = i;
+        if (PBGetCatInfoSync(&pb) != noErr) break;
+        if (pb.hFileInfo.ioFlAttrib & ioDirMask) continue;
+        if (pb.hFileInfo.ioFlFndrInfo.fdCreator == 'ATRM') return 1;
+    }
+    return 0;
+}
+
 int bless_enumerate(SysFolder *out, int max, long runningVersion)
 {
     short vref;
@@ -107,6 +146,7 @@ int bless_enumerate(SysFolder *out, int max, long runningVersion)
         out[n].version = (out[n].blessed && runningVersion > 0)
                          ? runningVersion
                          : system_version_of(vref, pb.dirInfo.ioDrDirID);
+        out[n].macatriumReady = macatrium_ready(vref, pb.dirInfo.ioDrDirID, out[n].version);
         n++;
     }
     return n;

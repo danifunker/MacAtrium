@@ -8,6 +8,17 @@
 
 #include <Quickdraw.h>
 
+/* CPU→OS compatibility tiers (docs/40 / data/os-tiers.json). The highest System
+ * a Mac can boot is a function of its CPU/ROM generation, not the model; the tier
+ * is detected in env_probe from the native CPU and carries the OS ceiling. */
+enum {
+    TIER_68K_EARLY = 0,   /* 68000 / 68020 → max System 7.5.5 */
+    TIER_68030,           /* 68030         → max System 7.6.1 */
+    TIER_68040,           /* 68040 / LC040 → max Mac OS 8.1   */
+    TIER_PPC_OLDWORLD,    /* 601/603/604   → max Mac OS 9.1   */
+    TIER_PPC_NEWWORLD     /* G3 / G4       → max Mac OS 9.2.2 */
+};
+
 typedef struct {
     long  sysVers;          /* gestaltSystemVersion (BCD, e.g. 0x0755)   */
     long  qdVers;           /* gestaltQuickdrawVersion                   */
@@ -16,6 +27,8 @@ typedef struct {
     int   useColor;         /* chosen render backend: 1 = color, 0 = B&W */
     int   canLaunchReturn;  /* gestaltLaunchCanReturn — resident launch  */
     int   hasShutdown;      /* Shutdown Manager available                */
+    int   tier;             /* CPU→OS tier (TIER_*); OS ceiling class    */
+    long  maxOSbcd;         /* highest bootable System for this Mac (BCD) */
     Rect  screen;           /* full main-screen bounds (global coords)   */
     short mbarHeight;       /* menu-bar height                           */
 } Env;

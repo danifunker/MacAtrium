@@ -42,6 +42,31 @@ void env_probe(Env *e)
     /* Backend: color only when Color QD is present AND the screen actually has
      * colour depth; otherwise the B&W path (also the graceful fallback). */
     e->useColor = (e->hasColorQD && e->pixelSize >= 4);
+
+    /* CPU→OS-compatibility tier (docs/40). OS support clusters by CPU/ROM, not by
+     * model; detect the tier from the *native* CPU (correct even under the PPC 68k
+     * emulator, where gestaltProcessorType reports the emulated 68LC040) and derive
+     * the highest System this Mac can boot. The 5-row ceiling table is baked from
+     * data/os-tiers.json (`maxBcd` per tier) — keep the two in sync. */
+    {
+        static const long kTierMaxBcd[] = { 0x0755, 0x0761, 0x0810, 0x0910, 0x0922 };
+        long arch = 0, cpu = 0;
+        if (Gestalt(gestaltSysArchitecture, &arch) == noErr && arch == gestaltPowerPC) {
+            Gestalt(gestaltNativeCPUtype, &cpu);   /* real PPC chip, even under emulation */
+            e->tier = (cpu == gestaltCPU750 || cpu >= gestaltCPUG4)
+                      ? TIER_PPC_NEWWORLD : TIER_PPC_OLDWORLD;
+        } else {                                   /* 68k: prefer 'cput', fall back to 'proc' */
+            int is030, is040;
+            if (Gestalt(gestaltNativeCPUtype, &cpu) == noErr) {   /* cput: 030=3, 040=4 */
+                is030 = (cpu == gestaltCPU68030); is040 = (cpu == gestaltCPU68040);
+            } else {
+                Gestalt(gestaltProcessorType, &cpu);              /* proc: 030=4, 040=5 */
+                is030 = (cpu == gestalt68030);    is040 = (cpu == gestalt68040);
+            }
+            e->tier = is040 ? TIER_68040 : is030 ? TIER_68030 : TIER_68K_EARLY;
+        }
+        e->maxOSbcd = kTierMaxBcd[e->tier];
+    }
 }
 
 void env_os_name(long v, char *out)
