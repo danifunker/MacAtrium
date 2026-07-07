@@ -784,6 +784,28 @@ pub fn run(cfg: &BuildConfig) -> Result<()> {
         rb.put_macbinary(&cfg.out, &patched, &cfg.startup_items)?;
     }
 
+    // Disable appliance-inappropriate quick-launch control panels (the Mac OS 8
+    // Control Strip + Launcher) in the target System Folder so they don't float over
+    // the full-screen launcher. Case-insensitive; no-op where absent (System 6 / 7.1
+    // don't ship them). docs/36.
+    if !cfg.finder_replace && !cfg.disable_control_panels.is_empty() {
+        let sysfolder = cfg
+            .startup_items
+            .rsplit_once('/')
+            .map(|(parent, _)| parent)
+            .filter(|p| !p.is_empty())
+            .unwrap_or("/System Folder");
+        let cp_dir = format!("{sysfolder}/Control Panels");
+        if let Ok(entries) = rb.ls_exact(&cfg.out, &cp_dir) {
+            for want in &cfg.disable_control_panels {
+                if let Some(e) = entries.iter().find(|e| e.name.eq_ignore_ascii_case(want)) {
+                    rb.rm(&cfg.out, &format!("{cp_dir}/{}", e.name))?;
+                    eprintln!("[appliance]   disabled Control Panel: {}", e.name);
+                }
+            }
+        }
+    }
+
     // Optional startup / shutdown chimes (WAV -> snd resource on the volume).
     if cfg.startup_sound.is_some() || cfg.shutdown_sound.is_some() {
         rb.mkdir_p(&cfg.out, &cfg.sounds_dir)?;

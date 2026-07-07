@@ -230,6 +230,13 @@ extra chrome code is a few KB, negligible even in a Mac Plus partition). No per-
 matrix; `atrium` places the same binary in every System Folder and may set a default
 `appearance` per target.
 
+**Appliance cleanup (8.x).** `atrium image` removes the Mac OS 8 **Control Strip** +
+**Launcher** control panels from the target System Folder (config `disable_control_panels`,
+default `["Control Strip","Launcher"]`, case-insensitive, no-op where absent) so they don't
+float over the full-screen launcher. Verified on the q800 (the strip is gone after the
+build; `rb-cli rm` under the hood). The boot-time modal-dialog case (e.g. a QuickTime
+version mismatch that blocks Startup Items) is left to whoever packages the disk.
+
 ### Implemented — Increment 1 (2026-07-07): runtime Appearance foundation
 Landed and Snow-verified on the Mac II (7.1.1):
 - **`src/theme.{h,c}`** — the `Appearance` model (`APPEAR_AUTO/SYS6/SYS7/SYS8`), a data-driven

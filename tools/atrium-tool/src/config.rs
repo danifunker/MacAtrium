@@ -217,11 +217,25 @@ pub struct BuildConfig {
     /// where 2 MB starves System 6 + the launched game — see `effective_app_mem`.
     #[serde(default)]
     pub app_mem_kb: Option<[u32; 2]>,
+    /// Control panels to remove from the target System Folder at build time so they
+    /// don't float over the full-screen launcher — the Mac OS 8 **Control Strip** and
+    /// **Launcher** quick-launch surfaces (docs/36). Matched case-insensitively;
+    /// absent names are a no-op (System 6 / 7.1 don't ship them). Set to `[]` to keep
+    /// everything.
+    #[serde(default = "d_disable_cdevs")]
+    pub disable_control_panels: Vec<String>,
 }
 
 /// `art_forks` defaults ON (Phase 1 complete, docs/36): builds pack art into
 /// per-item `images/<id>.rsrc` unless a config sets `"art_forks": false`.
 pub fn d_art_forks() -> bool { true }
+
+/// Appliance cleanup default: quick-launch control panels removed from the target
+/// System Folder so they don't overlay the full-screen launcher (docs/36). No-op
+/// where absent (System 6 / 7.1 don't ship them).
+pub fn d_disable_cdevs() -> Vec<String> {
+    vec!["Control Strip".into(), "Launcher".into()]
+}
 
 /// Recommended colour-build (System 7.x) partition in KB: `(preferred, minimum)`.
 /// A 7.x colour build's measured partition peak is ~472 KB — the off-screen GWorld
@@ -390,6 +404,18 @@ mod tests {
     }
 
     #[test]
+    fn disable_control_panels_defaults_on_and_can_be_emptied() {
+        // Default: the appliance strips the quick-launch control panels.
+        assert_eq!(BuildConfig::default().disable_control_panels, ["Control Strip", "Launcher"]);
+        // A config without the field still gets the default (existing builds clean up too).
+        let c: BuildConfig = serde_json::from_str(r#"{"out":"o"}"#).unwrap();
+        assert_eq!(c.disable_control_panels, ["Control Strip", "Launcher"]);
+        // Explicit empty keeps everything.
+        let c: BuildConfig = serde_json::from_str(r#"{"out":"o","disable_control_panels":[]}"#).unwrap();
+        assert!(c.disable_control_panels.is_empty());
+    }
+
+    #[test]
     fn launcher_path_defaults_to_build_dir() {
         // No config path + no env override -> build/MacAtrium.bin (the launcher is
         // never embedded; it's built by Retro68 or dropped in from a release).
@@ -450,6 +476,7 @@ impl Default for BuildConfig {
             sounds_dir: d_sounds_dir(),
             finder_replace: false,
             app_mem_kb: None,
+            disable_control_panels: d_disable_cdevs(),
         }
     }
 }

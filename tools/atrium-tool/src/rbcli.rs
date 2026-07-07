@@ -104,6 +104,14 @@ impl RbCli {
         Ok(())
     }
 
+    /// Delete a file or directory from an image (`rb-cli rm`). Errors if the path
+    /// is absent, so callers that treat absence as fine check with `ls` first.
+    pub fn rm(&self, image: &Path, path: &str) -> Result<()> {
+        let img = image.to_string_lossy();
+        self.run(&["rm", &img, path])?;
+        Ok(())
+    }
+
     /// Decode a .hqx and write it (both forks) into a directory inside an image.
     /// Clears `hasBeenInited` so the Finder re-reads each injected app's `BNDL` on
     /// the fresh disk and shows real icons (a copied-in app with `hasBeenInited`
