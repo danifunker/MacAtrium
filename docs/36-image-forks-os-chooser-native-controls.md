@@ -245,10 +245,17 @@ Landed and Snow-verified on the Mac II (7.1.1):
   (6px, exact parity with today)**, **sys6 = square** — visibly flips the Icon-Grid tiles and
   the key-cap hints. Verified: sys7 rounded == baseline; sys6 square.
 
+### Implemented — Increment 2 (2026-07-07): in-UI Settings row
+A **Appearance** stepper row (Auto / System 6 / System 7 / Platinum) in the Settings panel,
+live-applied via `render_set_appearance` and persisted (`prefs appearance`). `Render` now
+carries the pref (`appearancePref`) as well as the resolved look, and `render_set_appearance`
+takes the pref + `Env` (re-resolves). Snow-verified on 7.1.1: the row shows **"Auto (System
+7)"**, cycling it to **System 6** turns the Icon-Grid tiles + key-caps square, and the choice
+survives the panel close (saved).
+
 **Remaining (next increments):** route more chrome through the theme (panel/window frames →
 `frameBevel` for Platinum, selection style, background/desktop pattern); real **sys8 Platinum**
-via the Appearance Manager (needs an 8.x disk to verify); the **Settings "Appearance" row**
-(prefs override works now; the in-UI picker is the follow-up). Consider splitting the trait
+via the Appearance Manager (an 8.x disk is available to verify). Consider splitting the trait
 table into `theme_sys{6,7,8}.c` once the per-era drawing outgrows a data table.
 
 ---
@@ -315,4 +322,4 @@ booted System (overridable via the Appearance setting).
 
 **Phase 2** — [x] `bless.c` (enumerate + `PBSetVInfo`; de-risked vs `rb-cli bless`) · [x] chooser UI (built-in widgets, Quick-Launch + Special menu) · [x] Snow verify swap (7.1.2 → 6.0.8) · [x] per-folder System version + MacOS-version header · [ ] compatibility gating (gray incompatible, flag enabler-needed — needs docs/38) · [ ] host per-System startup placement · [ ] filter/handle pre-6 Systems in the chooser
 
-**Phase 3** (runtime themes, one binary) — [~] `theme.h` + route chrome through it (capCorner done; frames/selection/bg TODO) · [x] runtime select from `env.sysVers` + prefs override ([ ] Settings row) · [~] `theme_sys6` (square caps/tiles ✓) · [ ] `theme_sys8` (Appearance Mgr) · [ ] `atrium` optional per-target default · [~] per-OS Snow verify (sys6/sys7 on 7.1.1 ✓)
+**Phase 3** (runtime themes, one binary) — [~] `theme.h` + route chrome through it (capCorner done; frames/selection/bg TODO) · [x] runtime select from `env.sysVers` + prefs override + **Settings Appearance row** · [~] `theme_sys6` (square caps/tiles ✓) · [ ] `theme_sys8` (Appearance Mgr) · [ ] `atrium` optional per-target default · [~] per-OS Snow verify (sys6/sys7 on 7.1.1 ✓)

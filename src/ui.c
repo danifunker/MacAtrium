@@ -856,12 +856,13 @@ static const char *kViewDesc[VIEW_N] = {
     "Categories + a list with screenshots. Best for big libraries."
 };
 
-#define SET_N 14
+#define SET_N 15
 #define SET_ROW_VIEW      6             /* browse view: Carousel / Icon / List      */
 #define SET_ROW_MENUBAR   9             /* System menu bar: Shown / Hidden          */
 #define SET_ROW_TITLEBAR  10            /* window title bar: Shown / Hidden         */
 #define SET_ROW_TEXTSIZE  11            /* content text size: Small / Medium / Large */
 #define SET_ROW_GRIDSTYLE 12            /* Icon Grid layout: Finder / Tiles         */
+#define SET_ROW_APPEARANCE 13           /* era control look: Auto / Sys6 / Sys7 / Platinum */
 #define SET_ROW_CTLPANELS (SET_N - 1)   /* the action row (opens the cdev list)     */
 
 /* The Control Panels list (reached from Settings -> Control Panels): a scrollable
@@ -2708,6 +2709,15 @@ static int settings_adjust_row(Ui *u, int row, int dir)
             u->gridStyle = (u->gridStyle + dir + GRID_N) % GRID_N;
             u->bgValid = 0;                         /* the grid relays out */
             return 1;                               /* persisted */
+        case SET_ROW_APPEARANCE: {                 /* era look: Auto / Sys6 / Sys7 / Platinum */
+            int pref = u->r->appearancePref;
+            int idx  = (pref == APPEAR_AUTO) ? 0 : pref + 1;  /* 0=Auto,1=sys6,2=sys7,3=sys8 */
+            idx  = (idx + dir + 4) % 4;
+            pref = (idx == 0) ? APPEAR_AUTO : idx - 1;
+            render_set_appearance(u->r, pref, u->env);
+            u->bgValid = 0;                         /* re-render the themed chrome */
+            return 1;                               /* persisted */
+        }
         default:                                   /* Control Panels (action row, intercepted) */
             return 0;
     }
@@ -2745,6 +2755,7 @@ const char *ui_setting_label(int row)
         case SET_ROW_TITLEBAR:  return "Hide title bar";
         case SET_ROW_TEXTSIZE:  return "Text Size";
         case SET_ROW_GRIDSTYLE: return "Grid Style";
+        case SET_ROW_APPEARANCE: return "Appearance";
         default:                return "Control Panels\xC9";   /* 0xC9 = … */
     }
 }
@@ -2789,6 +2800,15 @@ void ui_setting_value(Ui *u, int row, char *out)
             break;
         case SET_ROW_GRIDSTYLE:
             strcpy(out, kGridStyle[(u->gridStyle >= 0 && u->gridStyle < GRID_N) ? u->gridStyle : 0]);
+            break;
+        case SET_ROW_APPEARANCE:
+            if (u->r->appearancePref == APPEAR_AUTO) {   /* Auto: show what it resolves to */
+                strcpy(out, "Auto (");
+                strcat(out, appearance_name(u->r->appearance));
+                strcat(out, ")");
+            } else {
+                strcpy(out, appearance_name(u->r->appearancePref));
+            }
             break;
         default: break;
     }

@@ -483,6 +483,7 @@ static void save_prefs(void)
     p.carousel = gUi.carousel;       p.haveCarousel = 1;
     p.view = gUi.view;               p.haveView = 1;
     p.depth = display_current_depth();  p.haveDepth = (p.depth > 0);  /* boot-depth pref */
+    p.appearance = gRender.appearancePref;  p.haveAppearance = 1;     /* era-look choice */
 
     p.category[0] = '\0';
     p.item[0]     = '\0';
@@ -1429,8 +1430,7 @@ int main(void)
 
     if (gPrefs.haveTheme) render_set_theme(&gRender, gPrefs.theme);
     if (gPrefs.haveAppearance)             /* saved era-look override beats the OS default */
-        render_set_appearance(&gRender,
-            appearance_resolve(gEnv.sysVers, gEnv.hasAppearanceMgr, gPrefs.appearance));
+        render_set_appearance(&gRender, gPrefs.appearance, &gEnv);
     if (gPrefs.haveVol && sound_available()) sound_apply_vol(gPrefs.vol);  /* no boot beep */
 
     if (load_index()) {
