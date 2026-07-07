@@ -135,6 +135,9 @@ def main():
         a.qemu, "-M", "q800", "-bios", a.rom, "-m", str(a.ram),
         "-drive", f"file={a.disk},format=raw,if=none,id=hd0,snapshot=on",
         "-device", "scsi-hd,drive=hd0,scsi-id=0",
+        # Null audio backend: headless WSL/CI has no ALSA/PipeWire device, and the
+        # q800's on-board ASC sound chip aborts QEMU at init if it can't open one.
+        "-audio", "none",
         "-display", "none",
         "-serial", "file:" + os.path.join(a.out_dir, "serial.log"),
         "-qmp", f"unix:{sock},server,nowait",
