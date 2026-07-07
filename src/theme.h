@@ -29,6 +29,7 @@ enum { APPEAR_AUTO = -1 };
 typedef struct {
     short capCorner;   /* rounded-frame / key-cap corner diameter (px); 0 = square */
     short frameBevel;  /* window/panel frame: 0 = flat 1px, 1 = Platinum 3-D bevel */
+    short tileRaised;  /* Icon-Grid tile: 1 = raised "At Ease" button, 0 = flat (sys6) */
 } Theme;
 
 /* Resolve a pref value (APPEAR_AUTO or a forced APPEAR_SYS*) to a concrete

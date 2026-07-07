@@ -1290,7 +1290,7 @@ static void draw_grid_cell(Ui *u, const GridLayout *g, int idx)
     char           l1[ITEM_NAME_LEN + 2], l2[ITEM_NAME_LEN + 2];
     const char    *ls[2];
     short          isz = 32, cw, ix, ny;
-    int            isSel, nlines, ln;
+    int            isSel, nlines, ln, raised;
     if (!cat || !grid_cell_rect(g, idx, &cell)) return;
     it = &m->cat->items[cat->idx[idx]];
     isSel = (idx == m->curItem);
@@ -1298,7 +1298,10 @@ static void draw_grid_cell(Ui *u, const GridLayout *g, int idx)
     cw = (short)(cell.right - cell.left);
     render_fill(r, &cell, FILL_BG);                        /* erase (handles deselect) */
 
-    if (u->gridStyle == GRID_TILES) {
+    /* The raised "At Ease" tile is a sys7/sys8 affordance; sys6 (pre-At-Ease)
+     * draws the flat by-icon look instead (docs/36 Phase 3). */
+    raised = (u->gridStyle == GRID_TILES && r->look && r->look->tileRaised);
+    if (raised) {
         /* At Ease tile: a raised rounded button — a grey (platinum) face with a 1px
          * drop shadow, so it reads as a button, not a white box (Mac HIG button look).
          * The whole tile highlights when selected. */
@@ -1327,7 +1330,7 @@ static void draw_grid_cell(Ui *u, const GridLayout *g, int idx)
     for (ln = 0; ln < nlines; ln++, ny = (short)(ny + 12)) {
         short tw = render_text_width(r, ls[ln]);
         short lx = (short)(cell.left + (cw - tw) / 2);
-        if (isSel && u->gridStyle == GRID_FINDER) {        /* Finder highlights the name */
+        if (isSel && !raised) {                            /* flat path highlights the name */
             Rect hl;
             SetRect(&hl, (short)(lx - 2), (short)(ny - 10), (short)(lx + tw + 2), (short)(ny + 2));
             render_fill(r, &hl, FILL_SEL);
