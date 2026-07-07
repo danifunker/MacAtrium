@@ -269,10 +269,16 @@ survives the panel close (saved).
   the light theme uses white interiors where a white highlight edge vanishes, so we use the
   soft-grey frame.) Verified in colour on the **q800 (Mac OS 8.1)** via QEMU-for-Windows + QMP.
 
-**Remaining (next increments):** selection style + background/desktop pattern per era; deeper
-**sys8 Platinum** via the Appearance Manager (`DrawThemeButton`/`DrawThemeWindowFrame`) where a
-grey surface makes a real engraved bevel worthwhile. Consider splitting the trait table into
-`theme_sys{6,7,8}.c` once the per-era drawing outgrows a data table.
+### Implemented — Increment 4 (2026-07-07): sys6 flat selection
+`Theme.selInvert` — sys6 draws the list/category selection as a **flat black/white inversion**
+(no colour accent), the authentic System 6 look; sys7/8 keep the tinted highlight. Colour backend
+only (B&W already inverts). q800-verified on 8.1 (forced sys6): solid black bar + white text.
+
+**Remaining (next increments):** per-era **background / desktop pattern**. **Note: the Appearance
+Manager (`DrawThemeButton`/`DrawThemeWindowFrame`) is NOT in Retro68's 68k multiversal headers**
+(only the PPC/Carbon `libAppearanceLib`), so real Platinum *delegation* would need hand-declared
+prototypes + linkage — deferred; the hand-drawn traits carry sys8's Platinum for now. Consider
+splitting the trait table into `theme_sys{6,7,8}.c` once the per-era drawing outgrows a data table.
 
 ---
 
@@ -342,4 +348,4 @@ q800 (Mac OS 8.1, colour, 2026-07-07)**; `art_forks` now defaults ON. Commits: r
 ### Implemented — host per-System startup placement (2026-07-07)
 `atrium image` with **`install_all_systems: true`** (and the standalone **`atrium install-all-systems --image <disk>`** for retrofitting a hand-built disk) installs the launcher into **every** System Folder on the volume so a bless-swap always boots back into MacAtrium instead of that System's Finder: **Startup Items** for folders that have one (System 7+), **as the Finder** (FNDR/MACS) for named **System 6.0.4–6.0.8** folders, and **skips** pre-6 (System 4/5) below the Gestalt floor. Control Strip/Launcher are stripped from each 7+ folder. Verified across all three branches on two real multi-System disks (an 8.0/8.1 disk and the 6.0.8→7.5.5 HD20SC).
 
-**Phase 3** (runtime themes, one binary) — [~] `theme.h` + route chrome through it (capCorner + flat tiles + Platinum frame done; selection/bg TODO) · [x] runtime select from `env.sysVers` + prefs override + **Settings Appearance row** · [~] `theme_sys6` (square caps + flat tiles ✓) · [~] `theme_sys8` (soft Platinum frame ✓; Appearance Mgr delegation TODO) · [ ] `atrium` optional per-target default · [~] verify (sys6/sys7 Snow 7.1.1 ✓; sys8 q800/8.1 ✓)
+**Phase 3** (runtime themes, one binary) — [~] `theme.h` + route chrome through it (capCorner + flat tiles + Platinum frame + sys6 flat selection done; background TODO) · [x] runtime select from `env.sysVers` + prefs override + **Settings Appearance row** · [~] `theme_sys6` (square caps + flat tiles ✓) · [~] `theme_sys8` (soft Platinum frame ✓; Appearance Mgr delegation TODO) · [ ] `atrium` optional per-target default · [~] verify (sys6/sys7 Snow 7.1.1 ✓; sys8 q800/8.1 ✓)

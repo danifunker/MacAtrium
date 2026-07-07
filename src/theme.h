@@ -30,6 +30,9 @@ typedef struct {
     short capCorner;   /* rounded-frame / key-cap corner diameter (px); 0 = square */
     short frameBevel;  /* window/panel frame: 0 = flat 1px, 1 = Platinum 3-D bevel */
     short tileRaised;  /* Icon-Grid tile: 1 = raised "At Ease" button, 0 = flat (sys6) */
+    short selInvert;   /* list selection: 1 = flat black/white inversion (sys6, no colour
+                        * accent — authentic System 6), 0 = tinted highlight (sys7/8).
+                        * Only affects the colour backend; B&W already inverts. */
 } Theme;
 
 /* Resolve a pref value (APPEAR_AUTO or a forced APPEAR_SYS*) to a concrete

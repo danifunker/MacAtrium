@@ -63,7 +63,9 @@ void cqd_set_fill(const Render *r, int kind)
     ThemePalette *p = pal(r);
     PenPat(&qd.black);                 /* solid pattern; patCopy = solid fill */
     switch (kind) {
-        case FILL_SEL:   RGBForeColor(&p->sel);   break;
+        /* sys6 selection is a flat inversion (bar in the ink colour, no colour
+         * accent); sys7/8 use the tinted highlight. */
+        case FILL_SEL:   RGBForeColor(r->look->selInvert ? &p->text : &p->sel); break;
         case FILL_PANEL: RGBForeColor(&p->panel); break;
         case FILL_TILE:  RGBForeColor(&p->tile);  break;
         default:         RGBForeColor(&p->bg);    break;
@@ -75,7 +77,9 @@ void cqd_set_ink(const Render *r, int ink)
     ThemePalette *p = pal(r);
     TextMode(srcOr);                   /* foreground over existing background */
     switch (ink) {
-        case INK_SELECTED: RGBForeColor(&p->selText); break;
+        /* Over a sys6 inverted bar the text is the paper colour (white-on-dark);
+         * over the sys7/8 tint it's the palette's selText. */
+        case INK_SELECTED: RGBForeColor(r->look->selInvert ? &p->bg : &p->selText); break;
         case INK_DIM:      RGBForeColor(&p->dim);     break;
         default:           RGBForeColor(&p->text);    break;
     }

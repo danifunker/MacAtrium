@@ -9,9 +9,9 @@
 #include "theme.h"
 
 static const Theme kThemes[APPEAR_N] = {
-    /* APPEAR_SYS6 */ { 0, 0, 0 },   /* square, flat frames, flat tiles — System 6 lined look */
-    /* APPEAR_SYS7 */ { 6, 0, 1 },   /* == today: rounded key-caps, flat frames, raised tiles */
-    /* APPEAR_SYS8 */ { 4, 1, 1 },   /* Platinum: gentler corners, bevelled frames, raised     */
+    /* APPEAR_SYS6 */ { 0, 0, 0, 1 },   /* square, flat frames, flat tiles, inverted selection */
+    /* APPEAR_SYS7 */ { 6, 0, 1, 0 },   /* == today: rounded key-caps, flat frames, raised, tint */
+    /* APPEAR_SYS8 */ { 4, 1, 1, 0 },   /* Platinum: gentler corners, bevelled frames, raised, tint */
 };
 
 int appearance_resolve(long sysVers, int hasAppearanceMgr, int pref)
