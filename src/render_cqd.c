@@ -16,6 +16,8 @@ typedef struct {
     RGBColor selText;   /* text over the selection fill */
     RGBColor line;      /* frames + divider hlines      */
     RGBColor tile;      /* At Ease tile button face (raised grey) */
+    RGBColor bevelHi;   /* Platinum (sys8) frame bevel: highlight (bottom/right) */
+    RGBColor bevelLo;   /* Platinum (sys8) frame bevel: shadow (top/left)        */
 } ThemePalette;
 
 /* Dark (default): near-black desktop, a slightly-raised charcoal panel, an azure
@@ -29,7 +31,9 @@ static ThemePalette kDark = {
     { 0x9C9C, 0x9C9C, 0x9C9C },   /* dim     #9c9c9c             */
     { 0xFFFF, 0xFFFF, 0xFFFF },   /* selText white               */
     { 0x5555, 0x5555, 0x5555 },   /* line    #555555 grey rule   */
-    { 0x4444, 0x4444, 0x4444 }    /* tile    #444444 raised face  */
+    { 0x4444, 0x4444, 0x4444 },   /* tile    #444444 raised face  */
+    { 0x5A5A, 0x5A5A, 0x5A5A },   /* bevelHi #5a5a5a (2-tone, reserved) */
+    { 0x7070, 0x7070, 0x7070 }    /* bevelLo #707070 soft Platinum frame */
 };
 
 /* Light (authentic System 7): white window interiors, black-on-white chrome, a
@@ -44,7 +48,9 @@ static ThemePalette kLight = {
     { 0x7878, 0x7878, 0x7878 },   /* dim     #787878 mid grey             */
     { 0x0000, 0x0000, 0x0000 },   /* selText black (dark on the pale tint)*/
     { 0x0000, 0x0000, 0x0000 },   /* line    black 1px rules + frames      */
-    { 0xCCCC, 0xCCCC, 0xCCCC }    /* tile    #cccccc platinum button face  */
+    { 0xCCCC, 0xCCCC, 0xCCCC },   /* tile    #cccccc platinum button face  */
+    { 0xFFFF, 0xFFFF, 0xFFFF },   /* bevelHi white highlight               */
+    { 0x8888, 0x8888, 0x8888 }    /* bevelLo #888888 shadow                 */
 };
 
 static ThemePalette *pal(const Render *r)
@@ -80,4 +86,11 @@ void cqd_set_line(const Render *r)
     ThemePalette *p = pal(r);
     PenPat(&qd.black);
     RGBForeColor(&p->line);
+}
+
+void cqd_set_line_shade(const Render *r, int hi)
+{
+    ThemePalette *p = pal(r);
+    PenPat(&qd.black);
+    RGBForeColor(hi ? &p->bevelHi : &p->bevelLo);
 }

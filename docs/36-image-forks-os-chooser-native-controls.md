@@ -260,10 +260,19 @@ takes the pref + `Env` (re-resolves). Snow-verified on 7.1.1: the row shows **"A
 7)"**, cycling it to **System 6** turns the Icon-Grid tiles + key-caps square, and the choice
 survives the panel close (saved).
 
-**Remaining (next increments):** route more chrome through the theme (panel/window frames →
-`frameBevel` for Platinum, selection style, background/desktop pattern); real **sys8 Platinum**
-via the Appearance Manager (an 8.x disk is available to verify). Consider splitting the trait
-table into `theme_sys{6,7,8}.c` once the per-era drawing outgrows a data table.
+### Implemented — Increment 3 (2026-07-07): tiles + Platinum frame, verified on the q800
+- **Flat sys6 tiles** — the raised At-Ease tile is a sys7/sys8 affordance (`Theme.tileRaised`);
+  sys6 draws the flat by-icon look (icon + name, name-highlighted selection). Snow-verified.
+- **Soft Platinum frame (sys8)** — `Theme.frameBevel` makes `render_frame` draw a softer grey
+  frame (via a new `cqd_set_line_shade`) instead of the hard-black 1px rule — the Platinum
+  group-box look, robust on any background. (A true 2-tone engraved bevel wants a grey surface;
+  the light theme uses white interiors where a white highlight edge vanishes, so we use the
+  soft-grey frame.) Verified in colour on the **q800 (Mac OS 8.1)** via QEMU-for-Windows + QMP.
+
+**Remaining (next increments):** selection style + background/desktop pattern per era; deeper
+**sys8 Platinum** via the Appearance Manager (`DrawThemeButton`/`DrawThemeWindowFrame`) where a
+grey surface makes a real engraved bevel worthwhile. Consider splitting the trait table into
+`theme_sys{6,7,8}.c` once the per-era drawing outgrows a data table.
 
 ---
 
@@ -329,4 +338,4 @@ booted System (overridable via the Appearance setting).
 
 **Phase 2** — [x] `bless.c` (enumerate + `PBSetVInfo`; de-risked vs `rb-cli bless`) · [x] chooser UI (built-in widgets, Quick-Launch + Special menu) · [x] Snow verify swap (7.1.2 → 6.0.8) · [x] per-folder System version + MacOS-version header · [ ] compatibility gating (gray incompatible, flag enabler-needed — needs docs/38) · [ ] host per-System startup placement · [ ] filter/handle pre-6 Systems in the chooser
 
-**Phase 3** (runtime themes, one binary) — [~] `theme.h` + route chrome through it (capCorner done; frames/selection/bg TODO) · [x] runtime select from `env.sysVers` + prefs override + **Settings Appearance row** · [~] `theme_sys6` (square caps/tiles ✓) · [ ] `theme_sys8` (Appearance Mgr) · [ ] `atrium` optional per-target default · [~] per-OS Snow verify (sys6/sys7 on 7.1.1 ✓)
+**Phase 3** (runtime themes, one binary) — [~] `theme.h` + route chrome through it (capCorner + flat tiles + Platinum frame done; selection/bg TODO) · [x] runtime select from `env.sysVers` + prefs override + **Settings Appearance row** · [~] `theme_sys6` (square caps + flat tiles ✓) · [~] `theme_sys8` (soft Platinum frame ✓; Appearance Mgr delegation TODO) · [ ] `atrium` optional per-target default · [~] verify (sys6/sys7 Snow 7.1.1 ✓; sys8 q800/8.1 ✓)

@@ -17,5 +17,8 @@ void qd_set_line(const Render *r);             /* prep for frames / hlines      
 void cqd_set_fill(const Render *r, int kind);
 void cqd_set_ink(const Render *r, int ink);
 void cqd_set_line(const Render *r);
+/* Bevel edge colour for the Platinum (sys8) engraved frame: hi = highlight
+ * (bottom/right), else shadow (top/left). Colour backend only. */
+void cqd_set_line_shade(const Render *r, int hi);
 
 #endif /* MACATRIUM_RENDER_INTERNAL_H */

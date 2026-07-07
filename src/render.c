@@ -203,6 +203,16 @@ void render_fill(Render *r, const Rect *rr, int kind)
 
 void render_frame(Render *r, const Rect *rr)
 {
+    /* Platinum (sys8): a softer grey frame instead of the hard-black 1px rule —
+     * the Platinum group-box look, and robust on any background (a true 2-tone
+     * engraved bevel needs a grey surface; our light theme uses white interiors,
+     * where a white highlight edge would vanish). Colour backend only. */
+    if (r->color && r->look && r->look->frameBevel) {
+        cqd_set_line_shade(r, 0);                        /* soft Platinum grey */
+        PenSize(1, 1);
+        FrameRect(rr);
+        return;
+    }
     if (r->color) cqd_set_line(r);
     else          qd_set_line(r);
     PenSize(1, 1);
