@@ -297,8 +297,8 @@ booted System (overridable via the Appearance setting).
   6.0.8 disk.
 
 ## Status (2026-07-06)
-**Phase 0 DONE**; **Phase 1 DONE** — B&W/`ABMP` path Snow-verified; colour/`PICT` proven-equivalent
-(live verify blocked in this Snow config, see below); `art_forks` now defaults ON. Commits: resfork
+**Phase 0 DONE**; **Phase 1 DONE** — B&W/`ABMP` path Snow-verified; colour/`PICT` **live-verified on the
+q800 (Mac OS 8.1, colour, 2026-07-07)**; `art_forks` now defaults ON. Commits: resfork
 `1b75d30`, per-item forks `0886427`, `pict-rsrc` tool `92ac20a`. (Env: memory `macatrium-wsl-env`.)
 
 ### Verify recipe (this WSL)
@@ -321,12 +321,13 @@ booted System (overridable via the Appearance setting).
   macatrium_harness ~/repos/boot0.rom ~/repos/341-0868.BIN DISK out/ 2200000000 \
       --snap-every 200000000 --keys "1000000000:return"
   ```
-- **Colour `PICT` path — proven-equivalent; live verify blocked here.** A colour boot can't be reached
-  in this Snow config: HD20SC boots 1-bit and the guest's runtime `SetDepth(8)` doesn't switch this MDC
-  (a `view=0` pref *is* honoured — so prefs load — but `depth=8` doesn't raise the screen). The PICT
-  *resource* is byte-identical to the proven loose-`.pict` render: same `build_pict` data minus the
-  512-byte file header the loose loader already skips; both end at `art->pic → DrawPicture`; only
-  `DetachResource` is new. **Recommend a colour smoke-test on real hardware or a boot-8-bit disk.**
+- **Colour `PICT` path — VERIFIED on the q800 (Mac OS 8.1, colour, 2026-07-07).** A per-item
+  `images/<id>.rsrc` (1-bit `ABMP` + 8-bit `PICT`, baked via `atrium pict-rsrc`) rendered its colour
+  cover in MacAtrium's cover box on a real colour screen — `art_load_rsrc` → `Get1Resource('PICT',
+  128+bits)` → `DetachResource` → `DrawPicture`. Verified with **QEMU-for-Windows** (`-M q800`,
+  `q800.rom`) driven headless by a **PowerShell QMP** script (boot → `send-key ret` to clear the
+  startup dialog → `screendump`); the screendump writes **PPM** (convert to PNG). This was the item
+  blocked in Snow (HD20SC boots 1-bit and the MDC ignores a runtime `SetDepth(8)`), now closed.
 - **`art_forks` now defaults ON** (`config.rs d_art_forks`): builds pack art into per-item `.rsrc`
   unless a config sets `"art_forks": false`. The loose-file fallback stays in `art.c` — a missing
   `.rsrc` variant yields a blank cover, never a crash.
@@ -334,7 +335,7 @@ booted System (overridable via the Appearance setting).
 ## Task checklist
 **Phase 0** — [x] apt deps · [x] Retro68 (`--no-ppc --no-carbon`) · [x] rb-cli · [x] atrium tool · [x] snow harness · [x] smoke-build `MacAtrium.bin`
 
-**Phase 1 DONE** — [x] `resfork.rs` writer · [x] host per-item `.rsrc` + `setrsrc` inject · [x] `art_load_rsrc` + fallback · [x] Snow verify B&W/`ABMP` · [x] flip `art_forks` default ON · [~] colour `PICT` verify (proven-equivalent; live verify → HW / boot-8-bit disk)
+**Phase 1 DONE** — [x] `resfork.rs` writer · [x] host per-item `.rsrc` + `setrsrc` inject · [x] `art_load_rsrc` + fallback · [x] Snow verify B&W/`ABMP` · [x] flip `art_forks` default ON · [x] colour `PICT` verify (q800 / Mac OS 8.1, colour)
 
 **Phase 2** — [x] `bless.c` (enumerate + `PBSetVInfo`; de-risked vs `rb-cli bless`) · [x] chooser UI (built-in widgets, Quick-Launch + Special menu) · [x] Snow verify swap (7.1.2 → 6.0.8) · [x] per-folder System version + MacOS-version header · [ ] compatibility gating (gray incompatible, flag enabler-needed — needs docs/38) · [ ] host per-System startup placement · [ ] filter/handle pre-6 Systems in the chooser
 
