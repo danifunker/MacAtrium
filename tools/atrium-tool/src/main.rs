@@ -312,6 +312,19 @@ enum Cmd {
         config: PathBuf,
     },
 
+    /// Install the launcher into **every** System Folder of an existing multi-System
+    /// disk image — Startup Items for System 7+, as the Finder for System 6.0.x — so
+    /// a bless-swap always boots back into MacAtrium (the `image` build's
+    /// `install_all_systems` step, run standalone; no rebuild). docs/36.
+    InstallAllSystems {
+        /// Disk image to modify in place.
+        #[arg(long)]
+        image: PathBuf,
+        /// Launcher MacBinary (default: build/MacAtrium.bin or $MACATRIUM_LAUNCHER).
+        #[arg(long)]
+        launcher: Option<PathBuf>,
+    },
+
     /// Add titles to an already-built MacAtrium disk, in place: harvest the
     /// selected titles into the existing image, bake their art, and merge their
     /// catalog records with the disk's current catalog (existing titles keep
@@ -661,6 +674,10 @@ fn main() -> Result<()> {
         }
         Cmd::Image { config } => {
             image::run_from_path(&config)?;
+        }
+        Cmd::InstallAllSystems { image, launcher } => {
+            let n = image::install_all_systems_on_image(&image, launcher)?;
+            eprintln!("install-all-systems: launcher installed into {n} System Folder(s)");
         }
         Cmd::Add { config } => {
             image::add_to_disk_from_path(&config)?;

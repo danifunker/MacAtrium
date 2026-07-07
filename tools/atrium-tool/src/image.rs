@@ -45,9 +45,16 @@ fn apply_app_mem(cfg: &BuildConfig, bytes: &mut [u8]) {
 }
 
 /// Install the launcher *as* `/System Folder/Finder` (typed FNDR/MACS) so a
-/// System-6 boot launches it as the shell. Patches the MacBinary internal name to
-/// "Finder", injects it (overwriting the real Finder), and retypes it.
+/// System-6 boot launches it as the shell.
 fn install_as_finder(rb: &RbCli, cfg: &BuildConfig, stage: &Path) -> Result<()> {
+    install_as_finder_in(rb, cfg, stage, "/System Folder")
+}
+
+/// Install the launcher *as* `<sysfolder>/Finder` (typed FNDR/MACS) so booting that
+/// System launches it as the shell. Patches the MacBinary internal name to "Finder",
+/// injects it (overwriting the real Finder), and retypes it. Parameterised on the
+/// System Folder so the multi-System path can finder-replace each System 6 folder.
+fn install_as_finder_in(rb: &RbCli, cfg: &BuildConfig, stage: &Path, sysfolder: &str) -> Result<()> {
     let mut bytes = cfg.launcher_bytes()?;
     anyhow::ensure!(bytes.len() > 128, "launcher .bin too small to be MacBinary");
     let name = b"Finder";
@@ -59,9 +66,108 @@ fn install_as_finder(rb: &RbCli, cfg: &BuildConfig, stage: &Path) -> Result<()> 
     apply_app_mem(cfg, &mut bytes);
     let patched = stage.join("Finder.bin");
     std::fs::write(&patched, &bytes)?;
-    rb.put_macbinary(&cfg.out, &patched, "/System Folder")?;   // lands as "Finder" (--force)
-    rb.chmeta(&cfg.out, "/System Folder/Finder", "FNDR", "MACS")?;
+    rb.put_macbinary(&cfg.out, &patched, sysfolder)?;   // lands as "Finder" (--force)
+    rb.chmeta(&cfg.out, &format!("{sysfolder}/Finder"), "FNDR", "MACS")?;
     Ok(())
+}
+
+/// Put the launcher (bundle-bit + `SIZE` patched, browsable-app icon) into a System
+/// Folder's `Startup Items` so a System-7+ boot auto-launches it while the real
+/// Finder stays installed. `startup_dir` is the full `.../Startup Items` path.
+fn install_startup_item(rb: &RbCli, cfg: &BuildConfig, stage: &Path, startup_dir: &str) -> Result<()> {
+    rb.mkdir_p(&cfg.out, startup_dir)?;
+    // Set the bundle bit so the Finder shows the app's real icon (it's a browsable
+    // app here, unlike the finder_replace appliance).
+    let mut bytes = cfg.launcher_bytes()?;
+    anyhow::ensure!(bytes.len() > 128, "launcher .bin too small to be MacBinary");
+    set_bundle_bit(&mut bytes);
+    apply_app_mem(cfg, &mut bytes);
+    let patched = stage.join("MacAtrium.bundle.bin");
+    std::fs::write(&patched, &bytes)?;
+    rb.put_macbinary(&cfg.out, &patched, startup_dir)?;
+    Ok(())
+}
+
+/// Strip appliance-inappropriate quick-launch control panels (the Mac OS 8 Control
+/// Strip + Launcher) from `<sysfolder>/Control Panels` so they don't float over the
+/// full-screen launcher. Case-insensitive; no-op where absent (System 6 / 7.1 don't
+/// ship them). docs/36.
+fn strip_control_panels_in(rb: &RbCli, cfg: &BuildConfig, sysfolder: &str) -> Result<()> {
+    if cfg.disable_control_panels.is_empty() {
+        return Ok(());
+    }
+    let cp_dir = format!("{sysfolder}/Control Panels");
+    if let Ok(entries) = rb.ls_exact(&cfg.out, &cp_dir) {
+        for want in &cfg.disable_control_panels {
+            if let Some(e) = entries.iter().find(|e| e.name.eq_ignore_ascii_case(want)) {
+                rb.rm(&cfg.out, &format!("{cp_dir}/{}", e.name))?;
+                eprintln!("[appliance]   disabled Control Panel: {} ({sysfolder})", e.name);
+            }
+        }
+    }
+    Ok(())
+}
+
+/// A folder name that denotes an *installable* System 6 (6.0.4–6.0.8, at or above
+/// MacAtrium's 6.0.4 Gestalt floor). Used only when a System Folder has no `Startup
+/// Items`, to tell System 6 (finder-replace) from pre-6 System 4/5 (skip).
+fn is_system6_folder_name(name: &str) -> bool {
+    ["6.0.4", "6.0.5", "6.0.6", "6.0.7", "6.0.8"]
+        .iter()
+        .any(|v| name.contains(v))
+}
+
+/// Install the launcher into **every** System Folder on the volume so a bless-swap
+/// between Systems always boots back into MacAtrium (docs/36 Phase 2): Startup Items
+/// for System 7+ (folders that have a `Startup Items`), as the Finder for System
+/// 6.0.x (named folders with no Startup Items). Pre-6 (System 4/5) and unrecognised
+/// no-Startup-Items folders are logged and skipped. Returns the install count.
+fn install_into_all_systems(rb: &RbCli, cfg: &BuildConfig, stage: &Path) -> Result<usize> {
+    let roots = rb.ls(&cfg.out, "/")?;
+    let mut n = 0usize;
+    for e in roots.iter().filter(|e| e.is_dir) {
+        let folder = format!("/{}", e.name);
+        if !rb.exists(&cfg.out, &format!("{folder}/System")) {
+            continue; // not a System Folder (no `System` file)
+        }
+        if rb.exists(&cfg.out, &format!("{folder}/Startup Items")) {
+            install_startup_item(rb, cfg, stage, &format!("{folder}/Startup Items"))?;
+            strip_control_panels_in(rb, cfg, &folder)?;
+            eprintln!("[all-systems] {}: Startup Items", e.name);
+            n += 1;
+        } else if is_system6_folder_name(&e.name) {
+            install_as_finder_in(rb, cfg, stage, &folder)?;
+            eprintln!("[all-systems] {}: as Finder (System 6)", e.name);
+            n += 1;
+        } else {
+            eprintln!(
+                "[all-systems] {}: skipped (System file but no Startup Items and not a System 6.0.x name)",
+                e.name
+            );
+        }
+    }
+    anyhow::ensure!(
+        n > 0,
+        "install_all_systems: found no installable System Folders on {}",
+        cfg.out.display()
+    );
+    Ok(n)
+}
+
+/// Standalone: run the all-systems install on an existing disk image (no rebuild) —
+/// retrofit a hand-assembled multi-System disk so a bless-swap always boots back
+/// into MacAtrium. Loads machine settings for the rb-cli path; `launcher` overrides
+/// the default `build/MacAtrium.bin`. Returns the number of System Folders installed.
+pub fn install_all_systems_on_image(image: &Path, launcher: Option<PathBuf>) -> Result<usize> {
+    let settings = crate::settings::Settings::load(&crate::settings::default_path());
+    let mut cfg = BuildConfig::default();
+    cfg.out = image.to_path_buf();
+    cfg.launcher = launcher;
+    let rb_bin = crate::rbcli::resolve_bin(&cfg.rb_cli, settings.rb_cli.as_deref());
+    let rb = RbCli::new(&rb_bin);
+    let stage = std::env::temp_dir().join("atrium-install-all");
+    std::fs::create_dir_all(&stage)?;
+    install_into_all_systems(&rb, &cfg, &stage)
 }
 
 /// (id, app-path) for every dataset record with an id. `app` is the launcher
@@ -767,43 +873,27 @@ pub fn run(cfg: &BuildConfig) -> Result<()> {
         Err(e) => eprintln!("[6/7] catalog      legacy single-file skipped: {e}"),
     }
 
-    if cfg.finder_replace {
+    if cfg.install_all_systems {
+        // Multi-System appliance: put MacAtrium in every System Folder so a
+        // bless-swap between Systems always boots back into it (docs/36 Phase 2).
+        let n = install_into_all_systems(&rb, &cfg, &stage)?;
+        eprintln!("[7/7] launcher     installed into {n} System Folder(s) (all-systems)");
+    } else if cfg.finder_replace {
         eprintln!("[7/7] launcher     install AS the Finder (System 6 boot shell)");
         install_as_finder(&rb, &cfg, &stage)?;
     } else {
         eprintln!("[7/7] launcher     install into {}", cfg.startup_items);
-        rb.mkdir_p(&cfg.out, &cfg.startup_items)?;
-        // Set the bundle bit so the Finder shows the app's real icon (it's a
-        // browsable app here, unlike the finder_replace appliance).
-        let mut bytes = cfg.launcher_bytes()?;
-        anyhow::ensure!(bytes.len() > 128, "launcher .bin too small to be MacBinary");
-        set_bundle_bit(&mut bytes);
-        apply_app_mem(&cfg, &mut bytes);
-        let patched = stage.join("MacAtrium.bundle.bin");
-        std::fs::write(&patched, &bytes)?;
-        rb.put_macbinary(&cfg.out, &patched, &cfg.startup_items)?;
-    }
-
-    // Disable appliance-inappropriate quick-launch control panels (the Mac OS 8
-    // Control Strip + Launcher) in the target System Folder so they don't float over
-    // the full-screen launcher. Case-insensitive; no-op where absent (System 6 / 7.1
-    // don't ship them). docs/36.
-    if !cfg.finder_replace && !cfg.disable_control_panels.is_empty() {
+        install_startup_item(&rb, &cfg, &stage, &cfg.startup_items)?;
+        // Disable appliance-inappropriate quick-launch control panels (the Mac OS 8
+        // Control Strip + Launcher) in the target System Folder so they don't float
+        // over the full-screen launcher (no-op where absent). docs/36.
         let sysfolder = cfg
             .startup_items
             .rsplit_once('/')
             .map(|(parent, _)| parent)
             .filter(|p| !p.is_empty())
             .unwrap_or("/System Folder");
-        let cp_dir = format!("{sysfolder}/Control Panels");
-        if let Ok(entries) = rb.ls_exact(&cfg.out, &cp_dir) {
-            for want in &cfg.disable_control_panels {
-                if let Some(e) = entries.iter().find(|e| e.name.eq_ignore_ascii_case(want)) {
-                    rb.rm(&cfg.out, &format!("{cp_dir}/{}", e.name))?;
-                    eprintln!("[appliance]   disabled Control Panel: {}", e.name);
-                }
-            }
-        }
+        strip_control_panels_in(&rb, &cfg, sysfolder)?;
     }
 
     // Optional startup / shutdown chimes (WAV -> snd resource on the volume).
@@ -1004,4 +1094,22 @@ pub fn add_to_disk_from_path(config: &Path) -> Result<()> {
     )
     .with_context(|| format!("parsing config {}", config.display()))?;
     add_to_disk(&cfg)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::is_system6_folder_name;
+
+    #[test]
+    fn system6_name_gate_accepts_6_0_4_and_up_only() {
+        // Installable System 6 (at/above the 6.0.4 Gestalt floor) → finder-replace.
+        for n in ["System 6.0.4", "System 6.0.5", "System 6.0.7", "System 6.0.8"] {
+            assert!(is_system6_folder_name(n), "{n} should be installable");
+        }
+        // Below the floor / not System 6 → skipped (they lack Startup Items too).
+        for n in ["System 4.1", "System 5.0", "System 5.1", "System 6.0.3",
+                  "System 7.5.5", "System Folder", "System Folder 8.1"] {
+            assert!(!is_system6_folder_name(n), "{n} should be skipped");
+        }
+    }
 }

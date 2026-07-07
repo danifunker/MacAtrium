@@ -211,6 +211,14 @@ pub struct BuildConfig {
     /// boot launches it as the shell. Leave false for the 7.x Startup-Items deploy.
     #[serde(default)]
     pub finder_replace: bool,
+    /// Multi-System appliance: install the launcher into **every** System Folder on
+    /// the volume — Startup Items for System 7+, as the Finder for System 6.0.x — so
+    /// blessing/booting any System on the disk lands back in MacAtrium instead of that
+    /// System's Finder. Pairs with the in-UI OS chooser (docs/36 Phase 2, docs/40).
+    /// Pre-6 folders (System 4/5, below the 6.0.4 Gestalt floor) are skipped. Default
+    /// false = single-folder install per `finder_replace` / `startup_items`.
+    #[serde(default)]
+    pub install_all_systems: bool,
     /// Memory partition baked into the launcher's `'SIZE'` (-1) resource for this
     /// build, as `[preferred_kb, minimum_kb]`. `None` keeps the launcher binary's
     /// built-in 2 MB / 1 MB. Set it small for a compact B&W target (Mac Plus/SE)
@@ -475,6 +483,7 @@ impl Default for BuildConfig {
             shutdown_sound: None,
             sounds_dir: d_sounds_dir(),
             finder_replace: false,
+            install_all_systems: false,
             app_mem_kb: None,
             disable_control_panels: d_disable_cdevs(),
         }
