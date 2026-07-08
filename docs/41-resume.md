@@ -38,7 +38,7 @@ never happens (a resident page is always one disk's one ≤128-item sub-page, so
 ## Build + test (this box)
 ```sh
 export RETRO68=~/repos/Retro68-build && cd ~/repos/MacAtrium && cmake --build build -j
-cd tests && make clean && make && ./host_test    # 89/89 (make doesn't track header deps)
+cd tests && make clean && make && ./host_test    # 91/91 (make doesn't track header deps)
 ```
 Both green as of this session. → `build/MacAtrium.bin`.
 
@@ -62,18 +62,20 @@ Recipe (scripted in `~/mac-mdverify/`):
    `Arcade [1]` (Coin Muncher, disk 1), and Status listing both disks + correct counts.
    The first frame is the normal first-run chooser → single-disk path is unaffected.
 
-## REMAINING (non-blocking refinements)
-2. **stableId in prefs (Phase 3 polish)** — store the current disk's identity (crDate,
-   or the volume.jsonl id) in `MacAtrium Prefs` so a saved selection restores to the
-   right disk across a mount-order change; today `model_select` falls back to the first
-   row when the saved category name is ambiguous across disks.
-3. **Host `volume.jsonl` (Phase 4, optional)** — `atrium` stamps
-   `metadata/volume.jsonl {id, name}`; `vol_append` reads it for a rename-proof
-   stableId + a friendlier Status name (falls back to the live HFS name today).
+## Selection restore — DONE (2026-07-08)
+No persisted volume identity. `model_select` (`src/model.c`) resolves an ambiguous
+saved category to the **boot disk** (volumes are boot-first, so boot is `v[0]` by
+construction) and falls back to **Recommended** when the saved category's disk was
+removed. Host test `test_model_recommended_fallback` (91/91).
+
+## Dropped
+- **Host `volume.jsonl` (was Phase 4)** — not needed: restore assumes boot-first + a
+  Recommended fallback, and Status uses the live HFS volume name. No stable id persisted.
 
 ## Gotchas / invariants
-- `[N]` is a LIVE display index (mount order), **never persisted** — identity is
-  crDate/stableId. Don't bake `[N]` into `ModelCat.name` (breaks restore + overflows 32 B).
+- `[N]` is a LIVE display index (mount order), **never persisted** — and nothing
+  volume-specific is persisted at all. Don't bake `[N]` into `ModelCat.name` (breaks
+  restore + overflows the 32 B name).
 - `prefs.c` / `sound.c` / `bless.c` stay **boot-only** by design; only catalog / art /
   launch went volume-aware. `catalog_parse_into` stays pure (untouched).
 - One volume tag **per page**, not per item — every item on a resident page shares one

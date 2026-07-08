@@ -93,9 +93,11 @@ int model_move_item(Model *m, int delta);   /* up/down within category */
 int model_move_cat(Model *m, int delta);    /* left/right between categories */
 
 /* Restore a saved selection: select the category named `catName`, then the item
- * with id `itemId` within it. Robust to catalog changes — a missing category
- * leaves the cursor on "All", a missing item falls back to the first row.
- * Returns 1 only if the exact item was found. NULL/empty `catName` is a no-op. */
+ * with id `itemId` within it. Robust to catalog changes — an ambiguous name
+ * resolves to the boot disk's copy (volumes are ordered boot-first), a missing
+ * category falls back to Recommended (its disk may have been removed — docs/37),
+ * and a missing item falls back to the first row. Returns 1 only if the exact item
+ * was found. NULL/empty `catName` is a no-op. */
 int model_select(Model *m, const char *catName, const char *itemId);
 
 /* Type-ahead: select the next item in the current category whose name starts

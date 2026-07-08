@@ -11,8 +11,10 @@ original SCOPING draft.
 > carry `[0]` / `[1]`, each page loads from its own volume, and the MacAtrium Status
 > screen lists both disks with correct counts (Disk 0 = 2 cats/4 titles, Disk 1 =
 > 2 cats/3 titles). Evidence: `docs/evidence/37-multidisk-{action-disk0,arcade-disk1,status}.png`.
-> The harness gained a `--disk2` flag. Remaining (non-blocking): stableId-in-prefs
-> precise restore (Phase 3) and host `volume.jsonl` (Phase 4). Handoff: docs/41-resume.md.
+> The harness gained a `--disk2` flag. Selection restore is boot-disk-first with a
+> Recommended fallback when a saved category's disk is removed (2026-07-08, host test
+> `test_model_recommended_fallback`); host `volume.jsonl` was judged unnecessary and
+> dropped. Handoff: docs/41-resume.md.
 
 ## What it is
 
@@ -37,10 +39,12 @@ SCSI hard disks only** (v1 — no removable/CD, no eject-swap handling).
    whole feature simple (see "Why this is low-risk").
 4. **Legend:** a new **MacAtrium Status** screen (Quick-Launch menu) maps
    `Disk N → volume name` plus environment info, so the compact `[N]` stays legible.
-5. **Identity:** a host-stamped stable id (`metadata/volume.jsonl`) matched to live
-   volumes at startup, with the HFS volume **creation date** (`ioVCrDate`) as a
-   rename-proof fallback. **Never persist a vRefNum.** Used only for *persisted*
-   references (a saved selection) — never for the live `[N]` label.
+5. **Selection restore — no persisted volume identity.** `[N]` is live-only, never
+   persisted. A restored selection resolves an ambiguous saved category name to the
+   **boot disk** (volumes are ordered boot-first, so the boot disk is `v[0]` by
+   construction); if the saved category is gone (its disk was removed) it falls back
+   to **Recommended**. So no `volume.jsonl` / stable id is needed (host Phase 4 dropped
+   2026-07-08). A vRefNum is never persisted.
 6. **Dedup:** none at runtime — a title present on two disks legitimately appears
    under each disk's namespace. (Deduping would force loading every page at startup,
    defeating the paged design; cross-disk overlap is a curation concern, not a
@@ -118,11 +122,12 @@ version, CPU tier, screen depth; then one row per mounted library disk —
 `Disk N — <volume name> — <c> categories, <t> titles`. Later: an
 absent-but-remembered disk line; optional SCSI ID / free space.
 
-### Volume identity (persisted refs only)
-`save_prefs` / `model_select` also carry the current disk's **stableId** so a saved
-selection restores to the right disk across a mount-order change; the live `[N]`
-never persists. `volume.jsonl` (host) provides the stableId + a friendly display
-name; absent it, `ioVCrDate` is the identity and the HFS name is the label.
+### Selection restore (no persisted volume identity)
+Prefs store just `{category name, item id}` — no disk id. `model_select` resolves an
+ambiguous name to the **boot disk's** copy (volumes are boot-first), and falls back to
+**Recommended** when the saved category is absent (its disk removed). The `[N]` label
+and the Status name come from the live volume table (the HFS volume name); nothing
+volume-specific is persisted, so no `volume.jsonl` is required.
 
 ## What it touches
 
@@ -150,8 +155,8 @@ name; absent it, `ioVCrDate` is the identity and the HFS name is the label.
 ## Risks (updated)
 
 1. ~~RAM / aggregation OOM~~ — **dissolved** by sub-page-per-slot (above).
-2. **Volume identity ≠ vRefNum** — mitigated: stableId + `ioVCrDate`, never persist
-   a vRefNum; `[N]` is live-only.
+2. **Volume identity ≠ vRefNum** — sidestepped: nothing volume-specific is persisted.
+   `[N]` is live-only; selection restore assumes boot-first + a Recommended fallback.
 3. **Category-count growth** — namespacing multiplies index entries by disk count
    against `MODEL_MAX_CATS = 65`. Bump to ~128 (~140 KB BSS, fine on the Mac II /
    Quadra editions that would carry several SCSI disks); cap aggregated disks (~6);
@@ -175,9 +180,9 @@ name; absent it, `ioVCrDate` is the identity and the HFS name is the label.
    Status screen. Verify boot+1 on a 2-SCSI Snow harness.
 3. **N-disk + polish** — generalize the concat, bump/cap `MODEL_MAX_CATS`,
    absent-disk grace, stableId in prefs for precise selection restore.
-4. **Host (optional/light)** — stamp `metadata/volume.jsonl` `{stableId, displayName}`
-   for a rename-proof identity and a friendlier Status name. Labels + Status work
-   without it, so it can be deferred.
+4. ~~**Host `volume.jsonl`**~~ — **dropped (2026-07-08).** Selection restore assumes
+   the boot disk + a Recommended fallback, so no persisted volume identity is needed;
+   Status uses the live HFS volume name.
 
 ## Verify
 
