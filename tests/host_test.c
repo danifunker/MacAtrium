@@ -317,10 +317,12 @@ static void test_model_paged(void)
     strcpy(refs[0].name, "Recommended"); strcpy(refs[0].slug, "recommended"); refs[0].count = 18; refs[0].listOrdered = 1;
     strcpy(refs[1].name, "Action");      strcpy(refs[1].slug, "action");      refs[1].count = 128;
     strcpy(refs[2].name, "Puzzle");      strcpy(refs[2].slug, "puzzle");      refs[2].count = 50;
+    refs[0].vol = 0; refs[1].vol = 1; refs[2].vol = 1;   /* boot + one data disk (docs/37) */
 
     g_load_calls = 0;
     model_index_init(&m, refs, 3, stub_loader);
     CHECK(m.ncats == 3, "paged index_init sets ncats from the index");
+    CHECK(m.cats[0].vol == 0 && m.cats[2].vol == 1, "index_init carries the source volume tag (docs/37)");
     CHECK(strcmp(model_cur_cat(&m)->name, "Recommended") == 0, "paged lands on Recommended (default)");
     CHECK(m.cats[1].count == 128, "index count before a page loads");
     CHECK(m.loadedCat == -1, "no page loaded at index init");

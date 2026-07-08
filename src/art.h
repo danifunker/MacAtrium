@@ -23,15 +23,15 @@
 /* Opaque loaded artwork: a PICT or a raw 1-bit bitmap. */
 typedef struct Art Art;
 
-/* Load artwork at a /MacAtrium-relative path. A ".raw" path loads the raw
- * bitmap sidecar; anything else is treated as a PICT file. Returns NULL if
- * missing/too small/malformed/out of memory. Caller frees with art_dispose. */
-Art *art_load(const char *relToRoot);
+/* Load artwork at a /MacAtrium-relative path on volume `vref` (docs/37). A ".raw"
+ * path loads the raw bitmap sidecar; anything else is treated as a PICT file.
+ * Returns NULL if missing/too small/malformed/OOM. Free with art_dispose. */
+Art *art_load(short vref, const char *relToRoot);
 
-/* Load the best depth variant from a per-item resource fork whose path ends in
- * ".rsrc" (docs/36): a `PICT` resource (id 128+bits) for a colour screen of
- * `depth` bits, or the 1-bit `ABMP` (id 129). NULL if missing/malformed/OOM. */
-Art *art_load_rsrc(const char *relToRoot, short depth);
+/* Load the best depth variant from a per-item resource fork on volume `vref`
+ * whose path ends in ".rsrc" (docs/36): a `PICT` resource (id 128+bits) for a
+ * colour screen of `depth` bits, or the 1-bit `ABMP` (id 129). NULL if missing. */
+Art *art_load_rsrc(short vref, const char *relToRoot, short depth);
 void art_dispose(Art *a);
 
 /* Draw `a` scaled to fit within `bounds` (aspect-preserved, centered). */

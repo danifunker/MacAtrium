@@ -11,7 +11,11 @@
 
 #include "catalog.h"
 
-#define MODEL_MAX_CATS (64 + 1)   /* +1 for the synthesized "All" */
+/* Multi-disk (docs/37): several disks' category lists are concatenated at startup,
+ * so this bounds N disks' combined categories (incl. sub-pages), not one disk's.
+ * Legacy single-file mode uses far fewer (incl. the synthesized "All" at slot 0).
+ * Capped with VOL_MAX (macfs.h) so BSS stays bounded on a 4 MB Mac. */
+#define MODEL_MAX_CATS 128
 
 /* Paged catalog (docs/21): one entry of the resident category index
  * (metadata/index.jsonl) — a category PAGE the launcher loads on demand. The
@@ -22,6 +26,7 @@ typedef struct {
     char slug[ITEM_CAT_LEN];      /* cats/<slug>.jsonl */
     int  count;                   /* titles in this page (from the index) */
     int  listOrdered;             /* keep dataset order (Recommended/Featured) */
+    int  vol;                     /* multi-disk (docs/37): source volume-table index; 0 = boot */
 } CatRef;
 
 /* Parse the paged catalog index (metadata/index.jsonl): one flat JSON object per
@@ -36,6 +41,7 @@ typedef struct {
     int  count;                   /* items in this category (from the index in paged mode) */
     int  listOrdered;             /* 1 = keep dataset order, don't sort */
     int  savedItem;               /* last cursor position in this category (restored on return) */
+    int  vol;                     /* multi-disk (docs/37): source volume-table index; 0 = boot */
 } ModelCat;
 
 struct Model;

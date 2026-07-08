@@ -262,6 +262,7 @@ void model_index_init(Model *m, const CatRef *refs, int nrefs, PageLoader loader
         c->slug[ITEM_CAT_LEN - 1] = '\0';
         c->count       = refs[i].count;   /* from the index until the page loads */
         c->listOrdered = refs[i].listOrdered;
+        c->vol         = refs[i].vol;      /* multi-disk (docs/37): carry the source volume */
     }
 }
 

@@ -18,6 +18,33 @@ OSErr macfs_boot_vref(short *vref);
  * (noErr or fnfErr both yield a usable spec); other errors are real. */
 OSErr macfs_make_spec(const char *relToRoot, FSSpec *spec);
 
+/* ---- multi-disk libraries (docs/37) ------------------------------------------
+ * A mounted HFS volume that carries its own self-contained /MacAtrium library.
+ * The boot volume is always entry 0; additional fixed SCSI disks follow in mount
+ * order. `stableId` (from metadata/volume.jsonl) is 0 until Phase 4 stamps it. */
+#define VOL_MAX       6      /* max library disks aggregated at once            */
+#define VOL_NAME_MAX  27     /* HFS volume-name chars (Pascal string, +len byte) */
+
+typedef struct {
+    short          vref;                    /* real vRefNum (launch-safe)        */
+    unsigned char  name[VOL_NAME_MAX + 1];  /* HFS volume name (Pascal string)   */
+    unsigned long  crDate;                  /* ioVCrDate — rename-proof identity */
+    long           stableId;                /* metadata/volume.jsonl; 0 if none  */
+} VolEntry;
+
+typedef struct {
+    VolEntry v[VOL_MAX];
+    int      n;                             /* boot volume is v[0]               */
+} VolTable;
+
+/* Build an FSSpec for a /MacAtrium-relative path on a SPECIFIC volume. The
+ * boot-only macfs_make_spec is a wrapper passing the startup volume's vRefNum. */
+OSErr macfs_make_spec_on(short vref, const char *relToRoot, FSSpec *spec);
+
+/* Enumerate mounted volumes carrying a /MacAtrium/metadata library into `out`
+ * (boot volume first). Returns the count (0 if even the boot volume has none). */
+int macfs_volumes(VolTable *out);
+
 /* Read an entire file into a freshly malloc'd, NUL-terminated buffer.
  * Caller frees *buf. *len excludes the terminator. */
 OSErr macfs_read_all(FSSpec *spec, char **buf, long *len);

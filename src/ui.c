@@ -33,8 +33,8 @@ static const char *kGridStyle[GRID_N] = { "Finder", "Tiles" };
 
 /* Esc-menu row kinds and their labels (indexed by kind). The visible set per run
  * is built into Ui::menuRows by ui_init (Finder rows omitted on the boot shell). */
-enum { MROW_SETTINGS, MROW_SHOW_FINDER, MROW_EXIT, MROW_RESTART, MROW_SHUTDOWN, MROW_CHOOSE_OS };
-static const char *kMenuLabel[] = { "Settings", "Show Finder", "Exit to Finder", "Restart", "Shut Down", "System Folder Chooser" };
+enum { MROW_SETTINGS, MROW_SHOW_FINDER, MROW_EXIT, MROW_RESTART, MROW_SHUTDOWN, MROW_CHOOSE_OS, MROW_STATUS };
+static const char *kMenuLabel[] = { "Settings", "Show Finder", "Exit to Finder", "Restart", "Shut Down", "System Folder Chooser", "MacAtrium Status" };
 
 /* ---- small helpers -------------------------------------------------------- */
 
@@ -49,6 +49,26 @@ static void l2s(long v, char *buf)               /* long -> C string */
     if (neg) tmp[n++] = '-';
     while (n) buf[i++] = tmp[--n];
     buf[i] = '\0';
+}
+
+/* Append the multi-disk " [N]" source-disk token to a category label in `buf`
+ * (docs/37; N = the volume-table index). No-op with 0/1 library disks, or when
+ * `buf` lacks room. Called before the caller's width-truncation. */
+static void ui_append_disk_tag(Ui *u, int vol, char *buf, int cap)
+{
+    char num[16];
+    int  len, nn;
+    if (!u->vols || u->vols->n <= 1) return;
+    if (vol < 0) vol = 0;
+    l2s((long)vol, num);
+    nn  = (int)strlen(num);
+    len = (int)strlen(buf);
+    if (len + nn + 4 > cap) return;            /* " [" + num + "]" + NUL */
+    buf[len++] = ' ';
+    buf[len++] = '[';
+    memcpy(buf + len, num, (size_t)nn); len += nn;
+    buf[len++] = ']';
+    buf[len]   = '\0';
 }
 
 static int win_w(Ui *u) { return u->win->portRect.right - u->win->portRect.left; }
@@ -173,6 +193,7 @@ void ui_init(Ui *u, Env *env, Render *r, Model *m, WindowPtr win, int safe)
     {
         int k = 0;
         u->menuRows[k++] = MROW_SETTINGS;
+        u->menuRows[k++] = MROW_STATUS;
         if (env->canLaunchReturn) {
             u->menuRows[k++] = MROW_SHOW_FINDER;
             u->menuRows[k++] = MROW_EXIT;
@@ -782,6 +803,7 @@ static void draw_carousel(Ui *u)
          * stepper sits just past the header band's right edge */
         render_sys_text(r);
         strncpy(cl, cat->name, sizeof cl - 1); cl[sizeof cl - 1] = '\0';
+        ui_append_disk_tag(u, cat->vol, cl, (int)sizeof cl);   /* [N] when multi-disk (docs/37) */
         while (cl[0] && render_text_width(r, cl) > maxw) cl[strlen(cl) - 1] = '\0';
         cw = render_text_width(r, cl);
         render_text(r, (short)((W - cw) / 2), 20, cl, INK_NORMAL);
@@ -1133,6 +1155,7 @@ static void draw_browse_header(Ui *u)
          * Geneva body text; the little-arrows stepper sits at the band's right edge */
         render_sys_text(r);
         strncpy(cl, cat->name, sizeof cl - 1); cl[sizeof cl - 1] = '\0';
+        ui_append_disk_tag(u, cat->vol, cl, (int)sizeof cl);   /* [N] when multi-disk (docs/37) */
         while (cl[0] && render_text_width(r, cl) > maxw) cl[strlen(cl) - 1] = '\0';
         cw = render_text_width(r, cl);
         render_text(r, (short)((W - cw) / 2), 20, cl, INK_NORMAL);
@@ -1595,6 +1618,7 @@ static void draw_list_cat_row(Ui *u, const ListLayout *L, int i)
     render_fill(r, &rr, FILL_BG);
     if (sel) { if (active) render_fill(r, &rr, FILL_SEL); else render_frame(r, &rr); }
     strncpy(nm, m->cats[ci].name, sizeof nm - 1); nm[sizeof nm - 1] = '\0';
+    ui_append_disk_tag(u, m->cats[ci].vol, nm, (int)sizeof nm);   /* [N] when multi-disk (docs/37) */
     while (nm[0] && render_text_width(r, nm) > LPANE - 14) nm[strlen(nm) - 1] = '\0';
     render_text(r, 8, (short)(y0 + ROW_H - 5), nm, (sel && active) ? INK_SELECTED : INK_NORMAL);
 }
@@ -2522,6 +2546,7 @@ UiCommand ui_menu_command(Ui *u, int i)
         case MROW_RESTART:     return UI_RESTART;
         case MROW_SHUTDOWN:    return UI_SHUTDOWN;
         case MROW_CHOOSE_OS:   return UI_OPEN_CHOOSER;
+        case MROW_STATUS:      return UI_SHOW_STATUS;
     }
     return UI_NONE;
 }
@@ -2541,20 +2566,37 @@ static void art_variant_path(char *buf, const char *base, int depth, const char 
     strcpy(buf + n, ext);
 }
 
+/* The vRefNum of the current category's source volume (multi-disk, docs/37); the
+ * boot volume when there's no volume table (legacy / safe screen). All art on the
+ * resident page shares this volume — a page is one disk's one sub-page. */
+static short ui_cur_vref(Ui *u)
+{
+    short bv;
+    if (u->vols && u->vols->n > 0) {
+        int vol = 0;
+        if (u->m && u->m->curCat >= 0 && u->m->curCat < u->m->ncats)
+            vol = u->m->cats[u->m->curCat].vol;
+        if (vol < 0 || vol >= u->vols->n) vol = 0;
+        return u->vols->v[vol].vref;
+    }
+    if (macfs_boot_vref(&bv) == noErr) return bv;
+    return 0;
+}
+
 /* Load the depth variant for `base`. 1-bit art ships as a raw CopyBits bitmap
  * (.raw) — preferred over a .pict because DrawPicture faults Snow on some valid
  * 1-bit art (docs/14); fall back to a .pict variant if the .raw is absent. */
-static Art *load_variant(const char *base, int depth)
+static Art *load_variant(short vref, const char *base, int depth)
 {
     char buf[208];
     Art *p;
     if (depth == 1) {
         art_variant_path(buf, base, 1, "raw");
-        p = art_load(buf);
+        p = art_load(vref, buf);
         if (p) return p;
     }
     art_variant_path(buf, base, depth, "pict");
-    return art_load(buf);
+    return art_load(vref, buf);
 }
 
 /* Resolve an item's `image` to an Art. An explicit ".pict"/".raw" path loads
@@ -2568,12 +2610,13 @@ static Art *load_item_art(Ui *u, const char *image)
     char buf[208];
     Art *p;
     int cand[5], nc = 0, i, depth;
+    short vref = ui_cur_vref(u);   /* art loads from the item's source disk (docs/37) */
 
     if (n >= 5 && strcmp(image + n - 5, ".rsrc") == 0)
-        return art_load_rsrc(image, (short)u->env->pixelSize);
+        return art_load_rsrc(vref, image, (short)u->env->pixelSize);
     if ((n >= 5 && strcmp(image + n - 5, ".pict") == 0) ||
         (n >= 4 && strcmp(image + n - 4, ".raw") == 0))
-        return art_load(image);
+        return art_load(vref, image);
 
     /* Pick the best available variant for the screen depth: the native depth
      * first, then *higher* depths (QuickDraw down-converts a deeper PICT to the
@@ -2589,21 +2632,21 @@ static Art *load_item_art(Ui *u, const char *image)
     else                  { cand[nc++]=24; cand[nc++]=16; cand[nc++]=8;  cand[nc++]=4;  cand[nc++]=1; }
 
     for (i = 0; i < nc; i++) {
-        p = load_variant(image, cand[i]);
+        p = load_variant(vref, image, cand[i]);
         if (p) return p;
     }
     strcpy(buf, image);
     strcat(buf, ".pict");
-    p = art_load(buf);
+    p = art_load(vref, buf);
     if (p) return p;
     strcpy(buf, image);
     strcat(buf, ".raw");
-    p = art_load(buf);
+    p = art_load(vref, buf);
     if (p) return p;
     /* last resort: the app's own Finder icon, baked as a raw bitmap (docs/14). */
     strcpy(buf, image);
     strcat(buf, ".icon.raw");
-    return art_load(buf);
+    return art_load(vref, buf);
 }
 
 /* Switch the screen to `depth` bits and re-fit our rendering to it. Called ONLY from
