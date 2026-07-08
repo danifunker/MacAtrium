@@ -25,6 +25,10 @@ hardware-verified end-to-end (Phase 0 spike). The chooser UI + wiring is the nex
   bootable HDDs at `/mnt/c/Temp/ClassicMacHDDs/` (`MacLC_7-5-5.hda`, `MacLC_7-1.hda`,
   `MacLC_6-0-8.hda`). Disk-build scripts: `~/mac-mdverify/build.sh` (multi-disk libraries),
   `~/mac-mdverify/build-spike.sh` (chooser spike).
+- **For cross-disk chooser verify** (docs/42): a multi-System test disk that ships a real **System Picker** is
+  at `/mnt/c/Temp/mistercore/HD20SC-With-Benchmarking-and-CDROM.vhd` (6.0.8 / 7.0.1 / 7.1.x / 7.5.5; blessed
+  7.1.2). Snow needs `--features snow_core/mmap` built in for `--pram` persistence. WSL DNS is flaky — build
+  Rust crates `--offline` (retry `cargo fetch` to catch a window for a genuinely new dep).
 - **git / GitHub**: `gh` is NOT in WSL but IS on Windows (authed as danifunker, `repo` scope).
   The WSL SSH key is absent, so push from **Windows git via gh's HTTPS helper**:
   `gh auth setup-git` then
