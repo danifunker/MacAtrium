@@ -317,10 +317,12 @@ static void test_model_paged(void)
     strcpy(refs[0].name, "Recommended"); strcpy(refs[0].slug, "recommended"); refs[0].count = 18; refs[0].listOrdered = 1;
     strcpy(refs[1].name, "Action");      strcpy(refs[1].slug, "action");      refs[1].count = 128;
     strcpy(refs[2].name, "Puzzle");      strcpy(refs[2].slug, "puzzle");      refs[2].count = 50;
+    refs[0].vol = 0; refs[1].vol = 1; refs[2].vol = 1;   /* boot + one data disk (docs/37) */
 
     g_load_calls = 0;
     model_index_init(&m, refs, 3, stub_loader);
     CHECK(m.ncats == 3, "paged index_init sets ncats from the index");
+    CHECK(m.cats[0].vol == 0 && m.cats[2].vol == 1, "index_init carries the source volume tag (docs/37)");
     CHECK(strcmp(model_cur_cat(&m)->name, "Recommended") == 0, "paged lands on Recommended (default)");
     CHECK(m.cats[1].count == 128, "index count before a page loads");
     CHECK(m.loadedCat == -1, "no page loaded at index init");
@@ -334,6 +336,27 @@ static void test_model_paged(void)
     CHECK(m.curCat == 1 && m.loadedCat == 1, "moving category loaded its page via the loader");
     CHECK(g_load_calls == before + 1, "loader fired exactly once on the move");
     CHECK(model_move_item(&m, 1) == 1 && strcmp(model_cur_item(&m)->id, "b") == 0, "move item within the page");
+}
+
+/* Multi-disk (docs/37): a saved selection whose category is gone (its disk was
+ * removed) falls back to Recommended, by name — not to an arbitrary first category. */
+static void test_model_recommended_fallback(void)
+{
+    CatRef refs[3];
+    Model  m;
+    memset(refs, 0, sizeof refs);
+    /* Recommended deliberately NOT at index 0, to prove the fallback finds it by name. */
+    strcpy(refs[0].name, "Action");      strcpy(refs[0].slug, "action");      refs[0].count = 2; refs[0].vol = 0;
+    strcpy(refs[1].name, "Recommended"); strcpy(refs[1].slug, "recommended"); refs[1].count = 2; refs[1].vol = 0; refs[1].listOrdered = 1;
+    strcpy(refs[2].name, "Arcade");      strcpy(refs[2].slug, "arcade");      refs[2].count = 2; refs[2].vol = 1;
+    model_index_init(&m, refs, 3, stub_loader);
+    stub_loader(&m, 0);   /* first page loaded at boot */
+
+    model_select(&m, "Arcade", "");   /* present -> selects it (curCat 2, on disk 1) */
+    CHECK(m.curCat == 2, "restore selects the saved category when present");
+
+    model_select(&m, "Arcade Classics", "");   /* gone (disk 1 removed) -> Recommended */
+    CHECK(m.curCat == 1, "missing category falls back to Recommended, not category 0 (docs/37)");
 }
 
 static void test_catindex(void)
@@ -374,6 +397,7 @@ int main(void)
     test_model_nav();
     test_model_type_ahead();
     test_model_select();
+    test_model_recommended_fallback();
 
     printf("\n%d/%d checks passed\n", g_total - g_fail, g_total);
     return g_fail ? 1 : 0;

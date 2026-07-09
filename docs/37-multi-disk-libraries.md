@@ -1,122 +1,193 @@
 # 37 — Multi-disk libraries (aggregate independent `/MacAtrium` volumes at startup)
 
-**Status: SCOPING.** Requested 2026-07-06. Scope + risk analysis; not started.
+**Status: DESIGN LOCKED — implementing.** Requested 2026-07-06; scoped, decisions
+resolved, and reduced to a concat (not a merge) on 2026-07-08. This supersedes the
+original SCOPING draft.
+
+> **Implementation status (2026-07-08):** Phases 1–2 and the Phase-3 category-count
+> bump (`MODEL_MAX_CATS` → 128) are implemented in C, build clean with Retro68, pass
+> host tests (89/89), and are **VERIFIED end-to-end on a 2-SCSI Snow harness** (Mac II,
+> System 7.5.5, 8-bit colour): two independently-built disks aggregate, categories
+> carry `[0]` / `[1]`, each page loads from its own volume, and the MacAtrium Status
+> screen lists both disks with correct counts (Disk 0 = 2 cats/4 titles, Disk 1 =
+> 2 cats/3 titles). Evidence: `docs/evidence/37-multidisk-{action-disk0,arcade-disk1,status}.png`.
+> The harness gained a `--disk2` flag. Selection restore is boot-disk-first with a
+> Recommended fallback when a saved category's disk is removed (2026-07-08, host test
+> `test_model_recommended_fallback`); host `volume.jsonl` was judged unnecessary and
+> dropped. Handoff: docs/41-resume.md.
 
 ## What it is
 
-Today MacAtrium reads **one** `/MacAtrium` tree, on the boot volume. This epic: at
-launcher startup, **enumerate every mounted HFS volume that carries its own
-self-contained `/MacAtrium` library** (its own `metadata/` + `Apps/` + `images/`),
-and present them as **one merged library** — each item launched, and its art loaded,
-from **the disk it lives on**.
+At launcher startup, enumerate every mounted HFS volume that carries its own
+self-contained `/MacAtrium` library (its own `metadata/` + `Apps/` + `images/`),
+and present them together — each title launched, and its art loaded, from **the
+disk it lives on**. "Plug in several curated collection disks and see them all at
+once," each disk independently built by `atrium image`.
 
-Think "plug in several curated collection disks and see them all at once," each disk
-independently built by `atrium image`. Read-only aggregation; **startup-time only**
-(the request: "connected when MacAtrium starts up" — no hot-plug mid-session).
+Read-only aggregation, **startup-time only** (no hot-plug mid-session), **fixed
+SCSI hard disks only** (v1 — no removable/CD, no eject-swap handling).
 
-### Relationship to [23-multi-volume-library.md](23-multi-volume-library.md)
-docs/23 is the **complementary** model: **one** library whose metadata stays central
-(boot disk) and points *outward* to data volumes, to beat the 2 GB boot cap. This
-epic is **N independent** libraries merged at runtime. They can share one mechanism —
-**a per-record volume tag + volume-aware path resolution** — so build both on the
-same primitive rather than twice. (Decision below.)
+## Decisions (resolved 2026-07-08)
 
-## The three single-volume assumptions to break (grounded in the code)
+1. **Scope:** full N-disk aggregation (all phases), not a boot+data stopgap.
+2. **Media:** fixed SCSI HDs only.
+3. **Merge model — per-disk *namespacing*, not a silent by-name merge.** Each disk
+   keeps its own categories. When **≥2** library disks are mounted, the launcher
+   disambiguates every category with a short disk token **`[N]`** — `N` is the
+   volume's index in the launcher's volume table (boot = `[0]`). A single-disk
+   boot is byte-for-byte unchanged (no token). This is the decision that keeps the
+   whole feature simple (see "Why this is low-risk").
+4. **Legend:** a new **MacAtrium Status** screen (Quick-Launch menu) maps
+   `Disk N → volume name` plus environment info, so the compact `[N]` stays legible.
+5. **Selection restore — no persisted volume identity.** `[N]` is live-only, never
+   persisted. A restored selection resolves an ambiguous saved category name to the
+   **boot disk** (volumes are ordered boot-first, so the boot disk is `v[0]` by
+   construction); if the saved category is gone (its disk was removed) it falls back
+   to **Recommended**. So no `volume.jsonl` / stable id is needed (host Phase 4 dropped
+   2026-07-08). A vRefNum is never persisted.
+6. **Dedup:** none at runtime — a title present on two disks legitimately appears
+   under each disk's namespace. (Deduping would force loading every page at startup,
+   defeating the paged design; cross-disk overlap is a curation concern, not a
+   launcher one.)
 
-1. **`macfs.c` is boot-volume-only.** `gBootVRef` is a single cached vRefNum;
-   `macfs_make_spec(rel)` always walks `/MacAtrium/<rel>` on it. → Need
-   `macfs_make_spec_on(vref, rel, spec)`; the boot-only version becomes a wrapper.
-2. **`CatItem` has no volume.** `app`/`image`/`shot`/`icon` are `/MacAtrium`-relative
-   with no owning volume. → Add a volume tag (small index into a volume table), set
-   at page-load from *which disk's file the record came from*.
-3. **The model is RAM-paged on purpose.** `MAX_CAT_ITEMS=128`, one resident page,
-   `MODEL_MAX_CATS=65`. Aggregation must **stay within these bounds** — it cannot just
-   concatenate N disks' catalogs. This is the crux (Risk 1).
+### `[N]` = enumeration index, not SCSI ID
+The token is the volume's position in the startup walk (trivial, always available,
+and identical across real hardware / Snow / QEMU). The true SCSI target is *not*
+cheaply derivable from a vRefNum (walk the drive queue → `DrvQEl` → driver refNum →
+SCSI Manager), and differs across emulators — so it is at most an optional *column
+in the Status screen*, never a dependency of the label. `[N]` is a **live display
+token**, not an identity: a changed mount order across boots may renumber it, which
+is fine because persisted references key off the stable id (decision 5).
+
+## Why this is far lower-risk than the original scoping feared
+
+The generator already splits any category over `MAX_CAT_ITEMS` (128) into
+**numbered sub-pages, each its own index entry** (`tools/atrium-tool/src/catalog.rs`
+`run_paged`: `idxs.chunks(MAX_CAT_ITEMS)` → `name`, `name (2)`, …). The launcher
+already navigates **each sub-page as its own category slot** (`model_index_init`
+makes one `ModelCat` per index line — no by-name merge; that only happens in the
+legacy `model_build`). Therefore:
+
+- **A resident page is always exactly one disk's one sub-page (≤128 items).**
+  Aggregation is a **concatenation of index entries**, not a cross-disk page
+  assembly. The 128-item RAM bound that protects a 4 MB Mac is preserved
+  automatically — the original **Risk 1 (OOM from merging N disks) dissolves.**
+- **One volume tag per page, not per item** — every item on a resident page shares
+  one source disk. No `CatItem` widening and no parallel `vol[]` array; the pure,
+  host-tested `catalog_parse_into` stays untouched.
+- Per-disk namespacing (decision 3) removes the cross-disk **merge, dedup,
+  ordering, and host set-builder** work entirely.
+
+## The three single-volume assumptions (grounded) and how each breaks
+
+1. **`macfs.c` is boot-only.** `gBootVRef` is one cached vRefNum; `macfs_make_spec`
+   walks `/MacAtrium/<rel>` on it. → add `macfs_make_spec_on(vref, rel, spec)`;
+   `macfs_make_spec` becomes a wrapper passing the boot vref.
+2. **No volume table.** → new `macfs_volumes(VolTable *)`: walk `PBHGetVInfo` with
+   `ioVolIndex = 1,2,3,…` to `nsvErr`, keep each volume with `/MacAtrium/metadata`
+   (`dir_id_of`), capture `{vRefNum, hfsName, crDate}` (+ stableId from
+   `volume.jsonl` when present). Boot volume is entry 0 (real vRefNum via the
+   existing `macfs_boot_vref` WDRefNum normalization). Data volumes from
+   `ioVolIndex` already return a **real** vRefNum → launch-ready, no fix-up.
+3. **`CatItem`/`ModelCat` carry no volume.** → tag each `ModelCat` slot (and the
+   resident page) with its **volume-table index**. Downstream art/launch resolve on
+   that vref. `CatItem` and the parser are unchanged.
+
+## Design
+
+### Volume table + volume-aware `macfs` (the primitive docs/23 reuses)
+```c
+typedef struct { short vref; Str27 name; unsigned long crDate; long stableId; } VolEntry;
+typedef struct { VolEntry v[VOL_MAX]; int n; } VolTable;   /* VOL_MAX ~ 6 */
+```
+`macfs_make_spec_on(short vref, const char *rel, FSSpec *spec)` is today's
+`macfs_make_spec` with the vref as a parameter; the old signature wraps it with
+`macfs_boot_vref`. Every art/catalog/launch read takes the item's source vref.
+
+### Per-disk categories + `[N]` label (composed at display time)
+`load_index` reads each volume's `metadata/index.jsonl` and **appends** its
+`CatRef`s to the model, tagging each resulting `ModelCat` with its volume-table
+index. Categories are ordered **grouped by disk** (boot first; taxonomy order
+within each), so the browse list reads as contiguous per-disk sections and the boot
+disk's Recommended stays the landing view. The `[N]` token is **composed at render
+time** from the slot's volume index (only when `VolTable.n > 1`) — never stored in
+`ModelCat.name` (32 B), so it can't overflow and doesn't perturb slug/name matching
+or a persisted selection. It coexists with the sub-page suffix: `Action & Arcade (2) [1]`.
+
+### MacAtrium Status (the legend)
+New Quick-Launch entry: `MROW_STATUS` (`src/ui.c:36` enum, assembled at `src/ui.c:175`)
+→ `UI_SHOW_STATUS` (`src/ui.h` `UiCommand`) → `run_status_dialog()` in `main.c`
+(movable-modal + focus-ring, like `run_os_chooser`). Shows MacAtrium version, OS
+version, CPU tier, screen depth; then one row per mounted library disk —
+`Disk N — <volume name> — <c> categories, <t> titles`. Later: an
+absent-but-remembered disk line; optional SCSI ID / free space.
+
+### Selection restore (no persisted volume identity)
+Prefs store just `{category name, item id}` — no disk id. `model_select` resolves an
+ambiguous name to the **boot disk's** copy (volumes are boot-first), and falls back to
+**Recommended** when the saved category is absent (its disk removed). The `[N]` label
+and the Status name come from the live volume table (the HFS volume name); nothing
+volume-specific is persisted, so no `volume.jsonl` is required.
 
 ## What it touches
 
-- **Volume discovery (new, `macfs`/`env`):** walk mounted volumes via `PBHGetVInfo`
-  with `ioVolIndex = 1,2,3,…` until `nsvErr`; for each, test for `/MacAtrium/metadata`
-  (`dir_id_of`). Build a resident **volume table**: `{stableId, name, vRefNum}` per
-  library disk. Boot volume included.
-- **Volume-aware `macfs`:** `macfs_make_spec_on(vref, rel, spec)`; art/catalog/launch
-  all take the item's source vRefNum.
-- **Catalog + model aggregation:** merge each disk's `index.jsonl` category list
-  (by name, summing counts); when a category page loads, read that category's
-  `cats/<slug>.jsonl` from **every** disk that has it and concatenate into the one
-  resident page, **tagging each `CatItem` with its source volume**. Respect
-  `MAX_CAT_ITEMS` (Risk 1).
-- **Launch (`launch.c`):** `launch_app_on(vref, appRel, …)` — resolve + `ResolveAliasFile`
-  + `LaunchApplication` on the item's volume (classic apps run from any mounted volume
-  under 7.x). Handle a source volume that's gone (grey out / notice).
-- **Host (`atrium`):** minimal — each disk is already a normal MacAtrium build. Add:
-  **stamp a stable volume id + display name** into each disk's metadata (a
-  `metadata/volume.jsonl`), and a way to build a coherent *set* (avoid id/category
-  collisions). No cross-disk pathing needed in this model.
+- **New:** `macfs_make_spec_on`, `macfs_volumes` + `VolTable` (`macfs.c/.h`);
+  `run_status_dialog` (`main.c`); `UI_SHOW_STATUS` / `MROW_STATUS` (`ui.h`/`ui.c`);
+  a display-label helper.
+- **Changed:** `load_index` / `load_page` (`main.c`) — per-volume read + slot
+  tagging; `do_launch`, `art_load` — resolve on the page's volume;
+  `MODEL_MAX_CATS` bump (~128) + a disk-count cap; `save_prefs` / `model_select` —
+  stableId.
+- **Unchanged (correctly boot-only):** `prefs.c` (`MacAtrium Prefs`), `sound.c`
+  (`sounds/*`), `bless.c` (System Folders); `catalog_parse_into` (pure).
+- **Host (Phase 4, optional):** `run_paged` / `image.rs` emit `metadata/volume.jsonl`.
 
 ## Runtime flow (68k, at startup)
 
-1. Enumerate mounted volumes → volume table (those with `/MacAtrium/metadata`).
-2. For each, read its `index.jsonl` → per-disk category lists.
-3. **Merge** into the resident aggregated index (category name → set of
-   `(volume, slug, count)`); display summed counts.
-4. On category-page load: read `cats/<slug>.jsonl` from each contributing disk,
-   concatenate (capped), tag each item's volume. Everything downstream
-   (`art_load`, `launch`) uses the tag.
+1. `macfs_volumes` → volume table (volumes with `/MacAtrium/metadata`), boot at 0.
+2. For each, read `index.jsonl`; append its categories to the model, tagged and
+   grouped by disk.
+3. Browse: a category page loads `cats/<slug>.jsonl` from the slot's volume; the
+   resident page records that volume.
+4. Art + launch resolve on the page's volume. `[N]` shown when >1 disk; the Status
+   screen decodes it.
 
-## Highest-risk items (ranked)
+## Risks (updated)
 
-1. **RAM vs. aggregation — the crux.** The paged design exists so a 4 MB Mac never
-   holds more than one 128-item page. Merging a category across N disks can blow past
-   `MAX_CAT_ITEMS` and OOM-crash the target. *Mitigation:* treat each disk's
-   `(category, sub-page)` as its own page — never hold more than one disk's slice of a
-   category at once — and page *within* the merged category. The resident volume table
-   + merged index must also fit (watch `MODEL_MAX_CATS=65` across N disks).
-2. **Volume identity is not the vRefNum.** vRefNums are assigned at mount and change
-   across boots / mount order; two disks can share a name ("Untitled"). Tagging records
-   with a raw vRefNum → items resolve to the *wrong* disk after a reorder. *Mitigation:*
-   a **host-stamped stable id** in `metadata/volume.jsonl`, matched to live volumes at
-   startup, with the **HFS volume creation date** (`ioVCrDate` from `PBHGetVInfo`, set at
-   format, rename-proof) as the fallback identity. Never persist a vRefNum.
-3. **`CatItem`/parser changes + memory growth.** Adding volume attribution touches the
-   record struct (128 KB/page today) and the loader (attribution happens at load, not
-   in the pure-C `catalog_parse_into` — keep the parser volume-agnostic; tag in the
-   model/loader). A per-page parallel `u8 vol[MAX_CAT_ITEMS]` is cheaper than widening
-   `CatItem`.
-4. **Merge semantics / dedup.** Same `id` on two disks; same category on several disks;
-   Recommended ordering *across* disks; per-disk count display. Needs explicit rules
-   (dedup by id? keep both? disk-priority order?).
-5. **Cross-volume aliases → "Where is X?" dialog.** `launch.c` already resolves aliases
-   (7.x). A `/MacAtrium/Apps/foo` alias whose target is on an absent/ejected disk fires
-   the **blocking Alias Manager search dialog** — bad in a kiosk launcher. *Mitigation:*
-   prefer direct per-volume paths; if aliases are used, pre-check the target with a
-   no-UI resolve and grey out on miss.
-6. **Removable / ejectable media.** A `/MacAtrium` CD-ROM or a disk ejected mid-session:
-   launching an app whose disk is gone → error or eject-swap prompts. *Decision:* fixed
-   SCSI HDs only (v1), or include removables?
-7. **Boot-scan latency.** Scanning every mounted volume + reading N `index.jsonl` at
-   startup adds boot time on a slow Mac with several SCSI disks (bounded — indexes are
-   small; still, log/measure).
-8. **Prefs/hotkeys cross-disk.** Hotkeys + "recently played" (boot-volume prefs) must
-   store the volume tag too, or they resolve to the wrong disk. 6.0.8: volume
-   enumeration works, but the Alias Manager doesn't (direct paths only there).
+1. ~~RAM / aggregation OOM~~ — **dissolved** by sub-page-per-slot (above).
+2. **Volume identity ≠ vRefNum** — sidestepped: nothing volume-specific is persisted.
+   `[N]` is live-only; selection restore assumes boot-first + a Recommended fallback.
+3. **Category-count growth** — namespacing multiplies index entries by disk count
+   against `MODEL_MAX_CATS = 65`. Bump to ~128 (~140 KB BSS, fine on the Mac II /
+   Quadra editions that would carry several SCSI disks); cap aggregated disks (~6);
+   the 4 MB B&W compact aggregates fewer. Optional slim: a paged `ModelCat.idx[]`
+   needs only 128, not `MAX_ITEMS` (256).
+4. **Absent remembered disk** — fixed-SCSI makes mid-session loss a non-issue; a
+   disk simply not mounted this boot is skipped; a saved selection falls back (first
+   row) unless its stableId matches a live volume.
+5. **Boot-scan latency** — small (a few `PBHGetVInfo` + N tiny `index.jsonl` reads);
+   log/measure on a multi-SCSI machine.
+6. **Prefs/hotkeys cross-disk** — saved selection carries stableId (Phase 3);
+   `hotkeys.jsonl` is per-disk, resolved to `(volume, app)`.
 
-## Decisions needed
-- **Unify with docs/23** (one volume-tag primitive for both) or keep separate?
-- **Identity:** host-stamped id + creation-date fallback (recommended) vs. volume name?
-- **Dedup:** same `id` on two disks — dedup (which wins?) or show both?
-- **Media:** fixed SCSI only, or removables too?
-- **Merge display:** categories merged silently, or shown per-disk ("Action · Disk 2")?
+## Phases
 
-## Suggested phasing
-1. **Volume-aware `macfs`** (`macfs_make_spec_on`) + volume table enumeration — no UI
-   change; boot volume still the only library. Pure plumbing, testable.
-2. **Two-disk aggregation** (boot + one data disk) with the volume tag through
-   catalog→model→art→launch; verify in Snow with a 2-SCSI harness config.
-3. **N-disk merge semantics** (dedup, ordering, counts) + absent-volume UX.
-4. **Host** `volume.jsonl` stamping + multi-disk set builder.
+1. **Volume-aware plumbing** — `macfs_make_spec_on` + `macfs_volumes` / `VolTable`;
+   route art/launch/loaders through `_on`. Boot volume still the only library. Pure,
+   Snow-testable; no behaviour change.
+2. **Two-disk aggregate + Status v1** — concat disk 2's index, tag slots, per-volume
+   `load_page`, page-volume for art/launch, the `[N]` label, and the MacAtrium
+   Status screen. Verify boot+1 on a 2-SCSI Snow harness.
+3. **N-disk + polish** — generalize the concat, bump/cap `MODEL_MAX_CATS`,
+   absent-disk grace, stableId in prefs for precise selection restore.
+4. ~~**Host `volume.jsonl`**~~ — **dropped (2026-07-08).** Selection restore assumes
+   the boot disk + a Recommended fallback, so no persisted volume identity is needed;
+   Status uses the live HFS volume name.
 
 ## Verify
-Snow harness already boots a Mac II with SCSI disks; attach a second SCSI image
-(HD20SC-style) each carrying its own `/MacAtrium`, boot, confirm both disks' items
-appear and each launches/loads art from its own volume. (Harness recipe: docs/36.)
+
+Snow boots a Mac II with SCSI disks (harness recipe: docs/36). Attach a second SCSI
+image carrying its own `/MacAtrium`, boot, and confirm both disks' categories appear
+(`[0]` / `[1]`), each title launches and loads art from its own volume, and the
+Status screen lists both disks. QMP screendump for headless capture (memory
+`q800-qemu-windows-verify`).

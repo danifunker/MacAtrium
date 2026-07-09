@@ -97,17 +97,15 @@ static OSErr dir_id_of(short vref, long parent, const char *name, int n, long *o
     return noErr;
 }
 
-OSErr macfs_make_spec(const char *relToRoot, FSSpec *spec)
+OSErr macfs_make_spec_on(short vref, const char *relToRoot, FSSpec *spec)
 {
-    short       vref;
     long        dir;
     const char *seg, *p;
-    OSErr       err = macfs_boot_vref(&vref);
-    if (err != noErr) return err;
+    OSErr       err;
 
-    /* The tree lives at /MacAtrium on the startup volume's root. Walk every
-     * path component but the last into a parent dirID; the last is the leaf
-     * (which need not exist — we only build the spec). */
+    /* The tree lives at /MacAtrium on the given volume's root. Walk every path
+     * component but the last into a parent dirID; the last is the leaf (which need
+     * not exist — we only build the spec). */
     dir = fsRtDirID;
     err = dir_id_of(vref, dir, "MacAtrium", 9, &dir);
     if (err != noErr) return err;
@@ -124,6 +122,83 @@ OSErr macfs_make_spec(const char *relToRoot, FSSpec *spec)
         if (err != noErr) return err;             /* a parent folder is missing */
         seg = p + 1;
     }
+}
+
+OSErr macfs_make_spec(const char *relToRoot, FSSpec *spec)
+{
+    short vref;
+    OSErr err = macfs_boot_vref(&vref);           /* boot volume: the default library */
+    if (err != noErr) return err;
+    return macfs_make_spec_on(vref, relToRoot, spec);
+}
+
+/* ---- multi-disk libraries (docs/37) ------------------------------------------
+ * Discover every mounted HFS volume carrying its own /MacAtrium/metadata tree, so
+ * the launcher can aggregate independent libraries at startup. Reads only go
+ * volume-aware via macfs_make_spec_on; this just builds the volume table. */
+
+/* True if `vref` carries a /MacAtrium/metadata library. */
+static Boolean vol_is_library(short vref)
+{
+    long dir;
+    if (dir_id_of(vref, fsRtDirID, "MacAtrium", 9, &dir) != noErr) return false;
+    if (dir_id_of(vref, dir, "metadata", 8, &dir)        != noErr) return false;
+    return true;
+}
+
+/* Copy a Pascal string into a fixed buffer, clamping to cap-1 chars + length. */
+static void pstr_copy(const unsigned char *src, unsigned char *dst, int cap)
+{
+    int n = src[0];
+    if (n > cap - 1) n = cap - 1;
+    dst[0] = (unsigned char)n;
+    if (n > 0) memcpy(dst + 1, src + 1, (size_t)n);
+}
+
+/* Append `vref`'s entry (real refNum + HFS name + creation date) to the table. */
+static void vol_append(VolTable *t, short vref)
+{
+    HParamBlockRec hp;
+    Str63          nm;
+    VolEntry      *e;
+    if (t->n >= VOL_MAX) return;
+    memset(&hp, 0, sizeof hp);
+    hp.volumeParam.ioNamePtr  = (StringPtr)nm;
+    hp.volumeParam.ioVRefNum  = vref;
+    hp.volumeParam.ioVolIndex = 0;                /* look the volume up by ioVRefNum */
+    if (PBHGetVInfoSync(&hp) != noErr) return;
+    e = &t->v[t->n++];
+    e->vref     = hp.volumeParam.ioVRefNum;       /* the real refNum (launch-safe)   */
+    e->crDate   = (unsigned long)hp.volumeParam.ioVCrDate;
+    e->stableId = 0;                              /* Phase 4: from volume.jsonl      */
+    pstr_copy((const unsigned char *)nm, e->name, (int)sizeof e->name);
+}
+
+int macfs_volumes(VolTable *out)
+{
+    short bootv;
+    short i;
+
+    out->n = 0;
+    if (macfs_boot_vref(&bootv) != noErr) return 0;
+
+    /* Boot volume first — but only if it actually carries a library. */
+    if (vol_is_library(bootv)) vol_append(out, bootv);
+
+    /* Then every other mounted volume with a /MacAtrium/metadata tree, in mount
+     * order (ioVolIndex 1..N until nsvErr). Fixed SCSI HDs only (docs/37). */
+    for (i = 1; out->n < VOL_MAX; i++) {
+        HParamBlockRec hp;
+        short          v;
+        memset(&hp, 0, sizeof hp);
+        hp.volumeParam.ioNamePtr  = NULL;
+        hp.volumeParam.ioVolIndex = i;
+        if (PBHGetVInfoSync(&hp) != noErr) break;  /* nsvErr: past the last volume */
+        v = hp.volumeParam.ioVRefNum;
+        if (v == bootv) continue;                  /* already added as v[0] */
+        if (vol_is_library(v)) vol_append(out, v);
+    }
+    return out->n;
 }
 
 OSErr macfs_open_df(const FSSpec *spec, char perm, short *refNum)

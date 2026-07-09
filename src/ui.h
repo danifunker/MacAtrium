@@ -10,6 +10,7 @@
 #include "env.h"
 #include "render.h"
 #include "model.h"
+#include "macfs.h"
 #include "art.h"
 #include "controlpanels.h"
 
@@ -26,7 +27,8 @@ typedef enum {
                       * out the window + menu bar (rebuild_window) AND saves    */
     UI_OPEN_SETTINGS,/* open the real Settings window (main.c run_settings_dialog)  */
     UI_OPEN_MENU,    /* open the real Quick-Launch menu window (run_quicklaunch_menu) */
-    UI_OPEN_CHOOSER  /* open the System Folder Chooser (main.c run_os_chooser)        */
+    UI_OPEN_CHOOSER, /* open the System Folder Chooser (main.c run_os_chooser)        */
+    UI_SHOW_STATUS   /* open the MacAtrium Status screen (main.c run_status_dialog)   */
 } UiCommand;
 
 enum { UI_MODE_LIST = 0, UI_MODE_MENU /* unused: now a real window */, UI_MODE_PREVIEW,
@@ -44,6 +46,7 @@ typedef struct {
     Env       *env;
     Render    *r;
     Model     *m;
+    VolTable  *vols;          /* multi-disk (docs/37): mounted library volumes  */
     WindowPtr  win;
     int        mode;
     int        menuSel;

@@ -60,25 +60,25 @@ static Art *raw_from_buffer(char *buf, long len)
     return a;
 }
 
-static Art *load_raw(const char *relToRoot)
+static Art *load_raw(short vref, const char *relToRoot)
 {
     FSSpec spec;
     char  *buf;
     long   len;
 
-    if (macfs_make_spec(relToRoot, &spec) != noErr) return 0;
+    if (macfs_make_spec_on(vref, relToRoot, &spec) != noErr) return 0;
     if (macfs_read_all(&spec, &buf, &len) != noErr) return 0;
     return raw_from_buffer(buf, len);
 }
 
-static Art *load_pict(const char *relToRoot)
+static Art *load_pict(short vref, const char *relToRoot)
 {
     FSSpec spec;
     long   n;
     Handle h;
     Art   *a;
 
-    if (macfs_make_spec(relToRoot, &spec) != noErr) return 0;
+    if (macfs_make_spec_on(vref, relToRoot, &spec) != noErr) return 0;
     /* Read the picture data straight into the Handle, skipping the 512-byte PICT
      * file header — no full-file staging buffer, so peak memory is ~1x the cover
      * (a 318 KB PICT) instead of ~2x during the load. */
@@ -93,12 +93,12 @@ static Art *load_pict(const char *relToRoot)
     return a;
 }
 
-Art *art_load(const char *relToRoot)
+Art *art_load(short vref, const char *relToRoot)
 {
     int n = (int)strlen(relToRoot);
     if (n >= 4 && strcmp(relToRoot + n - 4, ".raw") == 0)
-        return load_raw(relToRoot);
-    return load_pict(relToRoot);
+        return load_raw(vref, relToRoot);
+    return load_pict(vref, relToRoot);
 }
 
 /* ---- resource-fork loading (docs/36: per-item images/<id>.rsrc) ------------ */
@@ -123,13 +123,13 @@ static short art_rsrc_order(short depth, short *out)
     return n;
 }
 
-Art *art_load_rsrc(const char *relToRoot, short depth)
+Art *art_load_rsrc(short vref, const char *relToRoot, short depth)
 {
     FSSpec spec;
     short  refNum, saved, order[6], n, i;
     Art   *a = 0;
 
-    if (macfs_make_spec(relToRoot, &spec) != noErr) return 0;
+    if (macfs_make_spec_on(vref, relToRoot, &spec) != noErr) return 0;
     saved  = CurResFile();
     refNum = FSpOpenResFile(&spec, fsRdPerm);
     if (refNum == -1) return 0;

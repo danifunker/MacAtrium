@@ -30,6 +30,7 @@
 #include "bless.h"
 #include "mem.h"
 #include "mac_compat.h"
+#include "version.h"       /* MACATRIUM_VERSION build stamp (MacAtrium Status, docs/37) */
 
 #include <string.h>
 
@@ -365,18 +366,42 @@ static int load_catalog(void)
  * navigating a category loads its page on demand (model's PageLoader). */
 static CatRef gRefs[MODEL_MAX_CATS];
 static int    gNrefs = 0;
+static VolTable gVols;             /* multi-disk (docs/37): mounted library volumes; boot = v[0] */
 
-/* Read metadata/index.jsonl into gRefs[]; 1 if a paged catalog is present. */
+/* The vRefNum for a category's source volume-table index (docs/37); the boot
+ * volume when there's no table (legacy / safe screen). */
+static short vol_vref(int vol)
+{
+    short bv;
+    if (gVols.n > 0) {
+        if (vol < 0 || vol >= gVols.n) vol = 0;
+        return gVols.v[vol].vref;
+    }
+    if (macfs_boot_vref(&bv) == noErr) return bv;
+    return 0;
+}
+
+/* Read every mounted library disk's metadata/index.jsonl into gRefs[], each
+ * category tagged with its source volume (docs/37); boot volume first. 1 if any
+ * paged catalog is present. */
 static int load_index(void)
 {
-    FSSpec spec;
-    char  *buf;
-    long   len;
+    int nv, k;
     gNrefs = 0;
-    if (macfs_make_spec("metadata/index.jsonl", &spec) != noErr) return 0;
-    if (macfs_read_all(&spec, &buf, &len) != noErr) return 0;
-    gNrefs = catindex_parse(buf, len, gRefs, MODEL_MAX_CATS);
-    DisposePtr(buf);
+    nv = macfs_volumes(&gVols);
+    if (nv <= 0) return 0;
+    for (k = 0; k < nv && gNrefs < MODEL_MAX_CATS; k++) {
+        FSSpec spec;
+        char  *buf;
+        long   len;
+        int    got, j;
+        if (macfs_make_spec_on(gVols.v[k].vref, "metadata/index.jsonl", &spec) != noErr) continue;
+        if (macfs_read_all(&spec, &buf, &len) != noErr) continue;
+        got = catindex_parse(buf, len, gRefs + gNrefs, MODEL_MAX_CATS - gNrefs);
+        DisposePtr(buf);
+        for (j = 0; j < got; j++) gRefs[gNrefs + j].vol = k;   /* tag with source volume */
+        gNrefs += got;
+    }
     return gNrefs > 0;
 }
 
@@ -430,7 +455,7 @@ static int load_page(Model *m, int catIdx)
     strncat(path, slug, sizeof path - strlen(path) - 7);
     strcat(path, ".jsonl");
 
-    if (macfs_make_spec(path, &spec) == noErr &&
+    if (macfs_make_spec_on(vol_vref(m->cats[catIdx].vol), path, &spec) == noErr &&
         macfs_read_all(&spec, &buf, &len) == noErr) {
         gCat.nitems = catalog_parse_into(buf, len, gCat.items, gCat.cap, &gCat.dropped);
         DisposePtr(buf);
@@ -556,7 +581,7 @@ static void do_launch(void)
         }
     }
 
-    lr = launch_app(app, returns, &lerr);
+    lr = launch_app(vol_vref(gModel.cats[gModel.curCat].vol), app, returns, &lerr);
 
     /* A returning launch uses launchContinue: LaunchApplication returns IMMEDIATELY
      * and the game runs concurrently as the new front process. We must NOT touch the
@@ -1243,6 +1268,129 @@ static void run_os_chooser(void)
     DisposeWindow(dlg);
 }
 
+/* ---- MacAtrium Status (docs/37) ------------------------------------------------
+ * A read-only movable modal: the environment (OS / depth / build) and every mounted
+ * library disk with what it contributes — the legend for the browse view's [N] disk
+ * tokens. Done / Esc / Return closes it. */
+#define ST_CW 380
+#define ST_LM 20
+
+static void st_line(short x, short y, const char *s)
+{
+    MoveTo(x, y);
+    DrawText((Ptr)s, 0, (short)strlen(s));
+}
+
+/* Categories + titles contributed by the disk at volume-table index `vol`. */
+static void st_disk_counts(int vol, int *ncat, long *ntitle)
+{
+    int i;
+    *ncat = 0; *ntitle = 0;
+    for (i = 0; i < gModel.ncats; i++)
+        if (gModel.cats[i].vol == vol) { (*ncat)++; *ntitle += gModel.cats[i].count; }
+}
+
+static void st_draw(WindowPtr dlg)
+{
+    char  line[96];
+    short y = 24;
+    int   i;
+
+    SetPort(dlg);
+    EraseRect(&dlg->portRect);
+    TextFont(0); TextSize(12);
+
+    TextFace(bold); st_line(ST_LM, y, "MacAtrium Status"); TextFace(normal); y = (short)(y + 22);
+
+    env_os_name(gEnv.sysVers, line);
+    st_line(ST_LM, y, line); y = (short)(y + 16);
+
+    strcpy(line, "Build "); strcat(line, MACATRIUM_VERSION);
+    st_line(ST_LM, y, line); y = (short)(y + 16);
+
+    strcpy(line, "Screen: "); append_long(line, display_current_depth()); strcat(line, "-bit");
+    st_line(ST_LM, y, line); y = (short)(y + 22);
+
+    TextFace(bold); st_line(ST_LM, y, "Library disks"); TextFace(normal); y = (short)(y + 18);
+
+    for (i = 0; i < gVols.n; i++) {
+        int  ncat, off, k, ln;
+        long ntitle;
+        st_disk_counts(i, &ncat, &ntitle);
+        strcpy(line, "Disk "); append_long(line, i); strcat(line, "  ");
+        ln  = gVols.v[i].name[0];                        /* Pascal length byte */
+        off = (int)strlen(line);
+        for (k = 0; k < ln && off < 78; k++) line[off++] = (char)gVols.v[i].name[1 + k];
+        line[off] = '\0';
+        st_line(ST_LM, y, line); y = (short)(y + 14);
+        strcpy(line, "  "); append_long(line, ncat); strcat(line, " categories, ");
+        append_long(line, ntitle); strcat(line, " titles");
+        st_line((short)(ST_LM + 12), y, line); y = (short)(y + 18);
+    }
+    if (gVols.n == 0) st_line(ST_LM, y, "No library disks found.");
+
+    DrawControls(dlg);
+}
+
+static void run_status_dialog(void)
+{
+    WindowPtr     dlg;
+    Rect          bounds, r, sb = qd.screenBits.bounds;
+    int           running = 1;
+    short         CH;
+    ControlHandle done;
+    int           nrows = gVols.n > 0 ? gVols.n : 1;
+
+    CH = (short)(120 + nrows * 32 + 44);
+    {
+        short L = (short)(sb.left + ((sb.right - sb.left) - ST_CW) / 2);
+        short T = (short)(sb.top  + ((sb.bottom - sb.top) - CH) / 2);
+        if (T < (short)(sb.top + 44)) T = (short)(sb.top + 44);
+        SetRect(&bounds, L, T, (short)(L + ST_CW), (short)(T + CH));
+    }
+    dlg = NewWindow(0L, &bounds, "\pMacAtrium Status", true, movableDBoxProc, (WindowPtr)-1L, false, 0L);
+    if (!dlg) return;
+    SetPort(dlg);
+    SetRect(&r, (short)(ST_CW - ST_LM - 78), (short)(CH - 30), (short)(ST_CW - ST_LM), (short)(CH - 10));
+    done = NewControl(dlg, &r, "\pDone", true, 1, 0, 1, pushButProc, 0L);
+    (void)done;
+
+    st_draw(dlg);
+    ValidRect(&dlg->portRect);
+
+    while (running) {
+        EventRecord evt;
+        if (!next_event(&evt)) continue;
+        switch (evt.what) {
+            case updateEvt: {
+                WindowPtr w = (WindowPtr)evt.message;
+                if (w == dlg) { BeginUpdate(w); st_draw(dlg); EndUpdate(w); }
+                else { BeginUpdate(w); SetPort(w); ui_draw(&gUi); EndUpdate(w); SetPort(dlg); }
+                break;
+            }
+            case mouseDown: {
+                WindowPtr w; short part = FindWindow(evt.where, &w);
+                if (part == inDrag && w == dlg) { DragWindow(w, evt.where, &sb); SetPort(dlg); }
+                else if (part == inContent && w == dlg) {
+                    Point p = evt.where; ControlHandle ctl; short cp;
+                    SetPort(dlg); GlobalToLocal(&p);
+                    cp = FindControl(p, dlg, &ctl);
+                    if (cp && ctl && TrackControl(ctl, p, (ControlActionUPP)0)) running = 0;   /* Done */
+                } else if (w != dlg) { SysBeep(1); }
+                break;
+            }
+            case keyDown:
+            case autoKey: {
+                char c = (char)(evt.message & charCodeMask);
+                if ((evt.modifiers & cmdKey) && c == '.') running = 0;
+                else if (c == kCharEscape || c == kCharReturn || c == kCharEnter) running = 0;
+                break;
+            }
+        }
+    }
+    DisposeWindow(dlg);
+}
+
 static void handle_ui_command(UiCommand cmd)
 {
     switch (cmd) {
@@ -1337,6 +1485,14 @@ static void handle_ui_command(UiCommand cmd)
             gUi.mode = UI_MODE_LIST;
             SetPort(gWin);
             ui_reblit(&gUi);                 /* the chooser window never touched the buffer */
+            ValidRect(&gWin->portRect);
+            break;
+        }
+        case UI_SHOW_STATUS: {               /* the MacAtrium Status screen (docs/37) */
+            run_status_dialog();
+            gUi.mode = UI_MODE_LIST;
+            SetPort(gWin);
+            ui_reblit(&gUi);                 /* the status window never touched the buffer */
             ValidRect(&gWin->portRect);
             break;
         }
@@ -1447,6 +1603,7 @@ int main(void)
     if (gPrefs.haveSel) model_select(&gModel, gPrefs.category, gPrefs.item);
 
     ui_init(&gUi, &gEnv, &gRender, &gModel, gWin, loaded ? 0 : 1);
+    gUi.vols = &gVols;   /* multi-disk (docs/37): art/launch resolve per source volume */
     if (gPrefs.haveArtPref) gUi.artPref = gPrefs.artPref;   /* restore Artwork choice */
     if (gPrefs.haveSndStartup)  gUi.sndStartup  = gPrefs.sndStartup;   /* restore sound prefs */
     if (gPrefs.haveSndShutdown) gUi.sndShutdown = gPrefs.sndShutdown;

@@ -76,10 +76,13 @@ printf '\x0bMultiFinder    ' | dd of=copy_608.hda bs=1 seek=49178 conv=notrunc  
 
 ```
 macatrium_harness <rom> <mdc_rom> <hdd.img> <out_dir> <max_cycles> \
-    [--snap-every N] [--keys "CYCLE:KEY;CYCLE:KEY;..."] [--wall-secs S]
+    [--snap-every N] [--keys "CYCLE:KEY;CYCLE:KEY;..."] [--wall-secs S] [--disk2 <hdd2.img>]
 ```
 
 - `--snap-every N` dumps `snap_NNN_<cycle>.png` every N cycles; `final.png` at the end.
+- `--disk2 <hdd2.img>` attaches a **second** SCSI disk (id 1) — for the multi-disk
+  library verification (docs/37/41): a 2nd volume carrying its own `/MacAtrium`. The
+  launcher aggregates both, tags categories `[0]`/`[1]`, and lists them in Status.
 - `--keys` taps keys at the given cycle marks. KEY ∈ letters, `enter`/`return`,
   `esc`, `up`/`down`/`left`/`right`, `space`, or `cmd-<key>` (e.g. `cmd-q`).
 - Boot to the desktop + Startup-Items launch takes ~2 G cycles (~45 s wall on

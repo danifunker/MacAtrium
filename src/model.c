@@ -262,6 +262,7 @@ void model_index_init(Model *m, const CatRef *refs, int nrefs, PageLoader loader
         c->slug[ITEM_CAT_LEN - 1] = '\0';
         c->count       = refs[i].count;   /* from the index until the page loads */
         c->listOrdered = refs[i].listOrdered;
+        c->vol         = refs[i].vol;      /* multi-disk (docs/37): carry the source volume */
     }
 }
 
@@ -387,10 +388,22 @@ int model_select(Model *m, const char *catName, const char *itemId)
 
     if (!catName || !catName[0]) return 0;
 
-    /* category by name (case-insensitive, matching build-time naming) */
-    for (i = 0; i < m->ncats; i++)
-        if (ci_cmp(m->cats[i].name, catName) == 0) { m->curCat = i; break; }
-    /* not found -> leave curCat as-is (default 0) */
+    /* Category by name (case-insensitive, matching build-time naming). Multi-disk
+     * (docs/37): the same name can exist on several disks; the first match wins, and
+     * volumes are ordered boot-first, so a restore lands on the BOOT disk's copy by
+     * default. */
+    {
+        int found = 0;
+        for (i = 0; i < m->ncats; i++)
+            if (ci_cmp(m->cats[i].name, catName) == 0) { m->curCat = i; found = 1; break; }
+        if (!found) {
+            /* The saved category is gone — e.g. the disk that held it was removed.
+             * Land on Recommended (by name) rather than an arbitrary first category. */
+            for (i = 0; i < m->ncats; i++)
+                if (ci_cmp(m->cats[i].name, "Recommended") == 0) { m->curCat = i; break; }
+            /* else leave curCat as-is (default 0). */
+        }
+    }
     m->curItem = 0;
     m->topRow  = 0;
 

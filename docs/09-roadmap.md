@@ -131,3 +131,56 @@ list in [10-open-questions.md](10-open-questions.md)):
    confirmed bootable (S3, see [11 §C″](11-derisk-log.md)).
 3. Covering the Finder / hiding the menu bar behaves across systems. 🔬
 4. Single 68k binary really runs unmodified on 6.0.8 + 7.x. 🔬
+
+## Shipped since M1–M6 + consolidated backlog (2026-07-08)
+
+The milestones above predate several features that have since shipped and are
+Snow-verified (detail in the per-feature docs). Recently landed:
+- **Paged catalog** — `index.jsonl` + `cats/<slug>.jsonl`, on-demand pages ([21](21-category-paging.md)).
+- **Per-item image resource forks + in-disk OS chooser/blesser** — `bless.c` + `run_os_chooser`, swap-verified.
+- **Compatibility data model** — 155-model table, 5-tier CPU→OS ceilings, project floor 6.0.8 → **6.0.4**;
+  wired into `env.c` (tier probe) + chooser gating + swap warning ([38](38-compatibility-matrix.md), `data/os-tiers.json`).
+- **Multi-disk libraries** — aggregate independent `/MacAtrium` volumes at startup, per-disk `[N]` tags,
+  MacAtrium Status screen ([37](37-multi-disk-libraries.md); branch `multi-disk-libraries`, PR pending).
+- **Cross-disk startup chooser** — Phase 0 PRAM spike (`SetDefaultStartup`) hardware-verified
+  ([42](42-cross-disk-startup-chooser.md); branch `cross-disk-chooser`).
+
+### Outstanding / deferred (consolidated from the retired resume docs)
+Per-feature detail lives in the cited docs.
+
+**Colour / display**
+- **Phase 1 colour-path verify** — per-item image forks + colour PICT proven B&W-only; needs real HW or a
+  boot-8-bit disk (Snow Mac II+MDC tops out at 8-bit; the q800 QEMU harness is the only headless deep-colour
+  path). ([15](15-settings-and-color-depth.md))
+- **Colour-depth survey** — PLAN ONLY, execute later ([32](32-color-depth-survey-plan.md)).
+
+**Boot / OS**
+- **Host per-System startup placement** — the build only drops MacAtrium into 7.1.x's Startup Items; after a
+  swap to another System Folder you land in the bare Finder. Install into *every* System Folder's startup.
+- **Cross-disk chooser Phases 1–3** — cross-volume enumeration + UI + wire `SetDefaultStartup`; plus the
+  spike's bad-value negative test ([42](42-cross-disk-startup-chooser.md)).
+- **Multi-volume library (2 GB boot cap)** — BACKLOG, not started; complementary to multi-disk ([23](23-multi-volume-library.md)).
+
+**UI**
+- **Per-OS native control appearance** (compile-time `theme_sys{6,7,8}`) — Phase 3 of native controls.
+- **Settings dialog won't fit a 512×342 9" screen** (~378 px tall) — matters now the floor is 6.0.4 (compact
+  Macs); make it two-column/scrolling or shrink the row pitch (`SD_*` in `main.c`).
+
+**Content pipeline**
+- Milestone 5 items: `rb-cli scan/catalog`, artwork PNG→PICT depth variants, recommendations dataset +
+  CONTRIBUTING, one-command image build.
+- **Macintosh Garden**: wire MG into `enrich` + the scrub/attribution decision; `.zip`/inner-disk-image and
+  `.sitx` (9.2.2-era) handling deferred ([MacintoshGardenArchive](MacintoshGardenArchive.md)).
+
+**Build / tooling**
+- **`curl` is dead code** in the atrium tool (downloads use Rust `ureq`/rustls) — rip out the `curl` field /
+  `--curl` flag / `_curl` params.
+- **`templates.json` / `donors.json`** are read from `data/` at runtime — a release running outside the repo
+  needs them embedded.
+
+**Data**
+- **`oxyd-3-6`** is flagged `color:true` in `data/compatibility.jsonl` but the donor only has the mono app
+  (cosmetic — lands in "Color"); flip to false for "Black & White".
+
+**Hardware (Milestone 6)**
+- MiSTer input mapping per core; real-68k-hardware test; performance pass.

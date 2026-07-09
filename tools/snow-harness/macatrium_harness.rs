@@ -86,6 +86,7 @@ fn main() -> Result<()> {
     let mut snap_every: u64 = 100_000_000;
     let mut wall_secs: u64 = 1800;
     let mut pram_path: Option<String> = None;
+    let mut disk2: Option<String> = None; // 2nd SCSI disk (docs/37 multi-disk verify)
     // schedule[cycle] = input actions due at that cycle
     let mut schedule: BTreeMap<u64, Vec<Act>> = BTreeMap::new();
     let mut i = 6;
@@ -94,6 +95,7 @@ fn main() -> Result<()> {
             "--snap-every" => { snap_every = a[i + 1].parse()?; i += 2; }
             "--wall-secs"  => { wall_secs  = a[i + 1].parse()?; i += 2; }
             "--pram"       => { pram_path  = Some(a[i + 1].clone()); i += 2; }
+            "--disk2"      => { disk2      = Some(a[i + 1].clone()); i += 2; }
             "--keys" => {
                 const CMD: u8 = 0x37; // Command (universal scancode)
                 const OPT: u8 = 0x3A; // Option
@@ -192,6 +194,10 @@ fn main() -> Result<()> {
     let events = emu.create_event_recv();
 
     cmd.send(EmulatorCommand::ScsiAttachHdd(0, PathBuf::from(hdd_path)))?;
+    if let Some(ref d2) = disk2 {
+        cmd.send(EmulatorCommand::ScsiAttachHdd(1, PathBuf::from(d2)))?;
+        log::info!("attached 2nd SCSI disk (id 1): {d2}");
+    }
     cmd.send(EmulatorCommand::Run)?;
     cmd.send(EmulatorCommand::SetSpeed(EmulatorSpeed::Uncapped))?;
 

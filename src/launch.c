@@ -17,7 +17,7 @@
 #define gestaltAliasMgrAttr 'alis'
 #endif
 
-LaunchResult launch_app(const char *appRel, int canReturn, OSErr *outErr)
+LaunchResult launch_app(short vref, const char *appRel, int canReturn, OSErr *outErr)
 {
     FSSpec              spec;
     FInfo               finfo;
@@ -26,7 +26,7 @@ LaunchResult launch_app(const char *appRel, int canReturn, OSErr *outErr)
 
     *outErr = noErr;
 
-    err = macfs_make_spec(appRel, &spec);
+    err = macfs_make_spec_on(vref, appRel, &spec);
     if (err != noErr) { *outErr = err; return LAUNCH_NOT_FOUND; }
 
     /* If the catalog points at an *alias* file, resolve it to the real app so
