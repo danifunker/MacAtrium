@@ -9,8 +9,7 @@ If this works on System 6.0.8+MultiFinder, 7.1, 7.5.5, and 7.6.1, the whole
 code path. If it *doesn't* return on some system, we learn that now — before
 building the real thing — and fall back to the non-resident model there.
 
-The exact API was already confirmed from Apple's headers
-([../../docs/11-derisk-log.md](../../docs/11-derisk-log.md) §A). This spike
+The exact API was already confirmed from Apple's headers. This spike
 confirms the **runtime behavior** the headers can't.
 
 ## What it shows on screen
@@ -73,8 +72,7 @@ and copy `test.dsk` over — or `cargo build` rusty-backup there.)
 
 - **Builds clean** with Retro68 (fixed for Retro68's leaner multiversal headers:
   dropped the nonexistent `<QuickdrawText.h>`/`<Shutdown.h>`, and `#define`d
-  `launchNoFileFlags` / `gestaltLaunchCanReturn` with the values from
-  [../../docs/11-derisk-log.md](../../docs/11-derisk-log.md) §A; a `Str255` can't
+  `launchNoFileFlags` / `gestaltLaunchCanReturn` with the values; a `Str255` can't
   take a `"\p"` static initialiser so the label is seeded at runtime).
 - **The keystone is confirmed across the whole System 7 family (7.0.1 / 7.1 /
   7.5.5)** — via the **MVP launcher** (`src/`), which reuses this exact
@@ -82,7 +80,6 @@ and copy `test.dsk` over — or `cargo build` rusty-backup there.)
   headlessly than this spike's interactive `StandardGetFile` dialog. The launcher
   launched the **real Prince of Persia** (and SimpleText) and control returned
   with selection intact, run automatically in Snow. See
-  [../../docs/11-derisk-log.md](../../docs/11-derisk-log.md) §C′ and
   [../../docs/evidence/](../../docs/evidence/). The spike remains as the minimal
   reference for the call.
 

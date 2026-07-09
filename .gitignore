@@ -4,9 +4,6 @@ build/
 *.o
 *.bin
 *.APPL
-# ...except the prebuilt launcher embedded into the atrium tooling (so users can
-# build an image without compiling the 68k launcher themselves; see CMakeLists).
-!tools/atrium-tool/assets/MacAtrium.bin
 
 # Rust (host tooling, tools/atrium-tool) — target/ is generated; Cargo.lock is
 # committed for reproducible CI builds (binary crate).
@@ -26,3 +23,27 @@ tests/host_test
 
 # Prebuilt launcher is a build artifact, never tracked (Retro68 or a release drop)
 tools/atrium-tool/assets/MacAtrium.bin
+
+# Python tooling (assets/icons, macgarden-scraper, compat-matrix, builds/gen_configs.py)
+__pycache__/
+*.pyc
+*.pyo
+
+# Logs / spike configure output
+*.log
+cfg.log
+
+# Disk-image container (*.dsk/*.hda/*.img already covered above)
+*.vhd
+
+# Generated build configs (regenerate with builds/gen_configs.py) + personal donor list
+builds/gen-*.json
+data/donors.json
+
+# Editor / IDE / OS junk
+*~
+*.swp
+*.swo
+.idea/
+.vscode/
+Thumbs.db

@@ -13,9 +13,10 @@ data/templates.json:
 """
 import json
 import os
+import pathlib
 
-REPO = "/home/dani/repos/MacAtrium"
-OUT_DIR = "/home/dani"          # where the .hda images land
+REPO = pathlib.Path(__file__).resolve().parents[1]  # builds/ is one level below the repo root
+OUT_DIR = os.path.join(REPO, "build")  # where the .hda images land (inside the repo)
 CFG_DIR = os.path.join(REPO, "builds")
 
 # The handful of games — same for every build. Curated library ids (donor
@@ -61,12 +62,12 @@ for os_key, os_slug in OSES:
             "launcher": os.path.join(REPO, "build/MacAtrium.bin"),
             "dataset": os.path.join(REPO, "data/library.jsonl"),
             "compatibility": os.path.join(REPO, "data/compatibility.jsonl"),
-            "mg_archive": "/home/dani/macgarden-archive",
+            "mg_archive": "/path/to/your/macintosh-garden-archive",
             "selection": {"mode": "list", "ids": GAMES},
             "art_depths": art_depths,
             "app_mem_kb": app_mem,
             "disk_size_mb": SIZE_MB[(os_key, depth_slug)],
-            "rb_cli": "/home/dani/.local/bin/rb-cli",
+            "rb_cli": "/path/to/rb-cli",
         }
         if max_art is not None:
             cfg["max_art_size"] = max_art

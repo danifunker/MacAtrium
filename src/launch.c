@@ -1,6 +1,6 @@
 /*
  * launch.c — see launch.h. The LaunchParamBlockRec fields/flags are exactly as
- * confirmed in docs/11-derisk-log.md §A and exercised by the spike.
+ * confirmed against Apple's headers and exercised by the spike.
  */
 #include "launch.h"
 #include "macfs.h"
@@ -53,8 +53,8 @@ LaunchResult launch_app(short vref, const char *appRel, int canReturn, OSErr *ou
          * _Launch understands the extended parameter block. launchContinue keeps US
          * running after the launch: LaunchApplication returns IMMEDIATELY and the
          * child runs concurrently as the front process (we then suspend behind it and
-         * resume when it quits — caller handles that). The proven 7.x path
-         * (docs/11-derisk-log.md §A). Zero the whole block: the size/reserved fields
+         * resume when it quits — caller handles that). The proven 7.x path.
+         * Zero the whole block: the size/reserved fields
          * must not be stack garbage. */
         memset(&pb, 0, sizeof pb);
         pb.launchBlockID       = extendedBlock;

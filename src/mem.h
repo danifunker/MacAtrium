@@ -4,7 +4,7 @@
  * Tracks the worst-case (low-water) memory the launcher reaches and paints a
  * two-line overlay top-left, so a headless Snow run can read the numbers straight
  * off a captured frame (no disk-write-persistence dependency). Used to size the
- * per-config `SIZE` partition (builds/RESUME.md). When MEM_DEBUG is undefined the
+ * per-config `SIZE` partition. When MEM_DEBUG is undefined the
  * tick compiles to nothing, so call sites stay clean.
  */
 #ifndef MACATRIUM_MEM_H

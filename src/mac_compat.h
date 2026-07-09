@@ -1,7 +1,7 @@
 /*
  * mac_compat.h — constants Retro68's (leaner) multiversal headers don't define,
- * with the exact values confirmed from Apple's Universal Interfaces in
- * docs/11-derisk-log.md. Plus the classic keyboard char codes the UI uses.
+ * with the exact values confirmed from Apple's Universal Interfaces.
+ * Plus the classic keyboard char codes the UI uses.
  *
  * Toolbox-only; not part of the host-testable core.
  */

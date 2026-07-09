@@ -1,5 +1,5 @@
-//! `atrium fetch` — Phase 2 of the Macintosh Garden integration
-//! (docs/MacintoshGardenArchive.md): download a 68K title's software from the
+//! `atrium fetch` — Phase 2 of the Macintosh Garden integration:
+//! download a 68K title's software from the
 //! Macintosh Garden static mirror, extract it with **rb-cli** (StuffIt / Compact
 //! Pro / MAR / BinHex / MacBinary), and optionally inject the forks into an image
 //! under `Apps/` as a harvestable app.

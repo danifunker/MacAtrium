@@ -521,7 +521,7 @@ fn bake_art(cfg: &BuildConfig, rb: &RbCli, stage: &Path, work: &Path) -> Result<
         // `<id>.shot.<ext>`. Baked files use `fid` (HFS 31-char safe), not `id`.
         let fid = fs_id(&id);
         // Source precedence: explicit art_dir (user override) > MacGarden art >
-        // LaunchBox download. (MG art is era-accurate Mac art; docs/MacintoshGardenArchive.md.)
+        // LaunchBox download. (MG art is era-accurate Mac art.)
         let mg_art = cfg.mg_archive.as_ref().map(|_| mg_art_dir.as_path());
         let box_src = cfg.art_dir.as_ref().and_then(|adir| find_art(adir, &id))
             .or_else(|| mg_art.and_then(|adir| find_art(adir, &id)))

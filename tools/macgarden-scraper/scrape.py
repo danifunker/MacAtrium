@@ -2,7 +2,7 @@
 """MacGarden screenshot scraper.
 
 Downloads the screenshot / box-art images referenced by the Infinite-Mac /
-Macintosh Garden data dump (see docs/MacintoshGardenArchive.md), rate-limited and
+Macintosh Garden data dump, rate-limited and
 resumable. Images only — not the .sit/.iso downloads or the PDF manuals.
 
 Source of truth: the `games.ndjson` / `apps.ndjson` inside the Infinite-Mac

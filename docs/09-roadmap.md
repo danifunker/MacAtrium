@@ -9,7 +9,7 @@ System 7 (resident, easiest) leads; System 6 and richer visuals layer on.
 app and returns · Shutdown/Restart · B&W + 256-color rendering.
 
 Scope (✅ verified end-to-end on System 7.5.5 / Mac II in Snow, 2026-06-21 —
-see [11 §C′](11-derisk-log.md) and [evidence/](evidence/)):
+see [evidence/](evidence/)):
 
 - [x] Retro68 build producing a 68k `APPL` (`build/MacAtrium.bin`, creator
       `ATRM`); `rb-cli` assembles a bootable System 7 test image
@@ -128,7 +128,7 @@ list in [10-open-questions.md](10-open-questions.md)):
    6.0.8 needs a Milestone-4 port; 7.6.1 not yet run.
 2. Boot path is recoverable when the shell crashes on launch. ✅ for the
    Startup-Items deployment (a crash drops to the Finder); boot-block-swap also
-   confirmed bootable (S3, see [11 §C″](11-derisk-log.md)).
+   confirmed bootable (S3).
 3. Covering the Finder / hiding the menu bar behaves across systems. 🔬
 4. Single 68k binary really runs unmodified on 6.0.8 + 7.x. 🔬
 
@@ -152,7 +152,7 @@ Per-feature detail lives in the cited docs.
 - **Phase 1 colour-path verify** — per-item image forks + colour PICT proven B&W-only; needs real HW or a
   boot-8-bit disk (Snow Mac II+MDC tops out at 8-bit; the q800 QEMU harness is the only headless deep-colour
   path). ([15](15-settings-and-color-depth.md))
-- **Colour-depth survey** — PLAN ONLY, execute later ([32](32-color-depth-survey-plan.md)).
+- **Colour-depth survey** — PLAN ONLY, execute later.
 
 **Boot / OS**
 - **Host per-System startup placement** — the build only drops MacAtrium into 7.1.x's Startup Items; after a
@@ -170,7 +170,7 @@ Per-feature detail lives in the cited docs.
 - Milestone 5 items: `rb-cli scan/catalog`, artwork PNG→PICT depth variants, recommendations dataset +
   CONTRIBUTING, one-command image build.
 - **Macintosh Garden**: wire MG into `enrich` + the scrub/attribution decision; `.zip`/inner-disk-image and
-  `.sitx` (9.2.2-era) handling deferred ([MacintoshGardenArchive](MacintoshGardenArchive.md)).
+  `.sitx` (9.2.2-era) handling deferred.
 
 **Build / tooling**
 - **`curl` is dead code** in the atrium tool (downloads use Rust `ureq`/rustls) — rip out the `curl` field /

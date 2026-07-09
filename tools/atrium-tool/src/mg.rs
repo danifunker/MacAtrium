@@ -1,5 +1,5 @@
 //! `atrium mg` — fill the curated dataset from the local **Macintosh Garden**
-//! archive (see docs/MacintoshGardenArchive.md), a sibling enrichment source to
+//! archive, a sibling enrichment source to
 //! LaunchBox (`enrich`).
 //!
 //! Reads `<archive>/metadata/{games,apps}.ndjson`, keeps only **68K-compatible**

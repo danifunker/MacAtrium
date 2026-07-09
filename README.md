@@ -89,14 +89,19 @@ for HFS volume I/O. The 68k launcher itself is built with
 **[Retro68](https://github.com/autc04/Retro68)**.
 
 ```sh
-# build the launcher (re-embeds it into the atrium tool)
+# 1. Build the 68k launcher with Retro68 -> build/MacAtrium.bin.
+#    (Build/install the Retro68 toolchain first, then point CMake at its toolchain.)
+export RETRO68=/path/to/Retro68-build
+cmake -S . -B build \
+  -DCMAKE_TOOLCHAIN_FILE=$RETRO68/toolchain/m68k-apple-macos/cmake/retro68.toolchain.cmake
 cmake --build build
 
-# build the atrium tool
+# 2. Build the atrium image tool (reads the launcher from build/MacAtrium.bin).
 cargo build --release --manifest-path tools/atrium-tool/Cargo.toml
 
-# assemble a disk image from a build config
-./tools/atrium-tool/target/release/atrium image --config my-build.json
+# 3. Assemble a disk image from a build config. Start from builds/example.json;
+#    rb-cli (from rusty-backup) must be on your PATH.
+./tools/atrium-tool/target/release/atrium image --config builds/example.json
 ```
 
 A build harvests apps from donor disks, enriches metadata + art from the
@@ -121,3 +126,13 @@ recommendations list are welcome.
 - **[Retro68](https://github.com/autc04/Retro68)** — the 68k Mac cross-compiler.
 - **[Snow](https://github.com/twvd/snow)** and **QEMU** — headless emulation for verification.
 - **The Macintosh Garden** — artwork and metadata for the library.
+
+## License
+
+MacAtrium's source code is **MIT**-licensed — see [LICENSE](LICENSE). The bundled
+library data derives from the **Macintosh Garden** and is included for
+preservation; see [NOTICE.md](NOTICE.md). MacAtrium ships **no** Apple ROMs, system
+software, or game binaries — you supply those yourself.
+
+Contributions to the code, the library, and the Recommended list are welcome —
+see [CONTRIBUTING.md](CONTRIBUTING.md).

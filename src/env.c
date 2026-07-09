@@ -1,5 +1,5 @@
 /*
- * env.c — see env.h. Constants confirmed in docs/11-derisk-log.md §A.
+ * env.c — see env.h. Constants confirmed against Apple's Universal Interfaces.
  */
 #include "env.h"
 #include "mac_compat.h"

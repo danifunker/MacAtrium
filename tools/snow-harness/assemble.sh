@@ -4,8 +4,8 @@
 #   startup_items_dir defaults to "/System Folder/Startup Items".
 #   (7.0.1's blessed folder is "System Folder 7.0.1"; System 6 has none.)
 set -eu
-RB=/home/dani/repos/rusty-backup/target/release/rb-cli
-APP=/home/dani/repos/MacAtrium/build/MacAtrium.bin
+RB=~/repos/rusty-backup/target/release/rb-cli
+APP=~/repos/MacAtrium/build/MacAtrium.bin
 RUN=/tmp/macatrium-run
 SRC="$1"; OUT="$2"
 STARTUP="${3:-/System Folder/Startup Items}"

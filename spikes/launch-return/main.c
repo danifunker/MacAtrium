@@ -36,8 +36,8 @@
 
 /* Retro68's multiversal headers are leaner than Apple's Universal Interfaces:
  * a few well-known Process Manager / Gestalt constants aren't defined. Supply
- * them with the exact values confirmed from Apple's headers in
- * docs/11-derisk-log.md §A (Processes.h / GestaltEqu.h). */
+ * them with the exact values confirmed from Apple's headers
+ * (Processes.h / GestaltEqu.h). */
 #ifndef launchNoFileFlags
 #define launchNoFileFlags 0x0800   /* we resolve the FSSpec ourselves */
 #endif

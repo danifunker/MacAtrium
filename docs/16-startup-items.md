@@ -8,7 +8,7 @@ later "pure appliance" option, and System 6 is [Milestone 4](09-roadmap.md).
 
 Why B is the lock-in for 7.x:
 
-- Proven end-to-end in Snow on 7.0.1 / 7.1 / 7.5.5 (see [13-handoff.md](13-handoff.md) §1).
+- Proven end-to-end in Snow on 7.0.1 / 7.1 / 7.5.5.
 - The Finder stays resident, so **Launch Finder** works (bring-to-front) and a
   crash on launch drops to a usable Finder instead of wedging the boot — the boot
   stays recoverable by design.

@@ -3,7 +3,7 @@
 Tracked decisions still open (❓) and design points that are sound on paper but
 must be confirmed on a real System/emulator/core before we depend on them (🔬).
 
-> **De-risk in progress — see [11-derisk-log.md](11-derisk-log.md).** Most API-shape
+> **De-risk in progress.** Most API-shape
 > items below are now ✅ confirmed from Apple's System 7.1 headers (L1 launch
 > shape, L2 Gestalt, L4 aliases, R1/R2 depth, S4 return-to-Finder, shutdown,
 > control-panel folders). Emulator chosen: **Snow**. The remaining 🔬 items are
@@ -20,8 +20,7 @@ must be confirmed on a real System/emulator/core before we depend on them (🔬)
 > so the classic Segment-Loader launch can't set a launched app's working directory
 > → companion-file apps bomb with **`File System error -43`** (verified: Prince of
 > Persia), and there's no launch-and-return. Fix needs MultiFinder (already
-> installed on the base, not activated). **Spike plan + handoff:
-> [19-multifinder-process-manager-spike.md](19-multifinder-process-manager-spike.md)**
+> installed on the base, not activated). **Spike plan.**
 > (Spike A: MacAtrium as the shell under MultiFinder — priority; B: startup app;
 > C: keep 6.0.8 for self-contained games, route the rest to 7.1/9.2.2).
 

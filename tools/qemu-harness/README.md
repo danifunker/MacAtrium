@@ -25,7 +25,7 @@ unzip -o ~/repos/mame/roms/macqd800.zip -d /tmp/q800rom
 Apple SCSI driver + DDR + boot blocks so the q800 ROM boots it over SCSI:
 
 ```sh
-rb-cli make-bootable /home/dani/MacAtrium-7.5.5-working.hda   # idempotent
+rb-cli make-bootable ~/MacAtrium-7.5.5-working.hda   # idempotent
 ```
 
 ## Run
@@ -33,7 +33,7 @@ rb-cli make-bootable /home/dani/MacAtrium-7.5.5-working.hda   # idempotent
 ```sh
 python3 tools/qemu-harness/q800_harness.py \
     /tmp/q800rom/f1acad13.rom \
-    /home/dani/MacAtrium-7.5.5-working.hda \
+    ~/MacAtrium-7.5.5-working.hda \
     out_dir \
     100 \
     --snap-every 15 \

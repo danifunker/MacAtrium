@@ -1,0 +1,5 @@
+{
+  "supplement": "/path/to/your/supplement-disk.vhd",
+  "pop": "/path/to/your/prince-of-persia-6.0.8.hda",
+  "boot": "/path/to/your/boot-disk.vhd"
+}

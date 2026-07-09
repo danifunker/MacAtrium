@@ -54,8 +54,7 @@ When launched as the shell-on-top we want to look like *the* environment:
   hidden** (`hide_menu_bar()` in `main.c`): set `LMSetMBarHeight(0)` *and* union
   the old bar strip back into `GrayRgn`, then `CalcVis` so the window owns the top
   (the missing step that broke an earlier attempt). Re-applied on return from a
-  sub-launch; restored for Launch Finder. Verified in Snow on 7.1 — see
-  [13-handoff.md](13-handoff.md) §5.
+  sub-launch; restored for Launch Finder. Verified in Snow on 7.1.
 - Under MultiFinder/Process Manager, optionally hide other layers so the Finder
   desktop isn't visible behind us.
 - Pull keyboard focus and run our event loop as the foreground app.

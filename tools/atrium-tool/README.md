@@ -165,7 +165,7 @@ from megatron-uk/x68klauncher's `tools/metadata.py`.
 ### `atrium mg`
 
 Fill the dataset from the local **Macintosh Garden** archive
-(`~/macgarden-archive`, see [docs/MacintoshGardenArchive.md](../../docs/MacintoshGardenArchive.md)),
+(`~/macgarden-archive`),
 a sibling source to `enrich`. Reads `metadata/{games,apps}.ndjson`, keeps only
 **68K-compatible** titles (`architecture ⊇ "68k"`), matches by normalised name,
 and fills `year` / `vendor` / `genre` / `desc` (gaps-only unless `--overwrite`):

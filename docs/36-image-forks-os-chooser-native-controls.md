@@ -72,7 +72,7 @@ cmake --build build            # -> build/MacAtrium.bin (MacBinary)
   ~/repos/boot0.rom ~/repos/341-0868.BIN <disk> <out.png> <cycles> \
   --snap-every 100000000 --keys "CYC:KEY;…"      # click@X,Y / arrows / enter / esc / cmd-<k>
 ```
-Note (from [35-resume](35-resume.md)): Mac II + MDC always reports **Color QD** → the
+Note: Mac II + MDC always reports **Color QD** → the
 off-screen render path. To exercise the **direct-draw / B&W** path (the `ABMP`
 fast-path and the sys6 theme) boot a **6.0.8** disk (`sysVers < 0x0700`).
 

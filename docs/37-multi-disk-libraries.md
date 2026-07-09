@@ -14,7 +14,7 @@ original SCOPING draft.
 > The harness gained a `--disk2` flag. Selection restore is boot-disk-first with a
 > Recommended fallback when a saved category's disk is removed (2026-07-08, host test
 > `test_model_recommended_fallback`); host `volume.jsonl` was judged unnecessary and
-> dropped. Handoff: docs/41-resume.md.
+> dropped.
 
 ## What it is
 

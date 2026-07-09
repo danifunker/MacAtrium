@@ -32,8 +32,7 @@ that would quit the shell. 🔬 verify selectors/flags on each target.
 The brief: surface **Monitors, Sound, Date & Time, Mouse, Keyboard**; launch the
 ones that behave as standalone apps, **flag** the ones that don't.
 
-Reality of classic control panels (✅ measured — see
-[11-derisk-log.md](11-derisk-log.md) §B′ C1):
+Reality of classic control panels (✅ measured):
 
 - On **6.0.8 and 7.5.5, all five target panels are type `cdev`** (Monitors
   `cdsc`, Sound `soun`, Date & Time `time`, Mouse `mous`, Keyboard `keyb`) — *not*

@@ -25,14 +25,11 @@ Read in order for the full picture; jump by topic once oriented.
 | — | [08-launching-system.md](08-launching-system.md) | Launch trap, control panels, shutdown/restart |
 | — | [09-roadmap.md](09-roadmap.md) | Milestones & phases, MVP definition |
 | — | [10-open-questions.md](10-open-questions.md) | Deferred decisions and things to verify on real targets |
-| — | [11-derisk-log.md](11-derisk-log.md) | **De-risk findings** — APIs confirmed from Apple headers, emulator choice (Snow), what's left to test |
-| — | [14-art-render-snow-bug.md](14-art-render-snow-bug.md) | In-launcher art `DrawPicture` crashes Snow on some valid art; fix via CopyBits |
 | — | [15-settings-and-color-depth.md](15-settings-and-color-depth.md) | Settings panel (theme/depth/volume), runtime colour depth, the PICT word-align fix |
 | — | [16-startup-items.md](16-startup-items.md) | **Locked: Startup Items (B) is the 7.x shipping default** + how to install MacAtrium there |
 | — | [17-prefs-persistence.md](17-prefs-persistence.md) | Theme / volume / last-selection persist across reboot (`MacAtrium Prefs` file) |
-| — | 19–42 | Topic/design docs: MultiFinder spike (19), category paging (21), multi-volume backlog (23), classic-UI redesign (27), colour-depth survey (32), image forks + OS chooser (36), **multi-disk libraries (37)**, compatibility matrix (38), **cross-disk startup chooser (42)** |
+| — | 20–42 | Topic/design docs: MultiFinder set-startup deep-dive (20), category paging (21), multi-volume backlog (23), classic-UI redesign (27), image forks + OS chooser (36), **multi-disk libraries (37)**, compatibility matrix (38), **cross-disk startup chooser (42)** |
 | — | [09-roadmap.md](09-roadmap.md#shipped-since-m1m6--consolidated-backlog-2026-07-08) | **The consolidated backlog / outstanding items** live here |
-| — | [43-resume.md](43-resume.md) | **Start here to resume** — current status, environment, and outstanding work (supersedes all earlier resume/handoff docs) |
 
 Spikes (focused experiments) live in [`../spikes/`](../spikes/) — `launch-return/`
 (the keystone test that proves resident launch returns control) and `startup-disk/`

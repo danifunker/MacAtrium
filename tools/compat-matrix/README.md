@@ -1,8 +1,7 @@
 # compat-matrix — Mac model → System(OS) compatibility data
 
 Builds the hardware/OS compatibility data the launcher uses to reason about which
-System a given machine can run. See [`docs/40-resume.md`](../../docs/40-resume.md) for
-the design and the remaining launcher wiring.
+System a given machine can run.
 
 ## Outputs (committed, canonical)
 - **`../../data/models.jsonl`** — 155 Macs, one row each: `model, gestaltID, modelNumber,

@@ -81,8 +81,7 @@ The floor is **6.0.4** — the first System with the **Gestalt Manager** the who
 are in-envelope but untested; below 6.0.4 would need a `SysEnvirons` fallback,
 deferred). The CPU→OS tiers live in [data/os-tiers.json](../data/os-tiers.json).
 
-**Validated on-target so far** (Snow / QEMU harnesses, per [09](09-roadmap.md) &
-[11](11-derisk-log.md)): System **6.0.8** (as the Finder, 8-bit colour), **7.0.1
+**Validated on-target so far** (Snow / QEMU harnesses, per [09](09-roadmap.md)): System **6.0.8** (as the Finder, 8-bit colour), **7.0.1
 / 7.1 / 7.5.5** (Mac II / Quadra-class), across depths **1 / 2 / 4 / 8 / 16 /
 24-bit**, resident launch-and-return, Restart/Shut Down. Everything marked 🔬
 below (7.6.1, Mac OS 8.x/9.x, real hardware, MiSTer) is architecturally covered
@@ -295,7 +294,7 @@ Not hardware, but the primary way MacAtrium is exercised ([02](02-compatibility.
 
 | Surface | Config | Status |
 |---|---|---|
-| **Snow** (dev harness) | Mac II / Quadra, System 6.0.8 / 7.x, 1–24 bit | ✅ primary validation ([11](11-derisk-log.md)) |
+| **Snow** (dev harness) | Mac II / Quadra, System 6.0.8 / 7.x, 1–24 bit | ✅ primary validation |
 | **QEMU Quadra 800** | System 7.5.5, multi-SCSI | ✅ boot/volume-cap harness ([23](23-multi-volume-library.md)) |
 | Mini vMac | MacPlus, System 6, B&W, 68000 | ✅🔬 B&W path |
 | Basilisk II | System 7, 68020/40, colour | ✅🔬 |
@@ -401,5 +400,5 @@ Everything else in the envelope is ✅/⚠️. The real incompatibilities:
 - **Volume caps & multi-disk:** [23-multi-volume-library.md](23-multi-volume-library.md), [37-multi-disk-libraries.md](37-multi-disk-libraries.md)
 - **Per-title compatibility data:** [`data/compatibility.jsonl`](../data/compatibility.jsonl)
 - **CPU→OS tier model & data:** [data/os-tiers.json](../data/os-tiers.json), [data/models.jsonl](../data/models.jsonl), [src/bless.c](../src/bless.c) (chooser gating)
-- **Roadmap / what's validated:** [09-roadmap.md](09-roadmap.md), [11-derisk-log.md](11-derisk-log.md)
+- **Roadmap / what's validated:** [09-roadmap.md](09-roadmap.md)
 - **Runtime probe source:** [src/env.c](../src/env.c), [src/main.c](../src/main.c)

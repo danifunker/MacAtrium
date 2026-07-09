@@ -1,8 +1,7 @@
 # macgarden-scraper
 
 Standalone, rate-limited, resumable scraper for the **Macintosh Garden** screenshot
-/ box-art images referenced by the Infinite-Mac data dump. Background and dataset
-analysis: [`docs/MacintoshGardenArchive.md`](../../docs/MacintoshGardenArchive.md).
+/ box-art images referenced by the Infinite-Mac data dump.
 
 > **Not committed yet** — left untracked on purpose while we iterate.
 

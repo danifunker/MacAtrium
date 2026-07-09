@@ -1,0 +1,29 @@
+{
+  "system": "/path/to/your/base-system.hda",
+  "out": "build/MacAtrium-example.hda",
+  "launcher": "build/MacAtrium.bin",
+  "dataset": "data/library.jsonl",
+  "compatibility": "data/compatibility.jsonl",
+  "harvest": [
+    {
+      "image": "/path/to/your/donor-disk.hda",
+      "apps": [
+        "/Games/Example Game",
+        "/Games/Another Game"
+      ]
+    }
+  ],
+  "art_depths": [
+    "1",
+    "8"
+  ],
+  "app_mem_kb": [
+    1024,
+    768
+  ],
+  "rb_cli": "/path/to/rb-cli",
+  "startup_items": "/System Folder/Startup Items",
+  "finder_replace": false,
+  "mg_archive": "/path/to/your/macintosh-garden-archive",
+  "max_art_size": "384x384"
+}

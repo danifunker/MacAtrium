@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """mg.py — index & search the Macintosh Garden archive.
 
-Companion to scrape.py. Turns the archive (see docs/MacintoshGardenArchive.md) into
+Companion to scrape.py. Turns the archive into
 something you can look things up in fast, and is the join point for the enrichment
 pipeline. Everything keys on `nid` (Macintosh Garden node id) — the folder name,
 the ndjson, the manifest, and this index all share it.
