@@ -28,7 +28,7 @@ Read in order for the full picture; jump by topic once oriented.
 | — | [15-settings-and-color-depth.md](15-settings-and-color-depth.md) | Settings panel (theme/depth/volume), runtime colour depth, the PICT word-align fix |
 | — | [16-startup-items.md](16-startup-items.md) | **Locked: Startup Items (B) is the 7.x shipping default** + how to install MacAtrium there |
 | — | [17-prefs-persistence.md](17-prefs-persistence.md) | Theme / volume / last-selection persist across reboot (`MacAtrium Prefs` file) |
-| — | 20–42 | Topic/design docs: MultiFinder set-startup deep-dive (20), category paging (21), multi-volume backlog (23), classic-UI redesign (27), image forks + OS chooser (36), **multi-disk libraries (37)**, compatibility matrix (38), **cross-disk startup chooser (42)** |
+| — | 20–44 | Topic/design docs: MultiFinder set-startup deep-dive (20), category paging (21), multi-volume backlog (23), classic-UI redesign (27), image forks + OS chooser (36), **multi-disk libraries (37)**, compatibility matrix (38), **cross-disk startup chooser (42)**, **memory budget & art modes (44)** |
 | — | [09-roadmap.md](09-roadmap.md#shipped-since-m1m6--consolidated-backlog-2026-07-08) | **The consolidated backlog / outstanding items** live here |
 
 Spikes (focused experiments) live in [`../spikes/`](../spikes/) — `launch-return/`
