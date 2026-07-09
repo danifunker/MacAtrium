@@ -7,7 +7,7 @@ tick the boxes as phases land; fill the numbers table as P1 produces measurement
 
 ## Progress
 
-- [ ] **P1 — ArtCaps probe + Status readout** — measurement only, no behaviour change; yields the real numbers for P3
+- [x] **P1 — ArtCaps probe + Status readout** — measurement only, no behaviour change; yields the real numbers for P3
 - [ ] **P2 — Budget-aware art loader** — the one behavioural change (art degrades a tier instead of OOM)
 - [ ] **P3 — Multi-OS `'SIZE'` numbers** — low-minimum / high-preferred partition
 - [ ] **P4 — (optional) Art Quality setting** — user-facing cap, gated by ArtCaps
@@ -64,23 +64,25 @@ defaultMode        = highest enabled mode
 
 ## The plan
 
-### P1 — ArtCaps probe + Status readout  — [ ]
+### P1 — ArtCaps probe + Status readout  — [x] DONE (2026-07-09)
 **Goal:** pure measurement; produce the capability set and the real per-depth numbers for P3. No
 art behaviour change.
-- [ ] Add `ArtCaps` struct + `art_caps_probe(ArtCaps *out, const Env *e)` — new `src/artcaps.{c,h}`
-  (or fields on `Env`). Query the **granted partition**: `GetProcessInformation` →
-  `processSize`/`processFreeMem` on 7.x; `FreeMem()`/`MaxBlock()` on 6.x (mirror `mem.c`). Compute
-  `artBudget`; VRAM via `display_depths()`/`HasDepth`; fill `enabled[]`, `maxAffordableDepth`,
-  `defaultMode`.
-- [ ] Call it in `main()` after `env_probe` + display setup.
-- [ ] Surface it in `run_status_dialog` (main.c): partition KB, artBudget KB, enabled modes,
-  maxAffordableDepth.
-- [ ] **Verify:** build clean + host tests green; in the harness patch the partition small then
-  large (`atrium size --pref/--min`) and confirm Status reports the right partition/budget/enabled
-  set each time; cross-check against the `-DMEM_DEBUG=ON` peak overlay and **record the numbers in
-  the table below**.
+- [x] Add `ArtCaps` struct + `art_caps_probe(ArtCaps *out, const Env *e)` — new `src/artcaps.{c,h}`.
+  Query the **granted partition**: `GetProcessInformation` → `processSize`/`processFreeMem` on 7.x;
+  `ApplicationZone()` extent + `FreeMem()`/`MaxBlock()` on 6.x (mirror `mem.c`). Compute `artBudget`;
+  VRAM via `display_depths()`/`HasDepth`; fill `enabled[]`, `maxAffordableDepth`, `defaultMode`. The
+  pure derivation is split into `art_caps_derive()` (no Toolbox) so the gating logic is host-tested
+  across the profiles Snow can't emulate (1-bit compact, 24-bit Quadra) — see `tests/host_test.c`
+  (`-DARTCAPS_HOST_TEST`).
+- [x] Call it in `main()` after `env_probe` + display setup.
+- [x] Surface it in `run_status_dialog` (main.c): partition/free/blk, artBudget, tiers on/off,
+  maxAffordableDepth, defaultMode, per-tier peak estimate.
+- [x] **Verify:** build clean + host tests green (108/108, +17 artcaps checks); harness at two
+  partitions (`atrium size --pref/--min` 1024 vs 3072) on the **archive-built** MacAtrium-7.1-256color
+  image (real art loads) — Status reports the right partition/budget/enabled each time, cross-checked
+  with the `-DMEM_DEBUG=ON` peak overlay. Numbers recorded below.
 - **Done when:** Status shows a correct capability set on both a small and a large partition, with
-  no change to what art is drawn.
+  no change to what art is drawn. ✅ 1024K → `on/on/off` default-8; 3072K → `on/on/on` default-24.
 
 ### P2 — Budget-aware art loader  — [ ]
 **Goal:** never load art bigger than the partition holds; degrade one tier instead of OOM.
@@ -108,15 +110,42 @@ art behaviour change.
   `ArtCaps.enabled[]` (`HiliteControl`, as the OS chooser does); persist in prefs; loader clamps to
   the user's cap.
 
-## Numbers to fill in (P1 output → P3 input)
+## Numbers (P1 measured 2026-07-09 → P3 input)
 
-| Target | System | Screen | Partition granted | Peak used | Peak art PICT | Note |
+Measured in the Snow harness (Mac II + MDC 8•24, System 7.1, **8-bit** screen) on the
+**archive-built** `MacAtrium-7.1-256color` image (real box-art PICTs resident), plus on-disk art
+sizes read from the `256color` (384² art bound) and `fullcolor` (720² default bound) images. Snow
+tops out at 8-bit, so the compact-1-bit and Quadra-24-bit *display* rows still need the 6.0.8 harness
+/ q800 / real HW — but their on-disk art sizes are measured here.
+
+| Target | System | Screen | Partition granted | Peak used | Peak art PICT (on-disk) | Note |
 |---|---|---|---|---|---|---|
-| Compact | 6.0.8 | 1-bit | | | | bare Sys6: GWorld in-partition |
-| LC / II | 7.1 | 8-bit | | | | |
-| Quadra | 7.5.5 | 24-bit | | | | Snow=8-bit; use q800 / real HW for 24-bit |
+| Compact | 6.0.8 | 1-bit | — (needs 6.0.8 HW) | — | **13K** ABMP @384² · 44K @720² | bare Sys6: GWorld in-partition |
+| LC / II | 7.1 | 8-bit | **3088K** (set 3072)<br>**1040K** (set 1024) | **486K** no-art<br>**558K** +8-bit art | **80K** box @384²<br>259–318K @720² · Δresident≈72K | measured; fits 1024K w/ ~480K headroom |
+| Quadra | 7.5.5 | 24-bit | — (Snow caps 8-bit) | — | **1.34 MB** box @720² fullcolor | 24-bit *display* needs q800/HW; size + est recorded |
 
-→ **Chosen multi-OS `'SIZE'`: minimum \_\_\_ KB / preferred \_\_\_ KB**
+→ **Chosen multi-OS `'SIZE'` (P1 recommendation, P3 confirms): minimum ~1024 KB / preferred ~3072 KB.**
+512 KB OOMs the shared 8-bit case (peak 558K); 1024 KB holds it with headroom; 3072 KB holds a
+1.34 MB 24-bit PICT (budget 2595K). The per-build `app_mem_kb` still overrides for single-OS images.
+
+### P1 findings
+
+- **Budget formula validated to the KB on hardware:** `artBudget = partitionFree − 198K`
+  (150K catalog page + 48K row-icon cache; +GWorld reserve only when temp is scarce). Status showed
+  `2793−198=2595K` @3088 and `745−198=547K` @1040 — exact.
+- **Capability set adapts, both axes correct:** `on/on/on` default-24 @3072 vs `on/on/off` default-8
+  @1024 — at 1024K the real 1.34 MB 24-bit PICT genuinely exceeds the 547K budget, so 24-bit art is
+  gated by *memory* while the screen keeps its depth (the two axes stay separate).
+- **The zone grows on demand:** at probe time `FreeMem()`/`MaxBlock()` reflect the not-yet-grown app
+  zone (`blk≈3–6K`) while `processFreeMem` already reports the true partition free — so the budget is
+  based on `processFreeMem`, never `MaxBlock`. (This is why the readout's `blk` looks tiny.)
+- **Conservative estimate brackets reality:** the startup `peakArtBytes` (uncompressed 720² pixmap:
+  506K / 1519K for 8 / 24-bit) is spot-on for 24-bit (~1.34 MB real) but 1.6× (720²) to 6× (384²) the
+  compressed 8-bit PICT. It errs safe; **P2's per-resource on-disk size check is the authoritative
+  gate**, and P3 sizes off the *measured* numbers above, not the estimate.
+- **Art must be built by `atrium image`:** a metadata-only library (`index.jsonl`+`cats/`, no
+  `images/`) shows "(no art)" — the art pass converts the MacGarden archive (`apps/`,`games/<id>/`)
+  into depth PICTs in `images/`. P1 verified against the archive-built demo images.
 
 ## Risks & edge cases
 
