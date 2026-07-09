@@ -1102,8 +1102,9 @@ static UiCommand run_quicklaunch_menu(void)
 /* ---- the System Folder Chooser (docs/36/37 Phase 2) ---------------------------
  * A movable modal window of standard push buttons — one per blessable System Folder
  * (the current one bulleted) plus Cancel — reusing the Quick-Launch menu's built-in
- * widgets + focus-ring model. Choosing a folder blesses it and restarts into it
- * (bless_and_restart returns only on failure). */
+ * widgets + focus-ring model. Choosing a folder blesses it (bless_set), then asks
+ * whether to shut down now — the launcher never triggers an in-core reboot; the swap
+ * takes effect on the next power-on. Returns 1 if the user chose Shut Down. */
 static void osc_label(const SysFolder *s, Str255 out)
 {
     int  n = 0, i;
@@ -1176,17 +1177,107 @@ static void osc_draw_status(WindowPtr dlg, int focus, const SysFolder *sys, int 
     }
 }
 
-static void run_os_chooser(void)
+/* Draw the post-bless shut-down confirmation: message + buttons + default ring. */
+static void osc_sd_draw(WindowPtr dlg, const unsigned char *name, ControlHandle sd)
+{
+    Rect r;
+    SetPort(dlg);
+    EraseRect(&dlg->portRect);
+    TextFont(0); TextSize(12);
+    TextFace(bold);
+    { const char *s = "Startup System Folder set to:"; MoveTo(20, 26); DrawText((Ptr)s, 0, (short)strlen(s)); }
+    TextFace(normal);
+    MoveTo(38, 46); DrawString(name);
+    { const char *s = "Shut down now, then switch the computer"; MoveTo(20, 74); DrawText((Ptr)s, 0, (short)strlen(s)); }
+    { const char *s = "back on to start up from it.";            MoveTo(20, 90); DrawText((Ptr)s, 0, (short)strlen(s)); }
+    DrawControls(dlg);
+    r = (**sd).contrlRect; InsetRect(&r, -4, -4);
+    PenSize(3, 3); FrameRoundRect(&r, 16, 16); PenSize(1, 1);   /* the default-button ring */
+}
+
+/* After a bless swap the machine must restart to boot the new System — but the
+ * launcher never triggers an in-core reboot. The emulator CPU cores can't restart
+ * in core (you power-cycle through the emulator/OSD); on real hardware a clean
+ * shutdown + power-on is equally safe. So ask: shut down now (the caller runs the
+ * normal Shut Down path — flush + ShutDwnPower), or Later, leaving the swap to take
+ * effect on the next manual restart. Returns 1 for Shut Down, 0 for Later. */
+static int osc_confirm_shutdown(const unsigned char *name)
+{
+    WindowPtr     dlg;
+    Rect          bounds, r, sb = qd.screenBits.bounds;
+    ControlHandle sd, later;
+    int           running = 1, result = 0;
+    const short   CW = 344, CHh = 128;
+    short         L = (short)(sb.left + ((sb.right - sb.left) - CW) / 2);
+    short         T = (short)(sb.top  + ((sb.bottom - sb.top) - CHh) / 2);
+
+    if (T < (short)(sb.top + 44)) T = (short)(sb.top + 44);
+    SetRect(&bounds, L, T, (short)(L + CW), (short)(T + CHh));
+    dlg = NewWindow(0L, &bounds, "\p", true, movableDBoxProc, (WindowPtr)-1L, false, 0L);
+    if (!dlg) return 0;
+    SetPort(dlg);
+
+    SetRect(&r, (short)(CW - 20 - 96),      (short)(CHh - 32), (short)(CW - 20),      (short)(CHh - 12));
+    sd    = NewControl(dlg, &r, "\pShut Down", true, 0, 0, 0, pushButProc, 0L);
+    SetRect(&r, (short)(CW - 20 - 96 - 84), (short)(CHh - 32), (short)(CW - 20 - 96 - 16), (short)(CHh - 12));
+    later = NewControl(dlg, &r, "\pLater", true, 0, 0, 0, pushButProc, 0L);
+    (void)later;
+
+    osc_sd_draw(dlg, name, sd);
+    ValidRect(&dlg->portRect);
+
+    /* Discard any keystrokes still queued from the chooser selection (a held/repeated
+     * Return that blessed the folder must NOT pass through to this dialog's default
+     * and confirm a shutdown the user never saw). The confirm waits for a fresh key. */
+    FlushEvents(keyDownMask | autoKeyMask, 0);
+
+    while (running) {
+        EventRecord evt;
+        if (!next_event(&evt)) continue;
+        switch (evt.what) {
+            case updateEvt: {
+                WindowPtr w = (WindowPtr)evt.message;
+                if (w == dlg) { BeginUpdate(w); osc_sd_draw(dlg, name, sd); EndUpdate(w); }
+                else { BeginUpdate(w); SetPort(w); ui_draw(&gUi); EndUpdate(w); SetPort(dlg); }
+                break;
+            }
+            case mouseDown: {
+                WindowPtr w; short part = FindWindow(evt.where, &w);
+                if (part == inDrag && w == dlg) { DragWindow(w, evt.where, &sb); SetPort(dlg); }
+                else if (part == inContent && w == dlg) {
+                    Point pt = evt.where; ControlHandle ctl; short cp;
+                    SetPort(dlg); GlobalToLocal(&pt);
+                    cp = FindControl(pt, dlg, &ctl);
+                    if (cp && ctl && TrackControl(ctl, pt, (ControlActionUPP)0)) { result = (ctl == sd); running = 0; }
+                } else if (w != dlg) { SysBeep(1); }   /* modal: block clicks elsewhere */
+                break;
+            }
+            case keyDown:
+            case autoKey: {
+                char c = (char)(evt.message & charCodeMask);
+                if ((evt.modifiers & cmdKey) && c == '.')     { result = 0; running = 0; }
+                else if (c == kCharReturn || c == kCharEnter) { result = 1; running = 0; }   /* default: Shut Down */
+                else if (c == kCharEscape)                    { result = 0; running = 0; }   /* Later */
+                break;
+            }
+        }
+    }
+    DisposeWindow(dlg);
+    return result;
+}
+
+static int run_os_chooser(void)
 {
     SysFolder     sys[BLESS_MAX_SYS];
     WindowPtr     dlg;
     Rect          bounds, sb = qd.screenBits.bounds;
     int           nsys = bless_enumerate(sys, BLESS_MAX_SYS, gEnv.sysVers);
-    int           n, i, focus = 0, running = 1;
+    int           n, i, focus = 0, running = 1, didBless = 0;
     short         CH;
     ControlHandle btn[QL_MAXITEMS];
+    Str63         chosenName;
 
-    if (nsys < 1) { SysBeep(1); return; }                       /* nothing blessable */
+    if (nsys < 1) { SysBeep(1); return 0; }                     /* nothing blessable */
     if (nsys > QL_MAXITEMS - 1) nsys = QL_MAXITEMS - 1;         /* leave a slot for Cancel */
     n = nsys + 1;
     for (i = 0; i < nsys; i++) if (sys[i].blessed) focus = i;   /* start on the current OS */
@@ -1200,7 +1291,7 @@ static void run_os_chooser(void)
         SetRect(&bounds, L, T, (short)(L + QL_CW), (short)(T + CH));
     }
     dlg = NewWindow(0L, &bounds, "\pSystem Folder Chooser", true, movableDBoxProc, (WindowPtr)-1L, false, 0L);
-    if (!dlg) return;
+    if (!dlg) return 0;
     SetPort(dlg);
     TextFont(0); TextSize(12);
     for (i = 0; i < n; i++) {
@@ -1238,7 +1329,9 @@ static void run_os_chooser(void)
                             if (ctl == btn[i]) {
                                 if (i >= nsys) running = 0;                              /* Cancel */
                                 else if (!osc_bootable(&sys[i])) SysBeep(1);             /* greyed: can't boot */
-                                else if (bless_and_restart(sys[i].dirID) != noErr) SysBeep(1); /* success reboots */
+                                else if (bless_set(sys[i].dirID) != noErr) SysBeep(1);   /* bless failed: stay */
+                                else { BlockMoveData(sys[i].name, chosenName, (long)sys[i].name[0] + 1);
+                                       didBless = 1; running = 0; }                       /* then prompt shutdown */
                                 break;
                             }
                 } else if (w != dlg) { SysBeep(1); }
@@ -1260,7 +1353,9 @@ static void run_os_chooser(void)
                     case kCharEnter:
                         if (focus >= nsys) running = 0;                          /* Cancel */
                         else if (!osc_bootable(&sys[focus])) SysBeep(1);         /* greyed: can't boot */
-                        else if (bless_and_restart(sys[focus].dirID) != noErr) SysBeep(1);
+                        else if (bless_set(sys[focus].dirID) != noErr) SysBeep(1);   /* bless failed: stay */
+                        else { BlockMoveData(sys[focus].name, chosenName, (long)sys[focus].name[0] + 1);
+                               didBless = 1; running = 0; }                           /* then prompt shutdown */
                         break;
                 }
                 break;
@@ -1268,6 +1363,9 @@ static void run_os_chooser(void)
         }
     }
     DisposeWindow(dlg);
+    /* 0 = no change (Cancel); 1 = blessed + Shut Down now; 2 = blessed + Later. */
+    if (didBless) return osc_confirm_shutdown(chosenName) ? 1 : 2;
+    return 0;
 }
 
 /* ---- MacAtrium Status (docs/37) ------------------------------------------------
@@ -1522,11 +1620,20 @@ static void handle_ui_command(UiCommand cmd)
             }
             break;
         }
-        case UI_OPEN_CHOOSER: {              /* the System Folder Chooser (bless + restart) */
-            run_os_chooser();
+        case UI_OPEN_CHOOSER: {              /* the System Folder Chooser (bless, then offer shutdown) */
+            int r = run_os_chooser();
+            if (r == 1) {                    /* blessed + Shut Down: proper shutdown, no return */
+                handle_ui_command(UI_SHUTDOWN);
+                break;
+            }
             gUi.mode = UI_MODE_LIST;
             SetPort(gWin);
-            ui_reblit(&gUi);                 /* the chooser window never touched the buffer */
+            if (r == 2) {                    /* blessed + Later: note the swap applies on next boot */
+                ui_set_status(&gUi, "Startup System changed - applies on next boot.");
+                ui_draw(&gUi);
+            } else {
+                ui_reblit(&gUi);             /* Cancel: the chooser never touched the buffer */
+            }
             ValidRect(&gWin->portRect);
             break;
         }

@@ -34,10 +34,10 @@ typedef struct {
 int bless_enumerate(SysFolder *out, int max, long runningVersion);
 
 /* Set the boot volume's blessed System Folder to `dirID` and flush to disk.
- * (PBHSetVInfo ioVFndrInfo[0] — the drFndrInfo blessed-folder dir ID.) */
+ * (PBHSetVInfo ioVFndrInfo[0] — the drFndrInfo blessed-folder dir ID.) The OS
+ * chooser (main.c) blesses, then asks whether to shut down — the launcher never
+ * triggers an in-core reboot (the emulator cores can't restart in core), so the
+ * swap takes effect on the next power-on. */
 OSErr bless_set(long dirID);
-
-/* Bless `dirID`, then restart into it. Returns only if the bless step failed. */
-OSErr bless_and_restart(long dirID);
 
 #endif /* MACATRIUM_BLESS_H */

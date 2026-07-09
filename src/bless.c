@@ -4,7 +4,6 @@
  */
 #include "bless.h"
 #include "macfs.h"     /* macfs_boot_vref */
-#include "sysctl.h"    /* sysctl_restart (ShutDwnStart) */
 #include "mac_compat.h"
 
 #include <Files.h>
@@ -176,12 +175,4 @@ OSErr bless_set(long dirID)
     if (err != noErr) return err;
 
     return FlushVol(NULL, vref);              /* push the MDB change to disk */
-}
-
-OSErr bless_and_restart(long dirID)
-{
-    OSErr err = bless_set(dirID);
-    if (err != noErr) return err;
-    sysctl_restart();                         /* ShutDwnStart — boot the new System */
-    return noErr;                             /* not reached */
 }
