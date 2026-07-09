@@ -27,6 +27,7 @@
 #include "prefs.h"
 #include "controlpanels.h"
 #include "display.h"
+#include "artcaps.h"
 #include "bless.h"
 #include "mem.h"
 #include "mac_compat.h"
@@ -60,6 +61,7 @@
 static Catalog   gCat;
 static Model     gModel;
 static Env       gEnv;
+static ArtCaps   gArtCaps;         /* docs/44: art tiers this machine can show/hold */
 static Render    gRender;
 static Ui        gUi;
 static WindowPtr gWin;
@@ -1281,6 +1283,18 @@ static void st_line(short x, short y, const char *s)
     DrawText((Ptr)s, 0, (short)strlen(s));
 }
 
+/* Append a byte count rounded to KB, with a trailing 'K' (docs/44 readout). */
+static void st_appendK(char *dst, long bytes)
+{
+    append_long(dst, (bytes + 512) / 1024);
+    strcat(dst, "K");
+}
+
+/* Vertical space st_draw's "Memory & art" section adds (bold header + four
+ * readout lines, minus 2px reclaimed by tightening the Screen line); folded into
+ * the Status window height CH. */
+#define ST_MEM_SECTION 84
+
 /* Categories + titles contributed by the disk at volume-table index `vol`. */
 static void st_disk_counts(int vol, int *ncat, long *ntitle)
 {
@@ -1309,6 +1323,34 @@ static void st_draw(WindowPtr dlg)
     st_line(ST_LM, y, line); y = (short)(y + 16);
 
     strcpy(line, "Screen: "); append_long(line, display_current_depth()); strcat(line, "-bit");
+    st_line(ST_LM, y, line); y = (short)(y + 20);
+
+    /* docs/44 P1: the runtime art-capability set — granted partition, the art
+     * budget we carve from it, and which of the 1/8/24-bit tiers this machine can
+     * show (VRAM) AND hold (memory). Measurement only; nothing here changes what
+     * art is drawn. Read these at two partition sizes to fill docs/44's table. */
+    TextFace(bold); st_line(ST_LM, y, "Memory & art (docs/44)"); TextFace(normal); y = (short)(y + 16);
+
+    strcpy(line, "Partition ");   st_appendK(line, gArtCaps.grantedPartition);
+    strcat(line, "  free ");      st_appendK(line, gArtCaps.partitionFree);
+    strcat(line, "  blk ");       st_appendK(line, gArtCaps.maxBlock);
+    st_line(ST_LM, y, line); y = (short)(y + 16);
+
+    strcpy(line, "Art budget ");  st_appendK(line, gArtCaps.artBudget);
+    strcat(line, "   (tmp ");     st_appendK(line, gArtCaps.tempFree);
+    strcat(line, ")");
+    st_line(ST_LM, y, line); y = (short)(y + 16);
+
+    strcpy(line, "Tiers 1/8/24 ");
+    strcat(line, gArtCaps.enabled[ART_MODE_1BIT]  ? "on"  : "off"); strcat(line, "/");
+    strcat(line, gArtCaps.enabled[ART_MODE_8BIT]  ? "on"  : "off"); strcat(line, "/");
+    strcat(line, gArtCaps.enabled[ART_MODE_24BIT] ? "on"  : "off");
+    strcat(line, "   max ");      append_long(line, gArtCaps.maxAffordableDepth); strcat(line, "-bit");
+    st_line(ST_LM, y, line); y = (short)(y + 16);
+
+    strcpy(line, "Peak 8/24 ");   st_appendK(line, gArtCaps.peakArtBytes[ART_MODE_8BIT]);
+    strcat(line, "/");            st_appendK(line, gArtCaps.peakArtBytes[ART_MODE_24BIT]);
+    strcat(line, "  default ");   append_long(line, gArtCaps.defaultMode); strcat(line, "-bit");
     st_line(ST_LM, y, line); y = (short)(y + 22);
 
     TextFace(bold); st_line(ST_LM, y, "Library disks"); TextFace(normal); y = (short)(y + 18);
@@ -1341,7 +1383,7 @@ static void run_status_dialog(void)
     ControlHandle done;
     int           nrows = gVols.n > 0 ? gVols.n : 1;
 
-    CH = (short)(120 + nrows * 32 + 44);
+    CH = (short)(120 + ST_MEM_SECTION + nrows * 32 + 44);
     {
         short L = (short)(sb.left + ((sb.right - sb.left) - ST_CW) / 2);
         short T = (short)(sb.top  + ((sb.bottom - sb.top) - CH) / 2);
@@ -1583,6 +1625,11 @@ int main(void)
             render_reset_for_depth(&gRender, &gEnv, got);
         }
     }
+
+    /* docs/44 P1: with env + the live screen depth settled, measure the granted
+     * partition and the card's depths → the art-capability set (MacAtrium Status
+     * reports it). Pure measurement; loads no art, changes no behaviour. */
+    art_caps_probe(&gArtCaps, &gEnv);
 
     if (gPrefs.haveTheme) render_set_theme(&gRender, gPrefs.theme);
     if (gPrefs.haveAppearance)             /* saved era-look override beats the OS default */

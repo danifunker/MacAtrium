@@ -7,6 +7,7 @@
 #include "json.h"
 #include "catalog.h"
 #include "model.h"
+#include "artcaps.h"   /* pure half only, via -DARTCAPS_HOST_TEST (docs/44) */
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -379,6 +380,92 @@ static void test_catindex(void)
     CHECK(catindex_parse(idx, (long)strlen(idx), refs, 1) == 1, "catindex honours cap");
 }
 
+/* ---- artcaps (docs/44 P1: art-capability gating) ------------------------ */
+
+#define KB(n) ((long)(n) * 1024)
+
+static void test_artcaps(void)
+{
+    ArtCaps c, a, b;
+    ArtCapsInput in;
+    long gworld;
+
+    /* Peak estimates are fixed by the build art bound (720x720): 1-bit ~63 KB,
+     * 8-bit ~506 KB, 24-bit ~1519 KB. */
+
+    /* Compact: System 6, 1-bit screen, small partition, no temp memory. Only the
+     * 1-bit tier can be shown, and only it fits. */
+    memset(&in, 0, sizeof in);
+    in.grantedPartition = KB(512); in.partitionFree = KB(400); in.maxBlock = KB(380);
+    in.tempFree = 0; in.maxCardDepth = 1;
+    in.screenW = 512; in.screenH = 342; in.screenDepth = 1;
+    art_caps_derive(&c, &in);
+    CHECK(c.displayable[ART_MODE_1BIT] && !c.displayable[ART_MODE_8BIT] &&
+          !c.displayable[ART_MODE_24BIT], "compact: only 1-bit displayable");
+    CHECK(c.enabled[ART_MODE_1BIT] && !c.enabled[ART_MODE_8BIT] &&
+          !c.enabled[ART_MODE_24BIT], "compact: only 1-bit enabled");
+    CHECK(c.maxAffordableDepth == 1 && c.defaultMode == 1, "compact: default 1-bit");
+
+    /* 8-bit card, ample partition: 24-bit art is affordable but NOT displayable, so
+     * it stays disabled and the default caps at 8-bit — screen and art are separate
+     * axes (docs/44). maxAffordableDepth tracks memory (24), defaultMode tracks the
+     * enabled set (8). */
+    memset(&in, 0, sizeof in);
+    in.grantedPartition = KB(2048); in.partitionFree = KB(1900); in.maxBlock = KB(1800);
+    in.tempFree = KB(2048); in.maxCardDepth = 8;
+    in.screenW = 640; in.screenH = 480; in.screenDepth = 8;
+    art_caps_derive(&c, &in);
+    CHECK(c.affordable[ART_MODE_24BIT], "8-bit card: 24-bit art is affordable");
+    CHECK(!c.displayable[ART_MODE_24BIT], "8-bit card: 24-bit art not displayable");
+    CHECK(!c.enabled[ART_MODE_24BIT], "8-bit card: 24-bit art disabled by VRAM gate");
+    CHECK(c.enabled[ART_MODE_8BIT] && c.defaultMode == 8, "8-bit card: default 8-bit");
+    CHECK(c.maxAffordableDepth == 24, "8-bit card: maxAffordable follows memory, not VRAM");
+
+    /* Truecolor card, SMALL partition: the deep screen stays, but 24-bit art can't
+     * fit, so art degrades to 8-bit (docs/44 risk #3). */
+    memset(&in, 0, sizeof in);
+    in.grantedPartition = KB(1024); in.partitionFree = KB(1000); in.maxBlock = KB(950);
+    in.tempFree = KB(4096); in.maxCardDepth = 32;
+    in.screenW = 832; in.screenH = 624; in.screenDepth = 32;
+    art_caps_derive(&c, &in);
+    CHECK(c.displayable[ART_MODE_24BIT], "small part: 24-bit displayable on truecolor card");
+    CHECK(!c.affordable[ART_MODE_24BIT], "small part: 24-bit art unaffordable");
+    CHECK(c.enabled[ART_MODE_8BIT] && !c.enabled[ART_MODE_24BIT], "small part: art caps at 8-bit");
+    CHECK(c.maxAffordableDepth == 8 && c.defaultMode == 8, "small part: default 8-bit");
+
+    /* Quadra: truecolor card, big partition — every tier shows and fits. */
+    memset(&in, 0, sizeof in);
+    in.grantedPartition = KB(8192); in.partitionFree = KB(7000); in.maxBlock = KB(6000);
+    in.tempFree = KB(8192); in.maxCardDepth = 32;
+    in.screenW = 832; in.screenH = 624; in.screenDepth = 32;
+    art_caps_derive(&c, &in);
+    CHECK(c.enabled[ART_MODE_1BIT] && c.enabled[ART_MODE_8BIT] && c.enabled[ART_MODE_24BIT],
+          "quadra: all tiers enabled");
+    CHECK(c.maxAffordableDepth == 24 && c.defaultMode == 24, "quadra: default 24-bit");
+
+    /* The no-temp GWorld reserve: with temp memory scarce the off-screen buffer is
+     * charged to the partition, so the art budget drops by exactly the screen's
+     * GWorld size versus the temp-ample case. */
+    memset(&in, 0, sizeof in);
+    in.grantedPartition = KB(4096); in.partitionFree = KB(3000); in.maxBlock = KB(2800);
+    in.maxCardDepth = 8; in.screenW = 640; in.screenH = 480; in.screenDepth = 8;
+    gworld = 640L * 480L;                       /* 8-bit rowBytes*height = 300 KB */
+    in.tempFree = 0;        art_caps_derive(&a, &in);
+    in.tempFree = KB(4096); art_caps_derive(&b, &in);
+    CHECK(b.artBudget - a.artBudget == gworld, "gworld reserve subtracts only when temp scarce");
+
+    /* Starved heap: budget floors at zero (never negative) and the 1-bit fallback
+     * floor always holds. */
+    memset(&in, 0, sizeof in);
+    in.grantedPartition = KB(384); in.partitionFree = KB(64); in.maxBlock = KB(50);
+    in.tempFree = 0; in.maxCardDepth = 1; in.screenW = 512; in.screenH = 342; in.screenDepth = 1;
+    art_caps_derive(&c, &in);
+    CHECK(c.artBudget >= 0, "budget never negative");
+    CHECK(c.maxAffordableDepth >= 1 && c.defaultMode >= 1, "1-bit floor always holds");
+}
+
+#undef KB
+
 int main(void)
 {
     test_json_scalars();
@@ -398,6 +485,7 @@ int main(void)
     test_model_type_ahead();
     test_model_select();
     test_model_recommended_fallback();
+    test_artcaps();
 
     printf("\n%d/%d checks passed\n", g_total - g_fail, g_total);
     return g_fail ? 1 : 0;

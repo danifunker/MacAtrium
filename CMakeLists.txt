@@ -48,6 +48,7 @@ add_application(MacAtrium
     src/bless.c              # Phase 2: enumerate System Folders + set the blessed one
     src/controlpanels.c
     src/display.c
+    src/artcaps.c            # docs/44: runtime art-capability set (partition + VRAM gate)
     src/sound.c
     src/prefs.c
     src/mem.c                # MEM_DEBUG on-screen memory probe (no-op unless -DMEM_DEBUG=ON)
