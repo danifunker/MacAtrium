@@ -2622,9 +2622,13 @@ static Art *load_item_art(Ui *u, const char *image)
     Art *p;
     int cand[5], nc = 0, i, depth;
     short vref = ui_cur_vref(u);   /* art loads from the item's source disk (docs/37) */
+    /* docs/44 P2: cap the art tier at what the partition can hold — the min of the
+     * screen depth and the ArtCaps affordability ceiling — so a deep screen on a small
+     * partition loads shallower art instead of trying a cover it can't hold. */
+    short cap = (u->caps && u->caps->maxAffordableDepth > 0) ? u->caps->maxAffordableDepth : 24;
 
     if (n >= 5 && strcmp(image + n - 5, ".rsrc") == 0)
-        return art_load_rsrc(vref, image, (short)u->env->pixelSize);
+        return art_load_rsrc(vref, image, (short)u->env->pixelSize, cap);
     if ((n >= 5 && strcmp(image + n - 5, ".pict") == 0) ||
         (n >= 4 && strcmp(image + n - 4, ".raw") == 0))
         return art_load(vref, image);
@@ -2636,11 +2640,15 @@ static Art *load_item_art(Ui *u, const char *image)
      * screen, while a 1-bit screen still prefers the ordered-dither `<id>.1.raw`.
      * (Encoder depths: 1/4/8 indexed, 16/24 direct.) */
     depth = u->env->pixelSize;
+    if (depth > cap) depth = cap;                 /* effective art depth = min(screen, ceiling) */
     if      (depth <= 1)  { cand[nc++]=1;  cand[nc++]=8;  cand[nc++]=16; cand[nc++]=24; cand[nc++]=4; }
     else if (depth <= 4)  { cand[nc++]=4;  cand[nc++]=8;  cand[nc++]=16; cand[nc++]=24; cand[nc++]=1; }
     else if (depth <= 8)  { cand[nc++]=8;  cand[nc++]=16; cand[nc++]=24; cand[nc++]=4;  cand[nc++]=1; }
     else if (depth <= 16) { cand[nc++]=16; cand[nc++]=24; cand[nc++]=8;  cand[nc++]=4;  cand[nc++]=1; }
     else                  { cand[nc++]=24; cand[nc++]=16; cand[nc++]=8;  cand[nc++]=4;  cand[nc++]=1; }
+    /* drop any variant deeper than the affordability ceiling (keeps exact→deeper→
+     * shallower *within* it), so we never even try a cover the budget can't hold. */
+    { int j = 0; for (i = 0; i < nc; i++) if (cand[i] <= cap) cand[j++] = cand[i]; nc = j; }
 
     for (i = 0; i < nc; i++) {
         p = load_variant(vref, image, cand[i]);

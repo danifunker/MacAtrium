@@ -103,30 +103,39 @@ Art *art_load(short vref, const char *relToRoot)
 
 /* ---- resource-fork loading (docs/36: per-item images/<id>.rsrc) ------------ */
 
-/* Depth-preference search order for a screen of `depth` bits: the exact colour
- * depth, then deeper colour PICTs (QuickDraw down-converts), then shallower
- * colour, and the 1-bit ABMP last; a 1-/2-bit screen prefers the 1-bit ABMP.
- * Fills `out` (>=6 entries) with the bit-depths to try, returns the count. */
-static short art_rsrc_order(short depth, short *out)
+/* Depth-preference search order for a screen of `depth` bits, capped so nothing
+ * deeper than `ceiling` is tried (docs/44 P2 — the ArtCaps affordability ceiling):
+ * the exact colour depth, then deeper colour PICTs *within the ceiling* (QuickDraw
+ * down-converts), then shallower colour, and the 1-bit ABMP last; a 1-/2-bit screen
+ * prefers the 1-bit ABMP. `ceiling` <= 0 disables the cap. Fills `out` (>=6 entries)
+ * with the bit-depths to try, returns the count. */
+static short art_rsrc_order(short depth, short ceiling, short *out)
 {
     static const short colour[4] = { 4, 8, 16, 24 };
     short n = 0, i;
+    if (ceiling <= 0) ceiling = 24;                    /* no ceiling */
+    if (depth > ceiling) depth = ceiling;              /* effective = min(screen, ceiling) */
     if (depth >= 4) {
         for (i = 0; i < 4; i++) if (colour[i] == depth) out[n++] = colour[i];
-        for (i = 0; i < 4; i++) if (colour[i] >  depth) out[n++] = colour[i];
+        for (i = 0; i < 4; i++) if (colour[i] >  depth && colour[i] <= ceiling) out[n++] = colour[i];
         for (i = 3; i >= 0; i--) if (colour[i] <  depth) out[n++] = colour[i];
         out[n++] = 1;
     } else {
         out[n++] = 1;
-        for (i = 0; i < 4; i++) out[n++] = colour[i];
+        for (i = 0; i < 4; i++) if (colour[i] <= ceiling) out[n++] = colour[i];
     }
     return n;
 }
 
-Art *art_load_rsrc(short vref, const char *relToRoot, short depth)
+/* Leave this much of the largest free block unused by resident art — headroom for
+ * the PICT draw path and the launcher's own churn (docs/44 P2). */
+#define ART_RSRC_RESERVE (128L * 1024)
+
+Art *art_load_rsrc(short vref, const char *relToRoot, short depth, short maxAffDepth)
 {
     FSSpec spec;
     short  refNum, saved, order[6], n, i;
+    long   budget;
     Art   *a = 0;
 
     if (macfs_make_spec_on(vref, relToRoot, &spec) != noErr) return 0;
@@ -135,33 +144,53 @@ Art *art_load_rsrc(short vref, const char *relToRoot, short depth)
     if (refNum == -1) return 0;
     UseResFile(refNum);
 
-    /* id = 128 + bits (matches art_res_id in the host tool, image.rs): the 1-bit
-     * raw is an `ABMP` (id 129), colour depths are `PICT` (132/136/144/152). */
-    n = art_rsrc_order(depth, order);
+    /* Authoritative per-resource guard: what the largest free block can hold right
+     * now, less headroom. Art is resident one-at-a-time (the caller disposes the
+     * previous cover before loading the next), so this LIVE figure — not the startup
+     * estimate — is what catches a mid-session fragmentation dip (docs/44 risk #4). */
+    budget = MaxBlock() - ART_RSRC_RESERVE;
+
+    /* id = 128 + bits (matches art_res_id in the host tool, image.rs): the 1-bit raw
+     * is an `ABMP` (id 129), colour depths are `PICT` (132/136/144/152). */
+    n = art_rsrc_order(depth, maxAffDepth, order);
     for (i = 0; i < n && !a; i++) {
+        OSType type = (order[i] == 1) ? 'ABMP' : 'PICT';
+        short  id   = (short)(128 + order[i]);
+        Handle h;
+        long   sz;
+
+        /* Peek: get the resource handle WITHOUT reading its data, size it on disk,
+         * and skip the whole tier if it won't fit — so no oversized allocation is
+         * ever attempted. Restore SetResLoad(true) immediately (it's global state). */
+        SetResLoad(false);
+        h = Get1Resource(type, id);
+        SetResLoad(true);
+        if (!h) continue;                              /* this variant absent → next tier */
+        sz = GetResourceSizeOnDisk(h);
+        if (budget > 0 && sz > budget) {               /* won't fit → drop a tier, no OOM */
+            ReleaseResource(h);
+            continue;
+        }
+        LoadResource(h);                               /* it fits: read the data in now */
+        if (ResError() != noErr || GetHandleSize(h) <= 0) { ReleaseResource(h); continue; }
+
         if (order[i] == 1) {
-            Handle h = Get1Resource('ABMP', (short)(128 + 1));
-            if (h) {
-                long len = GetHandleSize(h);
-                Ptr  buf = NewPtr(len);
-                if (buf) {
-                    BlockMoveData(*h, buf, len);   /* own a Ptr copy of the payload */
-                    a = raw_from_buffer(buf, len); /* frees buf on a bad payload    */
-                }
-                /* h stays owned by the res file; CloseResFile releases it */
+            long len = GetHandleSize(h);
+            Ptr  buf = NewPtr(len);
+            if (buf) {
+                BlockMoveData(*h, buf, len);           /* own a Ptr copy of the payload */
+                a = raw_from_buffer(buf, len);         /* frees buf on a bad payload    */
             }
+            ReleaseResource(h);                        /* copied out; free the resource now */
         } else {
-            Handle h = Get1Resource('PICT', (short)(128 + order[i]));
-            if (h) {
-                DetachResource(h);                 /* keep it past CloseResFile */
-                a = (Art *)NewPtr(sizeof(Art));
-                if (a) {
-                    a->pic = (PicHandle)h;         /* PICT resource = picture data */
-                    a->raw = 0;
-                    a->w = a->h = a->rowBytes = 0;
-                } else {
-                    DisposeHandle(h);
-                }
+            DetachResource(h);                         /* keep it past CloseResFile */
+            a = (Art *)NewPtr(sizeof(Art));
+            if (a) {
+                a->pic = (PicHandle)h;                 /* PICT resource = picture data */
+                a->raw = 0;
+                a->w = a->h = a->rowBytes = 0;
+            } else {
+                DisposeHandle(h);
             }
         }
     }

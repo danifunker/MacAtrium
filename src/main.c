@@ -1762,6 +1762,7 @@ int main(void)
 
     ui_init(&gUi, &gEnv, &gRender, &gModel, gWin, loaded ? 0 : 1);
     gUi.vols = &gVols;   /* multi-disk (docs/37): art/launch resolve per source volume */
+    gUi.caps = &gArtCaps;   /* docs/44 P2: the art loader caps each cover at the affordable tier */
     if (gPrefs.haveArtPref) gUi.artPref = gPrefs.artPref;   /* restore Artwork choice */
     if (gPrefs.haveSndStartup)  gUi.sndStartup  = gPrefs.sndStartup;   /* restore sound prefs */
     if (gPrefs.haveSndShutdown) gUi.sndShutdown = gPrefs.sndShutdown;

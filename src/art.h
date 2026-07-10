@@ -28,10 +28,14 @@ typedef struct Art Art;
  * Returns NULL if missing/too small/malformed/OOM. Free with art_dispose. */
 Art *art_load(short vref, const char *relToRoot);
 
-/* Load the best depth variant from a per-item resource fork on volume `vref`
- * whose path ends in ".rsrc" (docs/36): a `PICT` resource (id 128+bits) for a
- * colour screen of `depth` bits, or the 1-bit `ABMP` (id 129). NULL if missing. */
-Art *art_load_rsrc(short vref, const char *relToRoot, short depth);
+/* Load the best *affordable* depth variant from a per-item resource fork on volume
+ * `vref` whose path ends in ".rsrc" (docs/36): a `PICT` resource (id 128+bits) for a
+ * colour screen of `depth` bits, or the 1-bit `ABMP` (id 129). The try-order never
+ * goes deeper than `maxAffDepth` (the ArtCaps affordability ceiling, docs/44 P2), and
+ * each candidate's on-disk size is checked against the largest free block *before* it
+ * is read in — a variant that won't fit drops to the next-shallower tier instead of
+ * OOMing. Pass 0 for `maxAffDepth` to disable the ceiling. NULL if nothing loads. */
+Art *art_load_rsrc(short vref, const char *relToRoot, short depth, short maxAffDepth);
 void art_dispose(Art *a);
 
 /* Draw `a` scaled to fit within `bounds` (aspect-preserved, centered). */

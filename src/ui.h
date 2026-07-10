@@ -12,6 +12,7 @@
 #include "model.h"
 #include "macfs.h"
 #include "art.h"
+#include "artcaps.h"
 #include "controlpanels.h"
 
 typedef enum {
@@ -57,6 +58,7 @@ typedef struct {
     Art       *previewPic;    /* loaded art while in UI_MODE_PREVIEW  */
     Art       *listArt;       /* selected item's art for the inline pane */
     const CatItem *artFor;    /* item listArt was loaded for (NULL = none) */
+    const ArtCaps *caps;      /* docs/44: art tiers this machine can hold (P2 budget cap) */
     int        settingsFocus; /* 1 = gear focused on the list screen (Left)   */
     int        setSel;        /* selected row in the Settings panel           */
     short      depths[UI_MAX_DEPTHS]; /* screen depths the device supports     */
