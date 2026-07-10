@@ -1717,14 +1717,18 @@ int main(void)
      * "Color Depth" stepper (ui.c apply_depth); a stray boot-default write is what left
      * some machines needing a PRAM reset. So we just raise the live depth each boot:
      *   • saved choice (prefs `depth`): re-apply it live if it isn't already;
-     *   • first boot / no saved choice: bootstrap to the best colour depth ≤ 8-bit,
-     *     live only — the system still cold-boots at whatever PRAM says (typically the
-     *     ROM default) until the user picks a depth in Settings, which persists it.
-     * display_depth_at_most() clamps a saved depth to what this card supports. */
+     *   • first boot / no saved choice: come up at the deepest depth the DISPLAY CARD
+     *     can show — display_depth_at_most(32) scans HasDepth for the card's top mode:
+     *     32 bpp truecolor on an 8•24 card, 8-bit on an 8-bit card, 1-bit on a compact.
+     *     Screen depth tracks the display SYSTEM, not the art budget — a deep screen on
+     *     a small partition keeps the deep screen and just loads shallower art (docs/44:
+     *     screen and art are separate axes; the budget cap belongs on the art variant,
+     *     which is P2's job). Live only — the system still cold-boots at whatever PRAM
+     *     says until the user picks a depth in Settings, which persists it. */
     if (gEnv.hasColorQD) {
         short want = (gPrefs.haveDepth && gPrefs.depth > 0)
                      ? display_depth_at_most((short)gPrefs.depth)
-                     : display_depth_at_most(8);
+                     : display_depth_at_most(32);   /* first boot: the deepest the card can display */
         if (want >= 1 && want != display_current_depth() && display_set_depth(want) == noErr) {
             short got = display_current_depth();               /* what we actually got */
             gEnv.pixelSize = got;                              /* so art/UI pick the colour variant */
@@ -1735,7 +1739,7 @@ int main(void)
 
     /* docs/44 P1: with env + the live screen depth settled, measure the granted
      * partition and the card's depths → the art-capability set (MacAtrium Status
-     * reports it). Pure measurement; loads no art, changes no behaviour. */
+     * reports it; P2's budget-aware loader is the first consumer). Pure measurement. */
     art_caps_probe(&gArtCaps, &gEnv);
 
     if (gPrefs.haveTheme) render_set_theme(&gRender, gPrefs.theme);
