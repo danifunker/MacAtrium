@@ -251,11 +251,12 @@ const CtlPanel *ui_current_cdev(Ui *u)
 static Art *load_item_art(Ui *u, const char *image);   /* defined below */
 
 /* Load the current selection's detail art if it isn't already loaded for that
- * item. Returns 1 if it (re)loaded, 0 if already current. Drives both the
- * deferred path (ui_idle, so a fast scroll on the direct-draw System-6 build
- * doesn't lurch on each PICT decode) and the synchronous path (draw_carousel on
- * the off-screen System-7 build, so the cover appears in the same repaint as the
- * move instead of flashing in on a second pass). */
+ * item (so a repeat call for the same item is a no-op — never a reload). Returns
+ * 1 if it (re)loaded, 0 if already current. Drives both the deferred path
+ * (ui_idle -> *_draw_art, so an in-page grid/list move writes the text at once and
+ * the cover box blits in on the next tick — never blocking on a PICT decode) and
+ * the synchronous path (a full ui_draw, and carousel moves, pre-load so the cover
+ * lands in the same repaint instead of flashing in on a second pass). */
 static int ensure_art_loaded(Ui *u)
 {
     const CatItem *cur = model_cur_item(u->m);
@@ -540,7 +541,11 @@ static void draw_detail_art(Ui *u, const Rect *ar)
     Render        *r;
     const CatItem *cur;
     int            loaded;
-    if (u->r->useOffscreen) ensure_art_loaded(u);
+    /* Pure draw — no load here. Full repaints pre-load the cover (ui_draw /
+     * carousel_draw_sel) so it lands in the same pass; an in-page grid/list move
+     * leaves it unloaded and lets the deferred idle (ui_idle -> *_draw_art) blit
+     * just the cover box in once it decodes — so the move never blocks on a PICT
+     * decode or re-renders the name/blurb. */
     r      = u->r;
     cur    = model_cur_item(u->m);
     loaded = (cur && cur == u->artFor);
@@ -790,8 +795,8 @@ static void draw_carousel(Ui *u)
         }
     }
 
-    /* (the detail cover loads synchronously inside draw_detail_art on the off-screen
-     * path — one shared place for all three views — so it lands in this same pass.) */
+    /* (a full repaint pre-loads the detail cover in ui_draw on the off-screen path, so
+     * it lands in this same pass; draw_detail_art itself is now a pure draw.) */
 
     /* ---- header: the category (with its little-arrows stepper) + N / M. The
      * Settings button (header left) is a real control drawn in ui_paint_controls. ---- */
@@ -1692,8 +1697,7 @@ static void draw_list_detail(Ui *u, const ListLayout *L)
     short          mx;
     Rect           strip, ar;
     char           num[16];
-    if (u->r->useOffscreen) ensure_art_loaded(u);   /* one-pass cover load, like the carousel */
-    cur = model_cur_item(u->m);
+    cur = model_cur_item(u->m);   /* cover: pre-loaded by a full draw, deferred by an in-page move */
     SetRect(&strip, L->rx, L->lstBot, (short)W, L->bBot);
     render_fill(r, &strip, FILL_BG);
     render_base_text(r);
@@ -1970,8 +1974,7 @@ static void listview_draw_art(Ui *u)
     list_layout(u, &L);
     list_art_rect(&L, &ar);
     render_begin(u->r, u->win);
-    if (u->r->useOffscreen) ensure_art_loaded(u);
-    list_draw_cover(u, &ar);
+    list_draw_cover(u, &ar);              /* idle (ui_idle) already loaded the cover */
     render_end_rect(u->r, u->win, &ar);
 }
 
@@ -2033,6 +2036,7 @@ static int carousel_draw_sel(Ui *u)
     if (oldSlot < 0 || oldSlot >= L.nTiles) return 0; /* belt + braces */
 
     render_begin(u->r, u->win);
+    if (u->r->useOffscreen) ensure_art_loaded(u);  /* carousel keeps its one-pass cover (atomic move) */
     draw_browse_counter(u);                     /* only the N/M counter — not the steppers */
 
     draw_carousel_tile(u, &L, oldSlot);        /* old -> deselected */
@@ -2404,7 +2408,14 @@ void ui_draw(Ui *u)
         int overlay = is_overlay_mode(u->mode);
         if (!overlay || !u->bgValid) {
             if (u->safe) draw_safe(u);
-            else         cur_view(u)->draw(u);   /* current browse view (carousel/grid/list) */
+            else {
+                /* Full repaint: pre-load the detail cover (off-screen path) so a view
+                 * switch / scroll / category change shows it in this same pass. An
+                 * in-page grid/list move takes the incremental *_draw_sel path instead
+                 * and defers the cover to idle (draw_detail_art stays a pure draw). */
+                if (u->r->useOffscreen) ensure_art_loaded(u);
+                cur_view(u)->draw(u);            /* current browse view (carousel/grid/list) */
+            }
             u->bgValid = 1;
             u->overlayDrawn = 0;           /* the repaint erased any overlay panel */
             carouselRepainted = 1;
