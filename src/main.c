@@ -595,6 +595,14 @@ static void do_launch(void)
     if (returns && lr == LAUNCH_OK) {
         gPendingDepthRestore = savedDepth;   /* 0 if we didn't cap the depth */
         ui_set_status(&gUi, "");
+        /* If we capped the depth just above, display_set_depth invalidated our window
+         * and queued an updateEvt. Servicing it would full-repaint the browse — the
+         * "reload" flash — over depth-corrupted pixels, an instant before the game
+         * covers the screen. Hide our window now instead: a hidden window drops its
+         * pending update (no repaint at all), and the osEvt resume (ShowWindow + repaint)
+         * brings us back cleanly when the game quits. Uncapped launches never invalidate
+         * the window, so they already hand straight off with no repaint. */
+        if (savedDepth > 0) HideWindow(gWin);
         return;
     }
 

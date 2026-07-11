@@ -2997,8 +2997,7 @@ UiCommand ui_key(Ui *u, char ch)
         u->mode = UI_MODE_LIST;
         if ((ch == kCharReturn || ch == kCharEnter) && model_cur_item(u->m)) {
             u->status[0] = '\0';
-            ui_draw(u);
-            return UI_LAUNCH;
+            return UI_LAUNCH;   /* launching covers the screen — skip the browse repaint */
         }
         ui_draw(u);
         return UI_NONE;
