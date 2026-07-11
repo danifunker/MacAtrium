@@ -120,7 +120,14 @@ int catalog_parse_into(const char *buf, long len, CatItem *items, int cap, int *
         long lineLen = next_line(buf, len, &i);
         if (lineLen <= 0) continue;            /* blank line */
 
-        JsonObject obj;
+        /* NOT on the stack: a JsonObject is ~26 KB (24 fields x ~1 KB each: str[256]
+         * + arr[16][48]). On the small 68k app stack that fits at boot (shallow call
+         * stack) but overflows into the heap — System Error 28 — when the SAME parse
+         * runs from the deep runtime category-change path (event loop -> ui_key -> nav
+         * -> model_move_cat -> load_page -> here). json_parse_object re-inits it every
+         * call (out->nfields = 0) and there's no reentrancy, so one static instance is
+         * both correct and ~26 KB lighter on the stack. */
+        static JsonObject obj;
         int r = json_parse_object(buf + start, lineLen, &obj);
         if (r <= 0) {
             if (r < 0) drop++;                 /* malformed (not just blank) */
