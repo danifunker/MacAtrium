@@ -36,6 +36,10 @@ const ITEM_VENDOR_LEN: usize = 39;
 const ITEM_GENRE_LEN: usize = 63;
 const MAX_CATS: usize = 64; // distinct named categories (excludes synthesized "All")
 const ITEM_SOURCE_LEN: usize = 39;
+// CD-title fields (docs/45), mirroring the device buffers (src/catalog.h) minus NUL.
+const ITEM_CDIMG_LEN: usize = 63;
+const ITEM_CDVOL_LEN: usize = 27;
+const ITEM_CDAPP_LEN: usize = 127;
 
 /// One curated record from the source dataset. Only `id`, `name`, `app` are
 /// required; the facet fields are optional and drive category derivation.
@@ -94,6 +98,23 @@ struct SourceItem {
     /// gamepad-button map (MiSTer maps joystick buttons → keystrokes).
     #[serde(default)]
     hotkey: Option<String>,
+    /// CD-based title (docs/45): the host SD-card CD image filename (e.g.
+    /// "MYST.iso"), matched case-insensitively against the BlueSCSI Toolbox
+    /// LIST CDS enumeration and auto-inserted before launch. Curated override.
+    #[serde(rename = "cdImage", default)]
+    cd_image: Option<String>,
+    /// true → the CD must mount before this title launches; false → optional.
+    /// Absent → the device defaults it to required for any CD title.
+    #[serde(rename = "cdRequired", default)]
+    cd_required: Option<bool>,
+    /// Expected Mac HFS volume name of the mounted CD (fast-path + verification).
+    #[serde(rename = "cdVolume", default)]
+    cd_volume: Option<String>,
+    /// Run-from-CD app path, relative to the CD volume ROOT. Present → launch this
+    /// app off the mounted CD; absent → app-on-HD (launch `app` under /MacAtrium
+    /// with the CD mounted only as a data volume).
+    #[serde(rename = "cdApp", default)]
+    cd_app: Option<String>,
 }
 
 /// The on-Mac record. Field order here is the emitted JSON field order.
@@ -137,6 +158,19 @@ struct OutItem {
     /// this title; omitted → no cap (launch at the current depth).
     #[serde(rename = "maxDepth", skip_serializing_if = "Option::is_none")]
     max_depth: Option<i64>,
+    /// CD-based title (docs/45): host CD image filename, auto-inserted via the
+    /// BlueSCSI Toolbox before launch; omitted → not a CD title.
+    #[serde(rename = "cdImage", skip_serializing_if = "Option::is_none")]
+    cd_image: Option<String>,
+    /// Whether the disc must mount to launch; omitted → device default (required).
+    #[serde(rename = "cdRequired", skip_serializing_if = "Option::is_none")]
+    cd_required: Option<bool>,
+    /// Expected mounted CD volume name (fast-path + verification); omitted if none.
+    #[serde(rename = "cdVolume", skip_serializing_if = "Option::is_none")]
+    cd_volume: Option<String>,
+    /// Run-from-CD app path relative to the CD volume root; omitted → app-on-HD.
+    #[serde(rename = "cdApp", skip_serializing_if = "Option::is_none")]
+    cd_app: Option<String>,
 }
 
 /// Top-level category for a `kind` value.
@@ -230,6 +264,21 @@ fn build(src_text: &str) -> Result<(Vec<OutItem>, Report)> {
         }
         if it.app.chars().count() > ITEM_PATH_LEN {
             warn(format!("app path longer than {ITEM_PATH_LEN} chars"));
+        }
+        if let Some(v) = &it.cd_image {
+            if v.chars().count() > ITEM_CDIMG_LEN {
+                warn(format!("cdImage longer than {ITEM_CDIMG_LEN} chars (will truncate on device)"));
+            }
+        }
+        if let Some(v) = &it.cd_volume {
+            if v.chars().count() > ITEM_CDVOL_LEN {
+                warn(format!("cdVolume longer than {ITEM_CDVOL_LEN} chars (will truncate on device)"));
+            }
+        }
+        if let Some(v) = &it.cd_app {
+            if v.chars().count() > ITEM_CDAPP_LEN {
+                warn(format!("cdApp longer than {ITEM_CDAPP_LEN} chars (will truncate on device)"));
+            }
         }
         if let Some(d) = &it.desc {
             if d.chars().count() > ITEM_DESC_LEN {
@@ -335,6 +384,10 @@ fn build(src_text: &str) -> Result<(Vec<OutItem>, Report)> {
             icon: it.icon,
             source: it.source.map(|s| s.chars().take(ITEM_SOURCE_LEN).collect()),
             max_depth: it.max_depth,
+            cd_image: it.cd_image,
+            cd_required: it.cd_required,
+            cd_volume: it.cd_volume,
+            cd_app: it.cd_app,
         });
     }
 
@@ -883,6 +936,27 @@ mod tests {
         // No vendor/genre -> omitted (None).
         let (bare, _) = build(r#"{"id":"x","name":"X","app":"a"}"#).unwrap();
         assert!(bare[0].vendor.is_none() && bare[0].genre.is_none());
+    }
+
+    #[test]
+    fn emits_cd_fields() {
+        // A run-from-CD title carries cdImage/cdVolume/cdApp; cdRequired passes through.
+        let (items, _) = build(
+            r#"{"id":"myst","name":"Myst","app":"x","cdImage":"MYST.iso","cdVolume":"Myst","cdApp":"Myst/Myst","cdRequired":true}"#,
+        )
+        .unwrap();
+        assert_eq!(items[0].cd_image.as_deref(), Some("MYST.iso"));
+        assert_eq!(items[0].cd_volume.as_deref(), Some("Myst"));
+        assert_eq!(items[0].cd_app.as_deref(), Some("Myst/Myst"));
+        assert_eq!(items[0].cd_required, Some(true));
+        // A non-CD title omits every CD field (None -> not serialized).
+        let (bare, _) = build(r#"{"id":"x","name":"X","app":"a"}"#).unwrap();
+        assert!(
+            bare[0].cd_image.is_none()
+                && bare[0].cd_volume.is_none()
+                && bare[0].cd_app.is_none()
+                && bare[0].cd_required.is_none()
+        );
     }
 
     #[test]

@@ -97,20 +97,14 @@ static OSErr dir_id_of(short vref, long parent, const char *name, int n, long *o
     return noErr;
 }
 
-OSErr macfs_make_spec_on(short vref, const char *relToRoot, FSSpec *spec)
+/* Walk the '/'-separated `rel` from directory `dir` on `vref`, filling `spec` with
+ * the leaf (which need not exist). Every component but the last must be a folder. */
+static OSErr walk_path(short vref, long dir, const char *rel, FSSpec *spec)
 {
-    long        dir;
     const char *seg, *p;
     OSErr       err;
 
-    /* The tree lives at /MacAtrium on the given volume's root. Walk every path
-     * component but the last into a parent dirID; the last is the leaf (which need
-     * not exist — we only build the spec). */
-    dir = fsRtDirID;
-    err = dir_id_of(vref, dir, "MacAtrium", 9, &dir);
-    if (err != noErr) return err;
-
-    for (seg = relToRoot; ; ) {
+    for (seg = rel; ; ) {
         for (p = seg; *p && *p != '/'; p++) {}
         if (*p == '\0') {                         /* leaf component */
             spec->vRefNum = vref;
@@ -122,6 +116,23 @@ OSErr macfs_make_spec_on(short vref, const char *relToRoot, FSSpec *spec)
         if (err != noErr) return err;             /* a parent folder is missing */
         seg = p + 1;
     }
+}
+
+OSErr macfs_make_spec_on(short vref, const char *relToRoot, FSSpec *spec)
+{
+    long  dir = fsRtDirID;
+    OSErr err;
+
+    /* The tree lives at /MacAtrium on the given volume's root. */
+    err = dir_id_of(vref, dir, "MacAtrium", 9, &dir);
+    if (err != noErr) return err;
+    return walk_path(vref, dir, relToRoot, spec);
+}
+
+OSErr macfs_make_spec_root(short vref, const char *relToVolRoot, FSSpec *spec)
+{
+    /* A mounted CD has no /MacAtrium folder — resolve from the volume root. */
+    return walk_path(vref, fsRtDirID, relToVolRoot, spec);
 }
 
 OSErr macfs_make_spec(const char *relToRoot, FSSpec *spec)
@@ -199,6 +210,49 @@ int macfs_volumes(VolTable *out)
         if (vol_is_library(v)) vol_append(out, v);
     }
     return out->n;
+}
+
+/* Case-insensitive compare of a Pascal volume name against a C string (HFS volume
+ * names match case-insensitively). */
+static int pstr_eq_cstr_ci(const unsigned char *ps, const char *cs)
+{
+    int n = ps[0], i;
+    for (i = 0; i < n; i++) {
+        int a = ps[1 + i], b = (unsigned char)cs[i];
+        if (b == '\0') return 0;
+        if (a >= 'A' && a <= 'Z') a += 32;
+        if (b >= 'A' && b <= 'Z') b += 32;
+        if (a != b) return 0;
+    }
+    return cs[n] == '\0';
+}
+
+int macfs_find_vol_by_name(const char *name, short *vref)
+{
+    short i;
+    if (!name || !name[0]) return 0;
+    for (i = 1; ; i++) {                            /* ioVolIndex 1..N until nsvErr */
+        HParamBlockRec hp;
+        Str63          nm;
+        memset(&hp, 0, sizeof hp);
+        hp.volumeParam.ioNamePtr  = (StringPtr)nm;
+        hp.volumeParam.ioVolIndex = i;
+        if (PBHGetVInfoSync(&hp) != noErr) break;   /* past the last mounted volume */
+        if (pstr_eq_cstr_ci(nm, name)) {
+            *vref = hp.volumeParam.ioVRefNum;
+            return 1;
+        }
+    }
+    return 0;
+}
+
+OSErr macfs_unmount(short vref)
+{
+    HParamBlockRec hp;
+    memset(&hp, 0, sizeof hp);
+    hp.volumeParam.ioNamePtr = NULL;
+    hp.volumeParam.ioVRefNum = vref;
+    return PBUnmountVol((ParmBlkPtr)&hp);
 }
 
 OSErr macfs_open_df(const FSSpec *spec, char perm, short *refNum)

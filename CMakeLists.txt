@@ -51,6 +51,8 @@ add_application(MacAtrium
     src/artcaps.c            # docs/44: runtime art-capability set (partition + VRAM gate)
     src/sound.c
     src/prefs.c
+    src/toolbox.c            # docs/45: BlueSCSI Toolbox CD client (SCSI Manager) — parse/match host-tested
+    src/cdswap.c             # docs/45: launch-time CD insert orchestration (probe/list/set/wait)
     src/mem.c                # MEM_DEBUG on-screen memory probe (no-op unless -DMEM_DEBUG=ON)
     src/macatrium.r          # overrides SIZE (-1): 4 MB partition + suspend/resume
     src/macatrium-icon.r     # Finder app icon (greenhouse): ICN#/icl8/BNDL/FREF

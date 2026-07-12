@@ -8,6 +8,7 @@
 #include "catalog.h"
 #include "model.h"
 #include "artcaps.h"   /* pure half only, via -DARTCAPS_HOST_TEST (docs/44) */
+#include "toolbox.h"   /* pure half only, via -DTOOLBOX_HOST_TEST (docs/45) */
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -154,6 +155,34 @@ static void test_catalog_optional_fields(void)
     CHECK(strcmp(c.items[0].image, "images/lem") == 0, "catalog image field");
     CHECK(strcmp(c.items[0].shot, "images/lem.shot") == 0, "catalog shot field");
     CHECK(c.items[0].year == 1991, "catalog year field");
+}
+
+static void test_catalog_cd_fields(void)
+{
+    const char *s =
+        /* run-from-CD title: cdApp set; cdRequired defaults to 1 for a CD title */
+        "{\"id\":\"myst\",\"name\":\"Myst\",\"categories\":[\"Games\"],\"app\":\"x\","
+        "\"cdImage\":\"MYST.iso\",\"cdVolume\":\"Myst\",\"cdApp\":\"Myst/Myst\"}\n"
+        /* app-on-HD CD title with the disc explicitly optional */
+        "{\"id\":\"foo\",\"name\":\"Foo\",\"categories\":[\"Games\"],\"app\":\"Apps/Foo/Foo\","
+        "\"cdImage\":\"FOO.iso\",\"cdRequired\":false}\n"
+        /* a normal (non-CD) title: all CD fields empty, cdRequired 0 */
+        "{\"id\":\"bar\",\"name\":\"Bar\",\"categories\":[\"Games\"],\"app\":\"Apps/Bar/Bar\"}\n";
+    Catalog c;
+    int n = catalog_parse(s, (long)strlen(s), &c);
+    CHECK(n == 3, "catalog CD-fields items parse");
+
+    CHECK(strcmp(c.items[0].cdImage, "MYST.iso") == 0, "catalog cdImage");
+    CHECK(strcmp(c.items[0].cdVolume, "Myst") == 0, "catalog cdVolume");
+    CHECK(strcmp(c.items[0].cdApp, "Myst/Myst") == 0, "catalog cdApp (run-from-CD)");
+    CHECK(c.items[0].cdRequired == 1, "catalog cdRequired defaults to 1 for a CD title");
+
+    CHECK(strcmp(c.items[1].cdImage, "FOO.iso") == 0, "catalog cdImage (app-on-HD)");
+    CHECK(c.items[1].cdApp[0] == '\0', "catalog empty cdApp -> app-on-HD");
+    CHECK(c.items[1].cdRequired == 0, "catalog explicit cdRequired:false honored");
+
+    CHECK(c.items[2].cdImage[0] == '\0', "catalog non-CD title has empty cdImage");
+    CHECK(c.items[2].cdRequired == 0, "catalog non-CD title cdRequired 0");
 }
 
 /* ---- model -------------------------------------------------------------- */
@@ -466,6 +495,126 @@ static void test_artcaps(void)
 
 #undef KB
 
+/* ---- toolbox (docs/45: BlueSCSI Toolbox CD entry parse + name match) ----- */
+
+/* Build a 40-byte LIST entry: index, file/dir, name (NUL-padded), 32-bit size at
+ * offset 36 (byte 35 left 0, matching snow/MiSTer's 4-byte size write). */
+static void mk_entry(unsigned char *e, int index, int isFile, const char *name,
+                     unsigned long size)
+{
+    memset(e, 0, TB_ENTRY_SIZE);
+    e[0] = (unsigned char)index;
+    e[1] = isFile ? 0x01 : 0x00;
+    strncpy((char *)&e[TB_NAME_OFF], name, TB_NAME_MAX);   /* [2..34) */
+    e[36] = (unsigned char)((size >> 24) & 0xFF);
+    e[37] = (unsigned char)((size >> 16) & 0xFF);
+    e[38] = (unsigned char)((size >>  8) & 0xFF);
+    e[39] = (unsigned char)( size        & 0xFF);
+}
+
+static void test_toolbox_entry_parse(void)
+{
+    unsigned char e[TB_ENTRY_SIZE];
+    TbEntry t;
+
+    mk_entry(e, 3, 1, "Myst.iso", 681984UL);
+    toolbox_parse_cd_entry(e, &t);
+    CHECK(t.index == 3, "tb entry index");
+    CHECK(t.isDir == 0, "tb entry is a file");
+    CHECK(strcmp(t.name, "Myst.iso") == 0, "tb entry name");
+    CHECK(t.size == 681984UL, "tb entry size (4-byte at 36)");
+
+    /* directory entry: type byte 0x00 */
+    mk_entry(e, 0, 0, "Games", 0);
+    toolbox_parse_cd_entry(e, &t);
+    CHECK(t.isDir == 1, "tb entry is a directory");
+
+    /* a full 32-char name has no NUL in-field; parse must read all 32 */
+    mk_entry(e, 1, 1, "0123456789012345678901234567890X", 0);   /* 32 chars */
+    toolbox_parse_cd_entry(e, &t);
+    CHECK(strlen(t.name) == 32, "tb 32-char name reads full field");
+    CHECK(t.name[31] == 'X', "tb 32-char name last byte");
+
+    /* firmware 5-byte size: byte 35 (bits 32..39) non-zero -> clamp (>4 GB) */
+    memset(e, 0, sizeof e);
+    e[1] = 0x01; strcpy((char *)&e[2], "Big.iso");
+    e[35] = 0x01;                       /* size >= 4 GB */
+    toolbox_parse_cd_entry(e, &t);
+    CHECK(t.size == 0xFFFFFFFFUL, "tb >4GB size clamps");
+}
+
+static void test_toolbox_name_match(void)
+{
+    CHECK(toolbox_name_eq("MYST.ISO", "myst.iso") == 1, "tb name case-insensitive");
+    CHECK(toolbox_name_eq("Myst.iso", "Myst.iso") == 1, "tb name exact");
+    CHECK(toolbox_name_eq("Myst.iso", "Myst2.iso") == 0, "tb name differ");
+    CHECK(toolbox_name_eq("Myst", "Myst.iso") == 0, "tb name prefix is not a match");
+    CHECK(toolbox_name_eq("Myst.iso", "Myst") == 0, "tb name longer is not a match");
+    CHECK(toolbox_name_eq("", "") == 1, "tb empty names equal");
+}
+
+static void test_toolbox_find(void)
+{
+    unsigned char raw[3][TB_ENTRY_SIZE];
+    TbEntry ents[3];
+    int i;
+    mk_entry(raw[0], 0, 0, "Discs",     0);       /* a directory named like nothing */
+    mk_entry(raw[1], 1, 1, "SPECTRE.iso", 1000);
+    mk_entry(raw[2], 2, 1, "Myst.iso",  681984UL);
+    for (i = 0; i < 3; i++) toolbox_parse_cd_entry(raw[i], &ents[i]);
+
+    CHECK(toolbox_find_cd("myst.iso", ents, 3) == 2, "tb find by name (case-insensitive) -> index 2");
+    CHECK(toolbox_find_cd("spectre.iso", ents, 3) == 1, "tb find -> index 1");
+    CHECK(toolbox_find_cd("nope.iso", ents, 3) == -1, "tb find miss -> -1");
+    CHECK(toolbox_find_cd("", ents, 3) == -1, "tb find empty name -> -1");
+
+    /* a directory whose name matches must be skipped (CD images are files) */
+    mk_entry(raw[0], 0, 0, "Myst.iso", 0);        /* same name, but a directory */
+    toolbox_parse_cd_entry(raw[0], &ents[0]);
+    CHECK(toolbox_find_cd("Myst.iso", ents, 3) == 2, "tb find skips a same-named directory");
+}
+
+static void test_toolbox_cdb(void)
+{
+    unsigned char cdb[TB_CDB_LEN];
+    int i, allzero;
+
+    toolbox_cdb_list_cds(cdb);
+    CHECK(cdb[0] == 0xD7, "tb CDB LIST_CDS opcode");
+    allzero = 1; for (i = 1; i < TB_CDB_LEN; i++) if (cdb[i]) allzero = 0;
+    CHECK(allzero, "tb CDB LIST_CDS body zero");
+
+    toolbox_cdb_set_next_cd(cdb, 5);
+    CHECK(cdb[0] == 0xD8 && cdb[1] == 5, "tb CDB SET_NEXT_CD opcode + index");
+
+    toolbox_cdb_device_info(cdb, TB_SUB_LIST_DEVICES);
+    CHECK(cdb[0] == 0xD9 && cdb[1] == 0x00, "tb CDB DEVICE_INFO list-devices subcmd");
+
+    {   /* MODE SENSE(6) page 0x31 — the canonical Toolbox detection CDB (6 bytes) */
+        unsigned char m[6];
+        toolbox_cdb_mode_sense_p31(m);
+        CHECK(m[0] == 0x1A && m[2] == 0x31 && m[4] > 0, "tb CDB MODE SENSE(6) page 0x31");
+    }
+}
+
+static void test_toolbox_magic(void)
+{
+    unsigned char page[56];
+
+    /* The page-0x31 payload as snow/BlueSCSI place it, after the mode header. */
+    memset(page, 0, sizeof page);
+    memcpy(page + 14, "BlueSCSI is the BEST STOLEN FROM BLUESCSI", 41);
+    CHECK(toolbox_has_magic(page, (int)sizeof page), "tb magic detected in page 0x31");
+
+    memset(page, 0, sizeof page);
+    CHECK(!toolbox_has_magic(page, (int)sizeof page), "tb no magic in a blank page");
+
+    /* An ordinary disk's mode data must not false-positive as a Toolbox device. */
+    memset(page, 0, sizeof page);
+    memcpy(page, "SEAGATE ST225N mode parameters here!!", 37);
+    CHECK(!toolbox_has_magic(page, (int)sizeof page), "tb no magic in ordinary mode data");
+}
+
 int main(void)
 {
     test_json_scalars();
@@ -476,6 +625,7 @@ int main(void)
     test_catalog_line_endings();
     test_catalog_drops_bad();
     test_catalog_optional_fields();
+    test_catalog_cd_fields();
     test_catindex();
     test_model_paged();
     test_model_categories();
@@ -486,6 +636,11 @@ int main(void)
     test_model_select();
     test_model_recommended_fallback();
     test_artcaps();
+    test_toolbox_entry_parse();
+    test_toolbox_name_match();
+    test_toolbox_find();
+    test_toolbox_cdb();
+    test_toolbox_magic();
 
     printf("\n%d/%d checks passed\n", g_total - g_fail, g_total);
     return g_fail ? 1 : 0;

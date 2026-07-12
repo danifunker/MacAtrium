@@ -102,6 +102,8 @@ void prefs_load(Prefs *p)
     p->view = 0; p->haveView = 0;
     p->depth = 0; p->haveDepth = 0;
     p->appearance = APPEAR_AUTO; p->haveAppearance = 0;
+    p->cdEnable = 1; p->haveCdEnable = 0;          /* docs/45: default on */
+    p->cdTimeout = 15; p->haveCdTimeout = 0;       /* docs/45: default 15 s */
     p->category[0] = '\0';
     p->item[0]     = '\0';
     p->haveSel = 0;
@@ -190,6 +192,12 @@ void prefs_load(Prefs *p)
             else if (strcmp(val, "sys8") == 0) p->appearance = APPEAR_SYS8;
             else                               p->appearance = APPEAR_AUTO;
             p->haveAppearance = 1;
+        } else if (strcmp(key, "cdinsert") == 0) {
+            p->cdEnable = (strcmp(val, "on") == 0) ? 1 : 0;
+            p->haveCdEnable = 1;
+        } else if (strcmp(key, "cdwait") == 0) {
+            int v = parse_int(val);
+            if (v >= 5 && v <= 60) { p->cdTimeout = v; p->haveCdTimeout = 1; }
         } else if (strcmp(key, "category") == 0) {
             strncpy(p->category, val, sizeof p->category - 1);
             p->category[sizeof p->category - 1] = '\0';
@@ -224,7 +232,7 @@ OSErr prefs_save(const Prefs *p)
     FSSpec spec;
     short  vref = 0, refNum;
     OSErr  err, first = noErr;
-    char   body[384];
+    char   body[512];              /* headroom for all keys, incl. cd* (docs/45) */
     int    n = 0;
     long   count;
 
@@ -318,6 +326,16 @@ OSErr prefs_save(const Prefs *p)
                    p->appearance == APPEAR_SYS6 ? "sys6" :
                    p->appearance == APPEAR_SYS7 ? "sys7" :
                    p->appearance == APPEAR_SYS8 ? "sys8" : "auto");
+        append_str(body, &n, sizeof body, "\r");
+    }
+    if (p->haveCdEnable) {
+        append_str(body, &n, sizeof body, "cdinsert=");
+        append_str(body, &n, sizeof body, p->cdEnable ? "on" : "off");
+        append_str(body, &n, sizeof body, "\r");
+    }
+    if (p->haveCdTimeout) {
+        append_str(body, &n, sizeof body, "cdwait=");
+        append_int(body, &n, sizeof body, p->cdTimeout);
         append_str(body, &n, sizeof body, "\r");
     }
     if (p->haveSel && p->category[0]) {

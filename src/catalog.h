@@ -21,6 +21,10 @@
 #define ITEM_DESC_LEN   256
 #define ITEM_VENDOR_LEN 40
 #define ITEM_GENRE_LEN  64
+/* CD-title fields (docs/45), kept small to bound the resident page (docs/44). */
+#define ITEM_CDIMG_LEN  64      /* host SD image filename, e.g. "MYST.iso"        */
+#define ITEM_CDVOL_LEN  28      /* Mac HFS volume name (max 27 chars + NUL)        */
+#define ITEM_CDAPP_LEN  128     /* run-from-CD app path, relative to the CD root   */
 
 typedef struct {
     char id[ITEM_ID_LEN];
@@ -40,6 +44,15 @@ typedef struct {
     char hotkey;                             /* launch hotkey char, 0 if none */
     int  maxDepth;                           /* cap screen to this bpp before launch;
                                               * 0 = no cap (launch at current depth) */
+    /* CD-based titles (docs/45): the disc image is auto-inserted via the BlueSCSI
+     * Toolbox before launch. All "" / 0 when this is not a CD title. */
+    char cdImage[ITEM_CDIMG_LEN];            /* host SD image filename, "" if none */
+    int  cdRequired;                         /* 1 = disc must mount to launch
+                                              * (default for a CD title); 0 = optional */
+    char cdVolume[ITEM_CDVOL_LEN];           /* expected mounted volume name, "" if none */
+    char cdApp[ITEM_CDAPP_LEN];              /* run-from-CD app path relative to the CD
+                                              * volume root; "" = app-on-HD (launch `app`,
+                                              * CD mounted only as a data volume) */
 } CatItem;
 
 typedef struct {

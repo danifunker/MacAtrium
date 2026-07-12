@@ -22,6 +22,8 @@
 #include "render.h"
 #include "ui.h"
 #include "launch.h"
+#include "cdswap.h"        /* docs/45: BlueSCSI Toolbox CD auto-insert */
+#include "toolbox.h"       /* docs/45: CD Library browser (toolbox_list_cds, …) */
 #include "sysctl.h"
 #include "sound.h"
 #include "prefs.h"
@@ -511,6 +513,8 @@ static void save_prefs(void)
     p.view = gUi.view;               p.haveView = 1;
     p.depth = display_current_depth();  p.haveDepth = (p.depth > 0);  /* boot-depth pref */
     p.appearance = gRender.appearancePref;  p.haveAppearance = 1;     /* era-look choice */
+    p.cdEnable = gUi.cdEnable;   p.haveCdEnable = 1;                  /* docs/45: CD auto-insert */
+    p.cdTimeout = gUi.cdTimeout; p.haveCdTimeout = 1;
 
     p.category[0] = '\0';
     p.item[0]     = '\0';
@@ -527,17 +531,202 @@ static void save_prefs(void)
     (void)prefs_save(&p);
 }
 
+/* ---- CD auto-insert (docs/45) --------------------------------------------- */
+#ifndef watchCursor
+#define watchCursor 4
+#endif
+
+/* cdswap message hook: show the transient line on the browse screen. */
+static void cd_msg(void *ctx, const char *msg)
+{
+    (void)ctx;
+    ui_set_status(&gUi, msg);
+    SetPort(gWin);
+    ui_draw(&gUi);
+}
+
+/* cdswap wait hook: spin the watch cursor, service updates, and let Cmd-. / Esc
+ * cancel the mount wait. Returns 0 to abort. */
+static int cd_wait_tick(void *ctx)
+{
+    EventRecord evt;
+    (void)ctx;
+    SetCursor(*GetCursor(watchCursor));
+    if (next_event(&evt)) {
+        switch (evt.what) {
+            case keyDown:
+            case autoKey: {
+                char c = (char)(evt.message & charCodeMask);
+                if (((evt.modifiers & cmdKey) && c == '.') || c == kCharEscape) {
+                    InitCursor();
+                    return 0;
+                }
+                break;
+            }
+            case updateEvt: {
+                WindowPtr w = (WindowPtr)evt.message;
+                BeginUpdate(w);
+                if (w == gWin) { SetPort(gWin); ui_draw(&gUi); }
+                EndUpdate(w);
+                break;
+            }
+        }
+    }
+    return 1;
+}
+
+/* Draw the alert body (message lines + button frame). */
+static void cd_alert_draw(WindowPtr dlg, const char *l1, const char *l2)
+{
+    Rect pr = dlg->portRect;
+    SetPort(dlg);
+    EraseRect(&pr);
+    TextFont(0);
+    TextSize(12);
+    MoveTo(16, 30);
+    DrawText((Ptr)l1, 0, (short)strlen(l1));
+    if (l2 && l2[0]) { MoveTo(16, 52); DrawText((Ptr)l2, 0, (short)strlen(l2)); }
+    DrawControls(dlg);
+}
+
+/* A compact modal alert (one or two message lines + OK), for a CD-insert failure. */
+static void cd_alert(const char *l1, const char *l2)
+{
+    WindowPtr     dlg;
+    Rect          bounds, rr, sb = qd.screenBits.bounds;
+    short         W = 360, H = (short)((l2 && l2[0]) ? 116 : 92);
+    short         L = (short)(sb.left + ((sb.right - sb.left) - W) / 2);
+    short         T = (short)(sb.top  + ((sb.bottom - sb.top) - H) / 2);
+    int           running = 1;
+
+    InitCursor();
+    if (T < (short)(sb.top + 44)) T = (short)(sb.top + 44);
+    SetRect(&bounds, L, T, (short)(L + W), (short)(T + H));
+    dlg = NewWindow(0L, &bounds, "\p", true, movableDBoxProc, (WindowPtr)-1L, false, 0L);
+    if (!dlg) { SysBeep(2); return; }
+    SetPort(dlg);
+    SetRect(&rr, (short)(W - 86), (short)(H - 32), (short)(W - 16), (short)(H - 12));
+    (void)NewControl(dlg, &rr, "\pOK", true, 1, 0, 1, pushButProc, 0L);
+    cd_alert_draw(dlg, l1, l2);
+    ValidRect(&dlg->portRect);
+    SysBeep(1);
+
+    while (running) {
+        EventRecord evt;
+        if (!next_event(&evt)) continue;
+        switch (evt.what) {
+            case updateEvt: {
+                WindowPtr w = (WindowPtr)evt.message;
+                BeginUpdate(w);
+                if (w == dlg) cd_alert_draw(dlg, l1, l2);
+                else { SetPort(w); ui_draw(&gUi); }
+                EndUpdate(w);
+                SetPort(dlg);
+                break;
+            }
+            case mouseDown: {
+                WindowPtr w; short part = FindWindow(evt.where, &w);
+                if (part == inDrag && w == dlg) { DragWindow(w, evt.where, &sb); SetPort(dlg); }
+                else if (part == inContent && w == dlg) {
+                    Point p = evt.where; ControlHandle ctl; short cp;
+                    SetPort(dlg); GlobalToLocal(&p);
+                    cp = FindControl(p, dlg, &ctl);
+                    if (cp && ctl && TrackControl(ctl, p, (ControlActionUPP)0)) running = 0;
+                } else if (w != dlg) SysBeep(1);
+                break;
+            }
+            case keyDown:
+            case autoKey: {
+                char c = (char)(evt.message & charCodeMask);
+                if (c == kCharReturn || c == kCharEnter || c == kCharEscape) running = 0;
+                else if ((evt.modifiers & cmdKey) && c == '.') running = 0;
+                break;
+            }
+        }
+    }
+    DisposeWindow(dlg);
+    SetPort(gWin);
+}
+
+/* Run the CD-insert flow for a CD title. Returns 1 to proceed with the launch,
+ * 0 to abort (stay resident). On CD_OK for a run-from-CD title, *cdVref is the
+ * mounted CD volume. A non-required disc that can't be inserted still launches. */
+static int cd_insert_for_launch(const CatItem *it, short *cdVref)
+{
+    CdSwapUI ui;
+    CdResult r;
+    char     m[160];
+
+    ui.message      = cd_msg;
+    ui.wait_tick    = cd_wait_tick;
+    ui.ctx          = 0;
+    ui.timeoutTicks = (long)gUi.cdTimeout * 60;   /* seconds → ticks (Settings, docs/45) */
+    ui.pinId        = -1;                          /* auto-probe the Toolbox id */
+
+    r = cdswap_ensure(it, &ui, cdVref);
+    InitCursor();
+
+    switch (r) {
+        case CD_OK:
+            ui_set_status(&gUi, "");
+            return 1;
+        case CD_ABORTED:
+            ui_set_status(&gUi, "Launch cancelled.");
+            return 0;
+        case CD_UNMOUNT_BUSY:
+            cd_alert("Can't switch discs: the current CD is in use.",
+                     "Quit anything using it, then try again.");
+            return 0;
+        case CD_NOT_FOUND:
+            strcpy(m, "CD image not found on the host: ");
+            strncat(m, it->cdImage, sizeof m - strlen(m) - 1);
+            if (it->cdRequired) { cd_alert(m, "Add it to the CD folder and try again."); return 0; }
+            ui_set_status(&gUi, m);
+            return 1;
+        case CD_TIMEOUT:
+            if (it->cdRequired) {
+                cd_alert("The disc didn't mount in time.",
+                         "The Apple CD-ROM extension may not be installed.");
+                return 0;
+            }
+            ui_set_status(&gUi, "The disc didn't mount; launching anyway.");
+            return 1;
+        case CD_UNSUPPORTED:
+        default:
+            if (it->cdRequired) {
+                cd_alert("This title needs its CD, but no BlueSCSI CD device was found.", "");
+                return 0;
+            }
+            return 1;      /* feature silently inactive */
+    }
+}
+
 static void do_launch(void)
 {
-    const char  *app  = ui_current_app(&gUi);
-    const char  *name = ui_current_name(&gUi);
+    const CatItem *it   = ui_current_item(&gUi);
+    const char  *app  = it ? it->app : 0;
+    const char  *name = it ? it->name : 0;
     OSErr        lerr  = noErr;
     LaunchResult lr;
     char         msg[96];
     short        savedDepth = 0;      /* >0 → restore this depth after launch */
+    short        cdVref = 0;          /* run-from-CD: the mounted CD volume     */
+    int          runFromCd = 0;
     int          returns;
 
     if (!app) return;
+
+    /* CD-based title (docs/45): insert the disc BEFORE capping the depth / launching.
+     * Run-from-CD titles then launch off the mounted CD; app-on-HD titles just need
+     * the CD mounted as a data volume. A failed required disc aborts the launch. */
+    if (it->cdImage[0] && gUi.cdEnable) {
+        if (!cd_insert_for_launch(it, &cdVref)) {
+            SetPort(gWin);
+            ui_draw(&gUi);
+            return;
+        }
+        runFromCd = (it->cdApp[0] != '\0');
+    }
 
     /* The returning, working-directory-setting extended _Launch identifies the app
      * by FSSpec (launchAppSpec) — a System-7 Process Manager feature. MultiFinder
@@ -583,7 +772,10 @@ static void do_launch(void)
         }
     }
 
-    lr = launch_app(vol_vref(gModel.cats[gModel.curCat].vol), app, returns, &lerr);
+    if (runFromCd && cdVref != 0)
+        lr = launch_app_root(cdVref, it->cdApp, returns, &lerr);   /* run from the CD (docs/45) */
+    else
+        lr = launch_app(vol_vref(gModel.cats[gModel.curCat].vol), app, returns, &lerr);
 
     /* A returning launch uses launchContinue: LaunchApplication returns IMMEDIATELY
      * and the game runs concurrently as the new front process. We must NOT touch the
@@ -988,7 +1180,7 @@ static SettingsResult run_settings_dialog(int *chromeChanged)
 #define QL_BTNH  24
 #define QL_PITCH 30
 #define QL_TOP   16
-#define QL_MAXITEMS 8
+#define QL_MAXITEMS 10
 #define QL_HDR   24                  /* header band (the "MacOS Version" line) above the buttons */
 
 static char gQlHeader[48];           /* "MacOS Version: X", set before each modal loop */
@@ -1539,6 +1731,142 @@ static void run_status_dialog(void)
     DisposeWindow(dlg);
 }
 
+/* ---- CD Library browser (docs/45) ----------------------------------------- */
+#define CDL_ROWS 12                 /* visible disc rows                          */
+#define CDL_UP   0x1E               /* Mac arrow char codes                       */
+#define CDL_DOWN 0x1F
+
+/* Draw a C string at the current pen position. */
+static void cdl_str(const char *s) { DrawText((Ptr)s, 0, (short)strlen(s)); }
+
+static void cdl_draw(WindowPtr dlg, const TbEntry *cds, int n, int sel, int top,
+                     short tbFound, const char *active)
+{
+    Rect  pr = dlg->portRect, row;
+    short W = (short)(pr.right - pr.left);
+    int   i;
+
+    SetPort(dlg);
+    EraseRect(&pr);
+    TextFont(0);
+    TextSize(12);
+
+    MoveTo(16, 24);
+    if (!tbFound)    cdl_str("No BlueSCSI CD device found.");
+    else if (n == 0) cdl_str("No CD images in the host folder.");
+    else             cdl_str("Available CD images:");
+
+    for (i = 0; i < CDL_ROWS && top + i < n; i++) {
+        int   idx      = top + i;
+        short y        = (short)(40 + i * 16);
+        int   isActive = active[0] && toolbox_name_eq(active, cds[idx].name);
+        MoveTo(20, y);
+        cdl_str(isActive ? "> " : "  ");
+        cdl_str(cds[idx].name);
+        if (isActive) cdl_str("   (in drive)");
+    }
+    if (n > 0 && sel >= top && sel < top + CDL_ROWS) {      /* highlight the selection */
+        short y = (short)(40 + (sel - top) * 16);
+        SetRect(&row, 14, (short)(y - 13), (short)(W - 14), (short)(y + 3));
+        InvertRect(&row);
+    }
+
+    MoveTo(16, (short)(pr.bottom - 42));
+    cdl_str("Up/Down to select, Return or Insert to load, Esc to close.");
+    DrawControls(dlg);
+}
+
+/* List the host's CD images and let the user insert one. Reached from the Esc menu. */
+static void run_cd_list_dialog(void)
+{
+    static TbEntry cds[TB_MAX_CDS];   /* ~4.4 KB — static, off the small 68k stack */
+    WindowPtr     dlg;
+    Rect          bounds, r, sb = qd.screenBits.bounds;
+    short         W = 420, H = 300;
+    short         L = (short)(sb.left + ((sb.right - sb.left) - W) / 2);
+    short         T = (short)(sb.top  + ((sb.bottom - sb.top) - H) / 2);
+    int           running = 1, sel = 0, top = 0, n = 0;
+    short         tbId = 0, tbFound;
+    ControlHandle insBtn, doneBtn;
+
+    tbFound = toolbox_probe_id(-1, &tbId) ? 1 : 0;   /* auto-probe the Toolbox id */
+    if (tbFound) (void)toolbox_list_cds(tbId, cds, TB_MAX_CDS, &n);
+
+    if (T < (short)(sb.top + 44)) T = (short)(sb.top + 44);
+    SetRect(&bounds, L, T, (short)(L + W), (short)(T + H));
+    dlg = NewWindow(0L, &bounds, "\pCD Library", true, movableDBoxProc, (WindowPtr)-1L, false, 0L);
+    if (!dlg) return;
+    SetPort(dlg);
+    SetRect(&r, 16, (short)(H - 32), 96, (short)(H - 12));
+    insBtn = NewControl(dlg, &r, "\pInsert", true, 1, 0, 1, pushButProc, 0L);
+    SetRect(&r, (short)(W - 86), (short)(H - 32), (short)(W - 16), (short)(H - 12));
+    doneBtn = NewControl(dlg, &r, "\pDone", true, 1, 0, 1, pushButProc, 0L);
+    if (!(tbFound && n > 0)) HiliteControl(insBtn, 255);   /* nothing to insert → dim */
+
+    cdl_draw(dlg, cds, n, sel, top, tbFound, cdswap_active_image());
+    ValidRect(&dlg->portRect);
+
+    while (running) {
+        EventRecord evt;
+        if (!next_event(&evt)) continue;
+        switch (evt.what) {
+            case updateEvt: {
+                WindowPtr w = (WindowPtr)evt.message;
+                BeginUpdate(w);
+                if (w == dlg) cdl_draw(dlg, cds, n, sel, top, tbFound, cdswap_active_image());
+                else { SetPort(w); ui_draw(&gUi); }
+                EndUpdate(w);
+                SetPort(dlg);
+                break;
+            }
+            case mouseDown: {
+                WindowPtr w; short part = FindWindow(evt.where, &w);
+                if (part == inDrag && w == dlg) { DragWindow(w, evt.where, &sb); SetPort(dlg); }
+                else if (part == inContent && w == dlg) {
+                    Point p = evt.where; ControlHandle ctl; short cp;
+                    SetPort(dlg); GlobalToLocal(&p);
+                    cp = FindControl(p, dlg, &ctl);
+                    if (cp && ctl && TrackControl(ctl, p, (ControlActionUPP)0)) {
+                        if (ctl == doneBtn) running = 0;
+                        else if (ctl == insBtn && tbFound && n > 0) {
+                            if (toolbox_set_next_cd(tbId, cds[sel].index))
+                                cdswap_set_active_image(cds[sel].name);
+                            cdl_draw(dlg, cds, n, sel, top, tbFound, cdswap_active_image());
+                        }
+                    } else if (n > 0) {                       /* click a list row */
+                        int i = (p.v - 28) / 16;
+                        if (i >= 0 && top + i < n) {
+                            sel = top + i;
+                            cdl_draw(dlg, cds, n, sel, top, tbFound, cdswap_active_image());
+                        }
+                    }
+                } else if (w != dlg) SysBeep(1);
+                break;
+            }
+            case keyDown:
+            case autoKey: {
+                char c = (char)(evt.message & charCodeMask);
+                if ((evt.modifiers & cmdKey) && c == '.') { running = 0; break; }
+                if (c == kCharEscape) { running = 0; break; }
+                if (c == CDL_UP && sel > 0) {
+                    sel--; if (sel < top) top = sel;
+                    cdl_draw(dlg, cds, n, sel, top, tbFound, cdswap_active_image());
+                } else if (c == CDL_DOWN && sel < n - 1) {
+                    sel++; if (sel >= top + CDL_ROWS) top = sel - CDL_ROWS + 1;
+                    cdl_draw(dlg, cds, n, sel, top, tbFound, cdswap_active_image());
+                } else if ((c == kCharReturn || c == kCharEnter) && tbFound && n > 0) {
+                    if (toolbox_set_next_cd(tbId, cds[sel].index))
+                        cdswap_set_active_image(cds[sel].name);
+                    cdl_draw(dlg, cds, n, sel, top, tbFound, cdswap_active_image());
+                }
+                break;
+            }
+        }
+    }
+    DisposeWindow(dlg);
+    SetPort(gWin);
+}
+
 static void handle_ui_command(UiCommand cmd)
 {
     switch (cmd) {
@@ -1650,6 +1978,14 @@ static void handle_ui_command(UiCommand cmd)
             gUi.mode = UI_MODE_LIST;
             SetPort(gWin);
             ui_reblit(&gUi);                 /* the status window never touched the buffer */
+            ValidRect(&gWin->portRect);
+            break;
+        }
+        case UI_OPEN_CDLIST: {               /* the CD Library browser (docs/45) */
+            run_cd_list_dialog();
+            gUi.mode = UI_MODE_LIST;
+            SetPort(gWin);
+            ui_reblit(&gUi);
             ValidRect(&gWin->portRect);
             break;
         }
@@ -1783,6 +2119,8 @@ int main(void)
                            model_sort_page(&gModel, gUi.sortMode, gUi.sortDesc); }  /* sort the loaded page */
     if (gPrefs.haveListCol)      gUi.listColType  = gPrefs.listColType;     /* restore column width */
     if (gPrefs.haveCarousel)    gUi.carousel    = gPrefs.carousel;    /* restore carousel size */
+    gUi.cdEnable  = gPrefs.haveCdEnable  ? gPrefs.cdEnable  : 1;      /* docs/45: default on   */
+    gUi.cdTimeout = gPrefs.haveCdTimeout ? gPrefs.cdTimeout : 15;     /* docs/45: default 15 s */
     if (gPrefs.haveView)        gUi.view        = gPrefs.view;        /* restore browse view */
     else if (loaded)            gUi.mode        = UI_MODE_SETUP;      /* first run: ask how to browse */
 

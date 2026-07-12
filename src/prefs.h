@@ -49,6 +49,10 @@ typedef struct {
     int  haveDepth;                /* 1 if `depth` was loaded                   */
     int  appearance;               /* era look override: APPEAR_AUTO/SYS6/7/8    */
     int  haveAppearance;           /* 1 if `appearance` was loaded              */
+    int  cdEnable;                 /* docs/45: auto-insert CD titles' discs     */
+    int  haveCdEnable;             /* 1 if `cdinsert` was loaded                */
+    int  cdTimeout;                /* docs/45: CD mount-wait, seconds           */
+    int  haveCdTimeout;            /* 1 if `cdwait` was loaded                  */
     char category[ITEM_CAT_LEN];   /* last category name ("" if none)          */
     char item[ITEM_ID_LEN];        /* last item id ("" if none)                */
     int  haveSel;                  /* 1 if a category was loaded               */

@@ -33,8 +33,8 @@ static const char *kGridStyle[GRID_N] = { "Finder", "Tiles" };
 
 /* Esc-menu row kinds and their labels (indexed by kind). The visible set per run
  * is built into Ui::menuRows by ui_init (Finder rows omitted on the boot shell). */
-enum { MROW_SETTINGS, MROW_SHOW_FINDER, MROW_EXIT, MROW_RESTART, MROW_SHUTDOWN, MROW_CHOOSE_OS, MROW_STATUS };
-static const char *kMenuLabel[] = { "Settings", "Show Finder", "Exit to Finder", "Restart", "Shut Down", "System Folder Chooser", "MacAtrium Status" };
+enum { MROW_SETTINGS, MROW_SHOW_FINDER, MROW_EXIT, MROW_RESTART, MROW_SHUTDOWN, MROW_CHOOSE_OS, MROW_STATUS, MROW_CDLIST };
+static const char *kMenuLabel[] = { "Settings", "Show Finder", "Exit to Finder", "Restart", "Shut Down", "System Folder Chooser", "MacAtrium Status", "CD Library" };
 
 /* ---- small helpers -------------------------------------------------------- */
 
@@ -194,6 +194,7 @@ void ui_init(Ui *u, Env *env, Render *r, Model *m, WindowPtr win, int safe)
         int k = 0;
         u->menuRows[k++] = MROW_SETTINGS;
         u->menuRows[k++] = MROW_STATUS;
+        u->menuRows[k++] = MROW_CDLIST;
         if (env->canLaunchReturn) {
             u->menuRows[k++] = MROW_SHOW_FINDER;
             u->menuRows[k++] = MROW_EXIT;
@@ -225,6 +226,12 @@ const char *ui_current_app(Ui *u)
 {
     const CatItem *it = model_cur_item(u->m);
     return it ? it->app : 0;
+}
+
+/* The whole current item (for the CD-insert flow, which needs the cd* fields). */
+const CatItem *ui_current_item(Ui *u)
+{
+    return model_cur_item(u->m);
 }
 
 const char *ui_current_name(Ui *u)
@@ -387,6 +394,18 @@ static void draw_safe(Ui *u)
     }
 }
 
+/* A small "CD" chip in the top-left corner of `box`, marking a CD-based title whose
+ * disc auto-inserts on launch (docs/45). Themed primitives → reads at any depth. */
+static void draw_cd_badge(Render *r, const Rect *box)
+{
+    Rect b;
+    SetRect(&b, (short)(box->left + 2), (short)(box->top + 2),
+                (short)(box->left + 22), (short)(box->top + 15));
+    render_fill(r, &b, FILL_SEL);
+    render_frame(r, &b);
+    render_text(r, (short)(b.left + 4), (short)(b.bottom - 3), "CD", INK_SELECTED);
+}
+
 /* Draw one carousel tile: the item's app icon (depth-matched, cached) centered
  * at (cx, cy) in an sz x sz box, or a framed placeholder if it has no icon. */
 static void draw_tile(Ui *u, int catIdx, const CatItem *it, short cx, short cy, short sz)
@@ -398,6 +417,7 @@ static void draw_tile(Ui *u, int catIdx, const CatItem *it, short cx, short cy, 
     ic = it->icon[0] ? row_icon(u, catIdx, it) : 0;
     if (ic) art_draw_fit(ic, &box);
     else    render_frame(u->r, &box);          /* icon-less item placeholder */
+    if (it->cdImage[0]) draw_cd_badge(u->r, &box);
 }
 
 /* The browse screen: a horizontal icon carousel (Left/Right scroll the games,
@@ -883,13 +903,15 @@ static const char *kViewDesc[VIEW_N] = {
     "Categories + a list with screenshots. Best for big libraries."
 };
 
-#define SET_N 15
+#define SET_N 17
 #define SET_ROW_VIEW      6             /* browse view: Carousel / Icon / List      */
 #define SET_ROW_MENUBAR   9             /* System menu bar: Shown / Hidden          */
 #define SET_ROW_TITLEBAR  10            /* window title bar: Shown / Hidden         */
 #define SET_ROW_TEXTSIZE  11            /* content text size: Small / Medium / Large */
 #define SET_ROW_GRIDSTYLE 12            /* Icon Grid layout: Finder / Tiles         */
 #define SET_ROW_APPEARANCE 13           /* era control look: Auto / Sys6 / Sys7 / Platinum */
+#define SET_ROW_CDINSERT   14           /* CD auto-insert On/Off (docs/45)          */
+#define SET_ROW_CDTIMEOUT  15           /* CD mount wait, seconds (docs/45)         */
 #define SET_ROW_CTLPANELS (SET_N - 1)   /* the action row (opens the cdev list)     */
 
 /* The Control Panels list (reached from Settings -> Control Panels): a scrollable
@@ -1365,6 +1387,8 @@ static void draw_grid_cell(Ui *u, const GridLayout *g, int idx)
         }
         render_text(r, lx, ny, ls[ln], isSel ? INK_SELECTED : INK_NORMAL);
     }
+
+    if (it->cdImage[0]) draw_cd_badge(r, &cell);   /* CD-title marker (docs/45) */
 }
 
 /* The detail panel's cover box (screenshot, 4:3) and its Launch-button rect, shared
@@ -2558,6 +2582,7 @@ UiCommand ui_menu_command(Ui *u, int i)
         case MROW_SHUTDOWN:    return UI_SHUTDOWN;
         case MROW_CHOOSE_OS:   return UI_OPEN_CHOOSER;
         case MROW_STATUS:      return UI_SHOW_STATUS;
+        case MROW_CDLIST:      return UI_OPEN_CDLIST;
     }
     return UI_NONE;
 }
@@ -2783,6 +2808,17 @@ static int settings_adjust_row(Ui *u, int row, int dir)
             u->bgValid = 0;                         /* re-render the themed chrome */
             return 1;                               /* persisted */
         }
+        case SET_ROW_CDINSERT:                     /* CD auto-insert On/Off (persisted) */
+            u->cdEnable = u->cdEnable ? 0 : 1;
+            return 1;
+        case SET_ROW_CDTIMEOUT: {                  /* CD mount wait: 5..60 s, step 5 */
+            int n = u->cdTimeout + dir * 5;
+            if (n < 5)  n = 5;
+            if (n > 60) n = 60;
+            if (n == u->cdTimeout) return 0;
+            u->cdTimeout = n;
+            return 1;
+        }
         default:                                   /* Control Panels (action row, intercepted) */
             return 0;
     }
@@ -2795,7 +2831,7 @@ int ui_setting_kind(int row)
 {
     switch (row) {
         case 0: case 3: case 4: case 5: case 7:
-        case SET_ROW_MENUBAR: case SET_ROW_TITLEBAR:
+        case SET_ROW_MENUBAR: case SET_ROW_TITLEBAR: case SET_ROW_CDINSERT:
             return SETTING_CHECK;
         case SET_ROW_CTLPANELS:
             return SETTING_ACTION;
@@ -2821,6 +2857,8 @@ const char *ui_setting_label(int row)
         case SET_ROW_TEXTSIZE:  return "Text Size";
         case SET_ROW_GRIDSTYLE: return "Grid Style";
         case SET_ROW_APPEARANCE: return "Appearance";
+        case SET_ROW_CDINSERT:  return "Auto-insert CDs";
+        case SET_ROW_CDTIMEOUT: return "CD mount wait";
         default:                return "Control Panels\xC9";   /* 0xC9 = … */
     }
 }
@@ -2835,6 +2873,7 @@ int ui_setting_checked(Ui *u, int row)
         case 7:                 return u->catList;
         case SET_ROW_MENUBAR:   return u->hideMenuBar;
         case SET_ROW_TITLEBAR:  return u->hideTitleBar;
+        case SET_ROW_CDINSERT:  return u->cdEnable;
         default:                return 0;
     }
 }
@@ -2865,6 +2904,9 @@ void ui_setting_value(Ui *u, int row, char *out)
             break;
         case SET_ROW_GRIDSTYLE:
             strcpy(out, kGridStyle[(u->gridStyle >= 0 && u->gridStyle < GRID_N) ? u->gridStyle : 0]);
+            break;
+        case SET_ROW_CDTIMEOUT:
+            l2s(u->cdTimeout, num); strcpy(out, num); strcat(out, " sec");
             break;
         case SET_ROW_APPEARANCE:
             if (u->r->appearancePref == APPEAR_AUTO) {   /* Auto: show what it resolves to */

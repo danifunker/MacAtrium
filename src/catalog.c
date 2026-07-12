@@ -79,6 +79,22 @@ static int item_from_object(const JsonObject *o, CatItem *it)
     f = json_get(o, "maxDepth");
     if (f && f->type == JT_NUM) it->maxDepth = (int)f->num;
 
+    /* CD-based titles (docs/45). cdRequired defaults to 1 for a CD title (the disc
+     * is usually essential); an explicit cdRequired overrides. */
+    f = json_get(o, "cdImage");
+    if (f && f->type == JT_STR) copy_field(it->cdImage, sizeof it->cdImage, f->str);
+
+    it->cdRequired = it->cdImage[0] ? 1 : 0;
+    f = json_get(o, "cdRequired");
+    if (f && f->type == JT_BOOL)      it->cdRequired = f->boolean;
+    else if (f && f->type == JT_NUM)  it->cdRequired = (f->num != 0);
+
+    f = json_get(o, "cdVolume");
+    if (f && f->type == JT_STR) copy_field(it->cdVolume, sizeof it->cdVolume, f->str);
+
+    f = json_get(o, "cdApp");
+    if (f && f->type == JT_STR) copy_field(it->cdApp, sizeof it->cdApp, f->str);
+
     return 1;
 }
 

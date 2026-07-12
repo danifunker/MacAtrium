@@ -21,4 +21,8 @@ typedef enum {
  * OSErr (if any) is written to *outErr. */
 LaunchResult launch_app(short vref, const char *appRel, int canReturn, OSErr *outErr);
 
+/* Launch an app resolved relative to a volume's ROOT (no /MacAtrium descent) — for
+ * a run-from-CD title whose app lives on the just-mounted CD volume (docs/45). */
+LaunchResult launch_app_root(short vref, const char *appRelToRoot, int canReturn, OSErr *outErr);
+
 #endif /* MACATRIUM_LAUNCH_H */

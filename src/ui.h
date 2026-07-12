@@ -29,7 +29,8 @@ typedef enum {
     UI_OPEN_SETTINGS,/* open the real Settings window (main.c run_settings_dialog)  */
     UI_OPEN_MENU,    /* open the real Quick-Launch menu window (run_quicklaunch_menu) */
     UI_OPEN_CHOOSER, /* open the System Folder Chooser (main.c run_os_chooser)        */
-    UI_SHOW_STATUS   /* open the MacAtrium Status screen (main.c run_status_dialog)   */
+    UI_SHOW_STATUS,  /* open the MacAtrium Status screen (main.c run_status_dialog)   */
+    UI_OPEN_CDLIST   /* open the CD Library browser (main.c run_cd_list_dialog, docs/45) */
 } UiCommand;
 
 enum { UI_MODE_LIST = 0, UI_MODE_MENU /* unused: now a real window */, UI_MODE_PREVIEW,
@@ -51,7 +52,7 @@ typedef struct {
     WindowPtr  win;
     int        mode;
     int        menuSel;
-    int        menuRows[8];   /* visible Esc-menu rows (MROW_*), built per-environment */
+    int        menuRows[10];  /* visible Esc-menu rows (MROW_*), built per-environment */
     int        nmenu;         /* count in menuRows[] */
     int        safe;          /* 1 = "no catalog" recoverable screen */
     char       status[96];    /* transient line (e.g. launch error)  */
@@ -104,6 +105,8 @@ typedef struct {
                               * screen (toggled in Settings)                      */
     int        hideMenuBar;   /* 1 = hide the System menu bar (Settings; main applies) */
     int        hideTitleBar;  /* 1 = hide the window's WM title bar (plainDBox)        */
+    int        cdEnable;      /* docs/45: auto-insert a CD title's disc before launch  */
+    int        cdTimeout;     /* docs/45: CD mount-wait timeout, in seconds            */
     int        chromeDirty;   /* set by settings_adjust when a *bar toggle changed, so
                               * ui_key/ui_click return UI_CHROME_DIRTY (main re-lays out) */
     int        overlayDrawn;  /* 1 = the menu/settings panel is fully drawn, so a
@@ -186,6 +189,8 @@ void      ui_page_changed(Ui *u);
 const char *ui_current_app(Ui *u);
 const char *ui_current_name(Ui *u);
 int         ui_current_maxdepth(Ui *u);
+/* The whole current item (the CD-insert flow needs its cd* fields); NULL if none. */
+const CatItem *ui_current_item(Ui *u);
 
 /* The selected control panel (for main to open via the Finder); NULL if none. */
 const CtlPanel *ui_current_cdev(Ui *u);

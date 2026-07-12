@@ -17,17 +17,14 @@
 #define gestaltAliasMgrAttr 'alis'
 #endif
 
-LaunchResult launch_app(short vref, const char *appRel, int canReturn, OSErr *outErr)
+/* Launch the app at FSSpec `spec` (already resolved). Shared by launch_app (path
+ * under /MacAtrium) and launch_app_root (path from a volume root — run-from-CD). */
+static LaunchResult launch_fsspec(FSSpec *specp, int canReturn, OSErr *outErr)
 {
-    FSSpec              spec;
+    FSSpec              spec = *specp;
     FInfo               finfo;
     LaunchParamBlockRec pb;
     OSErr               err;
-
-    *outErr = noErr;
-
-    err = macfs_make_spec_on(vref, appRel, &spec);
-    if (err != noErr) { *outErr = err; return LAUNCH_NOT_FOUND; }
 
     /* If the catalog points at an *alias* file, resolve it to the real app so
      * moved/aliased targets still launch (docs/08). A regular file resolves to
@@ -110,4 +107,26 @@ LaunchResult launch_app(short vref, const char *appRel, int canReturn, OSErr *ou
         *outErr = err;
         return LAUNCH_FAILED;
     }
+}
+
+LaunchResult launch_app(short vref, const char *appRel, int canReturn, OSErr *outErr)
+{
+    FSSpec spec;
+    OSErr  err;
+
+    *outErr = noErr;
+    err = macfs_make_spec_on(vref, appRel, &spec);
+    if (err != noErr) { *outErr = err; return LAUNCH_NOT_FOUND; }
+    return launch_fsspec(&spec, canReturn, outErr);
+}
+
+LaunchResult launch_app_root(short vref, const char *appRelToRoot, int canReturn, OSErr *outErr)
+{
+    FSSpec spec;
+    OSErr  err;
+
+    *outErr = noErr;
+    err = macfs_make_spec_root(vref, appRelToRoot, &spec);
+    if (err != noErr) { *outErr = err; return LAUNCH_NOT_FOUND; }
+    return launch_fsspec(&spec, canReturn, outErr);
 }

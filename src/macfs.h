@@ -41,6 +41,18 @@ typedef struct {
  * boot-only macfs_make_spec is a wrapper passing the startup volume's vRefNum. */
 OSErr macfs_make_spec_on(short vref, const char *relToRoot, FSSpec *spec);
 
+/* Build an FSSpec for a path relative to a volume's ROOT (no /MacAtrium descent) —
+ * for run-from-CD apps whose path is relative to the mounted CD volume (docs/45). */
+OSErr macfs_make_spec_root(short vref, const char *relToVolRoot, FSSpec *spec);
+
+/* Find a mounted volume by HFS name (case-insensitive, as HFS matches). Returns 1
+ * and writes *vref on a match, 0 otherwise. Used to detect a CD volume (docs/45). */
+int   macfs_find_vol_by_name(const char *name, short *vref);
+
+/* Unmount a mounted volume (PBUnmountVol). Returns the OSErr — fBsyErr (-47) when
+ * files are open on it. 6.0.8-safe. Used to swap the Toolbox CD (docs/45). */
+OSErr macfs_unmount(short vref);
+
 /* Enumerate mounted volumes carrying a /MacAtrium/metadata library into `out`
  * (boot volume first). Returns the count (0 if even the boot volume has none). */
 int macfs_volumes(VolTable *out);
