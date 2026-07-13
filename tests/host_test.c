@@ -574,6 +574,26 @@ static void test_toolbox_find(void)
     CHECK(toolbox_find_cd("Myst.iso", ents, 3) == 2, "tb find skips a same-named directory");
 }
 
+static void test_toolbox_fuzzy(void)
+{
+    unsigned char raw[3][TB_ENTRY_SIZE];
+    TbEntry ents[3];
+    int i;
+    /* 38 chars: LIST CDS clips the on-disk name to the 32-byte MacRoman field. */
+    const char *full = "Prince of Persia Deluxe Collection.iso";
+
+    mk_entry(raw[0], 0, 1, full, 1000);
+    mk_entry(raw[1], 1, 1, "Myst.iso", 2000);
+    mk_entry(raw[2], 2, 1, "Spectre.iso", 3000);
+    for (i = 0; i < 3; i++) toolbox_parse_cd_entry(raw[i], &ents[i]);
+
+    CHECK(strlen(ents[0].name) == 32, "fuzzy: a long host name arrives clipped to 32");
+    CHECK(toolbox_find_cd(full, ents, 3) == 0, "fuzzy: full catalog name matches its clipped entry");
+    CHECK(toolbox_find_cd("myst.iso", ents, 3) == 1, "fuzzy: exact still matches (case-insensitive)");
+    CHECK(toolbox_find_cd("Prince", ents, 3) == -1, "fuzzy: a short name does not prefix-match a clip");
+    CHECK(toolbox_find_cd("Spect", ents, 3) == -1, "fuzzy: prefix of a short (unclipped) name is not a match");
+}
+
 static void test_toolbox_cdb(void)
 {
     unsigned char cdb[TB_CDB_LEN];
@@ -639,6 +659,7 @@ int main(void)
     test_toolbox_entry_parse();
     test_toolbox_name_match();
     test_toolbox_find();
+    test_toolbox_fuzzy();
     test_toolbox_cdb();
     test_toolbox_magic();
 

@@ -1739,6 +1739,19 @@ static void run_status_dialog(void)
 /* Draw a C string at the current pen position. */
 static void cdl_str(const char *s) { DrawText((Ptr)s, 0, (short)strlen(s)); }
 
+/* Draw the SET NEXT CD index followed by two spaces ("12  "), so each row is
+ * identifiable by number even when its filename is clipped or hard to read. */
+static void cdl_index(int n)
+{
+    char b[8];
+    int  i = (int)sizeof b;
+    b[--i] = ' ';
+    b[--i] = ' ';
+    if (n <= 0) b[--i] = '0';
+    else while (n > 0 && i > 0) { b[--i] = (char)('0' + n % 10); n /= 10; }
+    DrawText((Ptr)&b[i], 0, (short)((int)sizeof b - i));
+}
+
 static void cdl_draw(WindowPtr dlg, const TbEntry *cds, int n, int sel, int top,
                      short tbFound, const char *active)
 {
@@ -1762,6 +1775,7 @@ static void cdl_draw(WindowPtr dlg, const TbEntry *cds, int n, int sel, int top,
         int   isActive = active[0] && toolbox_name_eq(active, cds[idx].name);
         MoveTo(20, y);
         cdl_str(isActive ? "> " : "  ");
+        cdl_index(cds[idx].index);
         cdl_str(cds[idx].name);
         if (isActive) cdl_str("   (in drive)");
     }
@@ -1774,6 +1788,17 @@ static void cdl_draw(WindowPtr dlg, const TbEntry *cds, int n, int sel, int top,
     MoveTo(16, (short)(pr.bottom - 42));
     cdl_str("Up/Down to select, Return or Insert to load, Esc to close.");
     DrawControls(dlg);
+}
+
+/* Insert the chosen image: drop the outgoing CD volume first so classic Mac OS
+ * doesn't nag for the disc that just left the drive, then SET NEXT CD. The unmount
+ * is best-effort — if a file is open on the CD (fBsyErr) the swap still proceeds. */
+static void cdl_insert(short tbId, const TbEntry *cd)
+{
+    short cdv;
+    if (macfs_find_cd_vol(&cdv)) (void)macfs_unmount(cdv);
+    if (toolbox_set_next_cd(tbId, cd->index))
+        cdswap_set_active_image(cd->name);
 }
 
 /* List the host's CD images and let the user insert one. Reached from the Esc menu. */
@@ -1829,8 +1854,7 @@ static void run_cd_list_dialog(void)
                     if (cp && ctl && TrackControl(ctl, p, (ControlActionUPP)0)) {
                         if (ctl == doneBtn) running = 0;
                         else if (ctl == insBtn && tbFound && n > 0) {
-                            if (toolbox_set_next_cd(tbId, cds[sel].index))
-                                cdswap_set_active_image(cds[sel].name);
+                            cdl_insert(tbId, &cds[sel]);
                             cdl_draw(dlg, cds, n, sel, top, tbFound, cdswap_active_image());
                         }
                     } else if (n > 0) {                       /* click a list row */
@@ -1855,8 +1879,7 @@ static void run_cd_list_dialog(void)
                     sel++; if (sel >= top + CDL_ROWS) top = sel - CDL_ROWS + 1;
                     cdl_draw(dlg, cds, n, sel, top, tbFound, cdswap_active_image());
                 } else if ((c == kCharReturn || c == kCharEnter) && tbFound && n > 0) {
-                    if (toolbox_set_next_cd(tbId, cds[sel].index))
-                        cdswap_set_active_image(cds[sel].name);
+                    cdl_insert(tbId, &cds[sel]);
                     cdl_draw(dlg, cds, n, sel, top, tbFound, cdswap_active_image());
                 }
                 break;

@@ -255,6 +255,26 @@ OSErr macfs_unmount(short vref)
     return PBUnmountVol((ParmBlkPtr)&hp);
 }
 
+int macfs_find_cd_vol(short *vref)
+{
+    short i;
+    for (i = 1; ; i++) {                            /* ioVolIndex 1..N until nsvErr */
+        HParamBlockRec hp;
+        memset(&hp, 0, sizeof hp);
+        hp.volumeParam.ioNamePtr  = NULL;
+        hp.volumeParam.ioVolIndex = i;
+        if (PBHGetVInfoSync(&hp) != noErr) break;   /* past the last mounted volume */
+        /* ioVAtrb bit 7 = hardware-locked (write-protected media) => a CD-ROM.
+         * Fixed HDs and the data-disk libraries are writable, so this singles out
+         * the mounted Toolbox CD. */
+        if (hp.volumeParam.ioVAtrb & 0x0080) {
+            *vref = hp.volumeParam.ioVRefNum;
+            return 1;
+        }
+    }
+    return 0;
+}
+
 OSErr macfs_open_df(const FSSpec *spec, char perm, short *refNum)
 {
     /* HOpen opens the data fork by (vRefNum, dirID, name) — pre-FSSpec, works on

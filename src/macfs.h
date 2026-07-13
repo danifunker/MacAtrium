@@ -53,6 +53,11 @@ int   macfs_find_vol_by_name(const char *name, short *vref);
  * files are open on it. 6.0.8-safe. Used to swap the Toolbox CD (docs/45). */
 OSErr macfs_unmount(short vref);
 
+/* Find a mounted CD-ROM volume (hardware-locked / write-protected media). Returns
+ * 1 and writes *vref on the first match, 0 if none is mounted. Lets the CD Library
+ * drop the outgoing disc before a Toolbox swap so Mac OS doesn't nag (docs/45). */
+int macfs_find_cd_vol(short *vref);
+
 /* Enumerate mounted volumes carrying a /MacAtrium/metadata library into `out`
  * (boot volume first). Returns the count (0 if even the boot volume has none). */
 int macfs_volumes(VolTable *out);

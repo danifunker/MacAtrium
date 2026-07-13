@@ -48,13 +48,40 @@ int toolbox_name_eq(const char *a, const char *b)
     return *a == '\0' && *b == '\0';
 }
 
+/* A host filename longer than 32 chars comes back from LIST CDS clipped to 32
+ * (the MacRoman name field is TB_NAME_MAX wide). This matches such a clipped
+ * `entry` against the full catalog `wanted` name: a case-insensitive prefix
+ * compare, gated on the entry sitting at the 32-char clip boundary so short
+ * names can't fuzzy-match by accident (docs/45). */
+static int tb_name_is_trunc_prefix(const char *wanted, const char *entry)
+{
+    int len = 0;
+    while (entry[len]) len++;
+    if (len < TB_NAME_MAX) return 0;          /* not clipped: the exact pass handles it */
+    while (*entry) {
+        if (!*wanted) return 0;               /* wanted is shorter than the entry       */
+        if (tb_lower(*wanted) != tb_lower(*entry)) return 0;
+        wanted++; entry++;
+    }
+    return 1;                                 /* the 32-char entry is a prefix of wanted */
+}
+
 int toolbox_find_cd(const char *imageName, const TbEntry *entries, int n)
 {
     int i;
     if (!imageName || !imageName[0]) return -1;
+
+    /* Pass 1 — exact (case-insensitive). Unambiguous, always preferred. */
     for (i = 0; i < n; i++) {
         if (entries[i].isDir) continue;
         if (toolbox_name_eq(imageName, entries[i].name)) return entries[i].index;
+    }
+    /* Pass 2 — clipped-name fallback: a catalog name longer than 32 chars whose
+     * on-disk name arrived truncated. Only 32-char (clipped) entries qualify, so
+     * this never loosens matching for names that fit. */
+    for (i = 0; i < n; i++) {
+        if (entries[i].isDir) continue;
+        if (tb_name_is_trunc_prefix(imageName, entries[i].name)) return entries[i].index;
     }
     return -1;
 }
