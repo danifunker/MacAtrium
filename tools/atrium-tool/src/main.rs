@@ -250,15 +250,22 @@ enum Cmd {
         max: Option<u32>,
     },
 
-    /// Extract an app's Finder icon (ICN#) from a BinHex (.hqx) export
-    /// (`rb-cli get-binhex`) to a raw 1-bit bitmap (.raw) the launcher can blit.
+    /// Extract an app's Finder icon from a BinHex (.hqx) export
+    /// (`rb-cli get-binhex`): the 1-bit `ICN#` as a raw bitmap (`--out`, the
+    /// launcher blits it directly) and/or the 8-bit colour `icl8` as a 32×32 PNG
+    /// (`--png`, feed it to `pict-rsrc` for a colour `.icon.rsrc`). At least one
+    /// of `--out`/`--png` is required; each is written only when the app has that
+    /// icon (older apps have `ICN#` but no `icl8`).
     Icon {
         /// Source BinHex 4.0 (.hqx) of the app (both forks).
         #[arg(long)]
         hqx: PathBuf,
-        /// Output .raw file (32x32 1-bit).
+        /// Output .raw file for the 1-bit `ICN#` (32x32).
+        #[arg(long, required_unless_present = "png")]
+        out: Option<PathBuf>,
+        /// Output .png file for the 8-bit colour `icl8` (32x32).
         #[arg(long)]
-        out: PathBuf,
+        png: Option<PathBuf>,
     },
 
     /// Bake a PCM WAV chime into a Mac sound file's resource fork (a `snd `
@@ -637,14 +644,27 @@ fn main() -> Result<()> {
                 None => anyhow::bail!("no art decoded from {}", input.display()),
             }
         }
-        Cmd::Icon { hqx, out } => {
+        Cmd::Icon { hqx, out, png } => {
             let bytes = std::fs::read(&hqx)?;
-            match icons::app_icon_raw1(&bytes)? {
-                Some(raw) => {
-                    std::fs::write(&out, &raw)?;
-                    eprintln!("icon: 32x32 1-bit -> {} ({} bytes)", out.display(), raw.len());
+            // Write each requested variant that the app actually has. A missing
+            // variant is skipped (not an error) so the build can ask for both and
+            // fall back — but if NEITHER was written the app has no usable icon.
+            let mut wrote = 0;
+            if let Some(out) = &out {
+                if let Some(raw) = icons::app_icon_raw1(&bytes)? {
+                    std::fs::write(out, &raw)?;
+                    eprintln!("icon: 32x32 1-bit ICN# -> {} ({} bytes)", out.display(), raw.len());
+                    wrote += 1;
                 }
-                None => anyhow::bail!("no usable ICN# in {}", hqx.display()),
+            }
+            if let Some(png) = &png {
+                if icons::app_icl8_png(&bytes, png)? {
+                    eprintln!("icon: 32x32 8-bit icl8 -> {}", png.display());
+                    wrote += 1;
+                }
+            }
+            if wrote == 0 {
+                anyhow::bail!("no usable icon (ICN#/icl8) in {}", hqx.display());
             }
         }
         Cmd::Snd { wav, out } => {

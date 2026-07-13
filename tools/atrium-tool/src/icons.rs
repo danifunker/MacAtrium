@@ -247,25 +247,38 @@ fn app_icl8_data(rsrc: &[u8]) -> Option<Vec<u8>> {
     (chosen.len() >= 1024).then(|| chosen[..1024].to_vec())
 }
 
+/// Map an `icl8` (palette indices) to an RGBA8 buffer (opaque) through the
+/// standard Mac 256-colour table. 1024 indices in → 4096 RGBA bytes out.
+fn icl8_rgba(icl8: &[u8]) -> Vec<u8> {
+    let pal = mac_palette();
+    let mut rgba = Vec::with_capacity(icl8.len() * 4);
+    for &idx in icl8 {
+        let [r, g, b] = pal[idx as usize];
+        rgba.extend_from_slice(&[r, g, b, 0xFF]);
+    }
+    rgba
+}
+
+/// Decode a resource fork's app `icl8` to a 32×32 RGBA PNG at `out`. Returns
+/// Ok(false) when the fork has no usable `icl8`. Split from `app_icl8_png` so the
+/// colour path is testable from a synthetic fork, without the BinHex wrapper.
+fn write_icl8_png(rsrc: &[u8], out: &Path) -> Result<bool> {
+    let icl8 = match app_icl8_data(rsrc) {
+        Some(d) => d,
+        None => return Ok(false),
+    };
+    let img: image::RgbaImage = image::ImageBuffer::from_raw(32, 32, icl8_rgba(&icl8))
+        .ok_or_else(|| anyhow!("icl8 RGBA size mismatch"))?;
+    img.save(out).map_err(|e| anyhow!("writing {}: {e}", out.display()))?;
+    Ok(true)
+}
+
 /// Decode a `.hqx` app's colour icon (`icl8`) and write it as a 32×32 PNG at
 /// `out`, resolving palette indices through the standard Mac 256-colour table.
 /// Returns Ok(true) when written, Ok(false) when the app has no usable `icl8`.
 pub fn app_icl8_png(hqx: &[u8], out: &Path) -> Result<bool> {
     let rsrc = binhex_resource_fork(hqx)?;
-    let icl8 = match app_icl8_data(&rsrc) {
-        Some(d) => d,
-        None => return Ok(false),
-    };
-    let pal = mac_palette();
-    let mut rgba = Vec::with_capacity(32 * 32 * 4);
-    for &idx in &icl8 {
-        let [r, g, b] = pal[idx as usize];
-        rgba.extend_from_slice(&[r, g, b, 0xFF]);
-    }
-    let img: image::RgbaImage = image::ImageBuffer::from_raw(32, 32, rgba)
-        .ok_or_else(|| anyhow!("icl8 RGBA size mismatch"))?;
-    img.save(out).map_err(|e| anyhow!("writing {}: {e}", out.display()))?;
-    Ok(true)
+    write_icl8_png(&rsrc, out)
 }
 
 #[cfg(test)]
@@ -403,5 +416,84 @@ mod tests {
         let rsrc = make_rsrc(&[(b"ICN#", 130, hi), (b"ICN#", 129, lo.clone())]);
         let plane = app_icn_plane(&rsrc).expect("icon");
         assert_eq!(&plane[..], &lo[0..128]);
+    }
+
+    #[test]
+    fn icl8_maps_indices_through_palette() {
+        // 0 -> white, 215 -> black, 216 -> first red-ramp, 246 -> first gray-ramp;
+        // all opaque. (Palette endpoints match mac_palette_endpoints_and_ramps.)
+        let rgba = icl8_rgba(&[0u8, 215, 216, 246]);
+        assert_eq!(&rgba[0..4], &[0xFF, 0xFF, 0xFF, 0xFF]);
+        assert_eq!(&rgba[4..8], &[0x00, 0x00, 0x00, 0xFF]);
+        assert_eq!(&rgba[8..12], &[0xEE, 0x00, 0x00, 0xFF]);
+        assert_eq!(&rgba[12..16], &[0xEE, 0xEE, 0xEE, 0xFF]);
+    }
+
+    #[test]
+    fn icl8_data_prefers_bundle_icon_over_lowest_id() {
+        // BNDL designates icon id 256; the icl8 256 must win over the lower-id 200.
+        let mut fref = b"APPL".to_vec();
+        fref.extend((0u16).to_be_bytes()); // iconLocalID 0
+        fref.push(0); // empty pascal name
+        let mut bndl = Vec::new();
+        bndl.extend(b"MTst"); // owner type
+        bndl.extend((0u16).to_be_bytes()); // owner id
+        bndl.extend((1u16).to_be_bytes()); // nTypes-1 = 1 (ICN# + FREF)
+        bndl.extend(b"ICN#");
+        bndl.extend((0u16).to_be_bytes()); // count-1
+        bndl.extend((0u16).to_be_bytes()); // local 0
+        bndl.extend((256i16).to_be_bytes()); // -> id 256
+        bndl.extend(b"FREF");
+        bndl.extend((0u16).to_be_bytes());
+        bndl.extend((0u16).to_be_bytes()); // local 0
+        bndl.extend((128i16).to_be_bytes()); // -> FREF 128
+
+        let app_icl8 = vec![216u8; 1024]; // all red-ramp
+        let other_icl8 = vec![100u8; 1024]; // lower id, must NOT be chosen
+        let rsrc = make_rsrc(&[
+            (b"icl8", 200, other_icl8),
+            (b"icl8", 256, app_icl8.clone()),
+            (b"FREF", 128, fref),
+            (b"BNDL", 128, bndl),
+        ]);
+        assert_eq!(app_icl8_data(&rsrc).expect("icl8"), app_icl8); // 256 via BNDL
+    }
+
+    #[test]
+    fn icl8_data_falls_back_to_lowest_without_bundle() {
+        let lo = vec![10u8; 1024];
+        let hi = vec![20u8; 1024];
+        let rsrc = make_rsrc(&[(b"icl8", 130, hi), (b"icl8", 129, lo.clone())]);
+        assert_eq!(app_icl8_data(&rsrc).expect("icl8"), lo);
+    }
+
+    #[test]
+    fn write_icl8_png_round_trips_to_disk() {
+        // A synthetic fork with a recognisable icl8 -> PNG -> read back -> the
+        // palette-resolved pixels must survive the encode/decode round-trip.
+        let mut icl8 = vec![216u8; 1024]; // fill red
+        icl8[0] = 0; // white
+        icl8[1] = 215; // black
+        let rsrc = make_rsrc(&[(b"icl8", 128, icl8)]);
+
+        let out = std::env::temp_dir().join("atrium-icl8-roundtrip.png");
+        let _ = std::fs::remove_file(&out);
+        assert!(write_icl8_png(&rsrc, &out).expect("write"));
+        let img = image::open(&out).expect("reopen").to_rgba8();
+        assert_eq!(img.dimensions(), (32, 32));
+        assert_eq!(img.get_pixel(0, 0).0, [0xFF, 0xFF, 0xFF, 0xFF]); // index 0
+        assert_eq!(img.get_pixel(1, 0).0, [0x00, 0x00, 0x00, 0xFF]); // index 215
+        assert_eq!(img.get_pixel(2, 0).0, [0xEE, 0x00, 0x00, 0xFF]); // index 216
+        let _ = std::fs::remove_file(&out);
+    }
+
+    #[test]
+    fn write_icl8_png_returns_false_without_icl8() {
+        // Only an ICN# (no icl8) -> no colour icon written.
+        let rsrc = make_rsrc(&[(b"ICN#", 128, vec![0xABu8; 256])]);
+        let out = std::env::temp_dir().join("atrium-icl8-none.png");
+        let _ = std::fs::remove_file(&out);
+        assert!(!write_icl8_png(&rsrc, &out).expect("no-op ok"));
+        assert!(!out.exists());
     }
 }
