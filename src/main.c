@@ -2133,10 +2133,11 @@ int main(void)
     }
     if (gPrefs.haveSel) model_select(&gModel, gPrefs.category, gPrefs.item);
 
-    /* Scan and cache the host CD listing once, so CD-title launches resolve their
-     * disc without re-walking the SCSI bus each time (docs/45). No-op if there's no
-     * Toolbox CD device; the CD Library refreshes it on open. */
-    cdswap_scan();
+    /* The host CD listing is scanned lazily on FIRST USE (cd_scan_once in cdswap.c
+     * — the first CD-title launch or CD Library open), never at boot: probing the
+     * SCSI bus for a Toolbox CD walks up to 7 ids, each with a selection timeout,
+     * which added seconds to every launch even on machines with no CD device. Keep
+     * this off the startup path — the cache is warmed the first time it's needed. */
 
     ui_init(&gUi, &gEnv, &gRender, &gModel, gWin, loaded ? 0 : 1);
     gUi.vols = &gVols;   /* multi-disk (docs/37): art/launch resolve per source volume */

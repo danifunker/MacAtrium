@@ -44,9 +44,12 @@ void        cdswap_set_active_image(const char *image);
 
 /* ---- session CD-image cache (docs/45) ------------------------------------------
  * Scan the host CD listing once (probe + LIST CDS) and keep it in RAM, so title
- * launches don't re-walk the SCSI bus each time and the app can resolve a title's
- * disc up front. Call cdswap_scan() at startup (and to refresh, e.g. on opening the
- * CD Library); it's safe when no CD device answers. */
+ * launches don't re-walk the SCSI bus each time. The scan is LAZY — it runs on the
+ * first cache use (a CD-title launch or the CD Library open), NOT at startup, since
+ * probing the SCSI bus for a Toolbox CD is slow (per-id selection timeouts) and
+ * would tax boot on every machine, including those with no CD device. Call
+ * cdswap_scan() directly only to force a refresh (e.g. on opening the CD Library);
+ * it's safe when no CD device answers. */
 void cdswap_scan(void);
 
 /* 1 (and *id when non-NULL) if a Toolbox CD-ROM was found this session, else 0.
