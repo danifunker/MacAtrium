@@ -38,6 +38,13 @@
 #define TB_PAGE_TOOLBOX   0x31   /* vendor page carrying the magic string          */
 #define TB_MAGIC          "BlueSCSI is the BEST"   /* detection prefix (docs)       */
 
+/* Standard INQUIRY (6-byte CDB): the peripheral device type is the low 5 bits of
+ * response byte 0. A BlueSCSI hard disk also answers page 0x31 (it serves the file
+ * Toolbox too), so we confirm a page-0x31 match is a CD-ROM before aiming the CD
+ * opcodes at it — otherwise LIST/SET land on the HDD ("Unknown command D7h"). */
+#define TB_INQUIRY_6      0x12   /* INQUIRY opcode (6-byte CDB)                    */
+#define TB_PDT_CDROM      0x05   /* INQUIRY peripheral device type: CD-ROM / MMC   */
+
 /* LIST entry wire layout (40 bytes; verified firmware-exact). */
 #define TB_ENTRY_SIZE   40
 #define TB_CDB_LEN      10

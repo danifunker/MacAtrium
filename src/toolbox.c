@@ -151,33 +151,65 @@ int toolbox_set_next_cd(short id, int index)
 
 int toolbox_list_cds(short id, TbEntry *buf, int cap, int *n)
 {
+    /* One SCSIRead must span the WHOLE DataIn phase. The original SCSI Manager
+     * fills a single TIB per command; issuing one SCSIRead per 40-byte entry
+     * leaves the follow-up reads untransferred, so their entries come back as
+     * uninitialised garbage (the "boxes" in the CD Library). Instead drain the
+     * entire listing into one static buffer (off the small 68k stack), then parse
+     * it — the same single-read shape the MODE SENSE probe already uses. The
+     * target sends N x 40 bytes and changes phase; SCSIRead transfers what's there
+     * and stops. No COUNT command is issued (COUNT CDS is 0xDA, outside the MiSTer
+     * RTL's 0xD0-0xD9 window); the count is however many populated entries precede
+     * the first empty name. */
+    static unsigned char raw[TB_MAX_CDS * TB_ENTRY_SIZE];
     unsigned char cdb[TB_CDB_LEN];
-    unsigned char raw[TB_ENTRY_SIZE];
     OSErr err;
     short stat = -1, msg = 0;
-    int count = 0;
+    int count = 0, i;
 
     *n = 0;
+    memset(raw, 0, sizeof raw);
     toolbox_cdb_list_cds(cdb);
     if (SCSIGet() != noErr) return 0;
     err = tb_begin(id, cdb, TB_CDB_LEN);
-    if (err == noErr) {
-        /* Read one 40-byte entry per SCSIRead until the target ends the DataIn
-         * phase. No COUNT command is issued (COUNT CDS is 0xDA, outside the MiSTer
-         * RTL's 0xD0–0xD9 window) — the count is however many entries we read. */
-        while (count < cap) {
-            if (tb_read(raw, TB_ENTRY_SIZE) != noErr) break;
-            toolbox_parse_cd_entry(raw, &buf[count]);
-            count++;
-        }
-    }
+    if (err == noErr) (void)tb_read(raw, (long)sizeof raw);
     (void)SCSIComplete(&stat, &msg, TB_SCSI_TIMEOUT);
     if (err != noErr) return 0;
+
+    for (i = 0; i < cap && i < TB_MAX_CDS; i++) {
+        const unsigned char *e = &raw[i * TB_ENTRY_SIZE];
+        if (e[TB_NAME_OFF] == 0) break;          /* empty name -> end of the listing */
+        toolbox_parse_cd_entry(e, &buf[count++]);
+    }
     /* CHECK CONDITION with no data → the host has no Toolbox CD support (feature
      * silently unavailable). GOOD with zero entries → supported, folder empty. */
     if (count == 0 && (stat & 0xFF) != 0) return 0;
     *n = count;
     return 1;
+}
+
+/* Confirm the device at `id` is a CD-ROM via a standard INQUIRY (peripheral
+ * device type 5). A BlueSCSI hard disk also carries the page-0x31 magic (it serves
+ * the file Toolbox), so page 0x31 alone isn't enough to aim the CD opcodes — without
+ * this the probe can select the HDD and LIST/SET CDS fail ("Unknown command D7h"). */
+static int tb_is_cdrom(short id)
+{
+    unsigned char cdb[6];
+    unsigned char resp[36];
+    OSErr err;
+    short stat = -1, msg = 0;
+
+    memset(cdb, 0, sizeof cdb);
+    cdb[0] = TB_INQUIRY_6;                    /* INQUIRY */
+    cdb[4] = (unsigned char)sizeof resp;      /* allocation length */
+    memset(resp, 0, sizeof resp);
+
+    if (SCSIGet() != noErr) return 0;
+    err = tb_begin(id, cdb, 6);
+    if (err == noErr) (void)tb_read(resp, (long)sizeof resp);
+    (void)SCSIComplete(&stat, &msg, TB_SCSI_TIMEOUT);
+
+    return (err == noErr) && ((resp[0] & 0x1F) == TB_PDT_CDROM);
 }
 
 int toolbox_probe_id(int pin, short *outId)
@@ -217,7 +249,7 @@ int toolbox_probe_id(int pin, short *outId)
         err = tb_begin(id, cdb, 6);                  /* MODE SENSE(6): 6-byte CDB */
         if (err == noErr) (void)tb_read(resp, (long)sizeof resp);  /* page data */
         (void)SCSIComplete(&stat, &msg, TB_SCSI_TIMEOUT);
-        if (err == noErr && toolbox_has_magic(resp, (int)sizeof resp)) {
+        if (err == noErr && toolbox_has_magic(resp, (int)sizeof resp) && tb_is_cdrom(id)) {
             cached = id;
             *outId = id;
             return 1;
