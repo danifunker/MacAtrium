@@ -28,6 +28,54 @@ void cdswap_set_active_image(const char *image)
     gLastCdImage[sizeof gLastCdImage - 1] = '\0';
 }
 
+/* ---- session CD-image cache (docs/45) --------------------------------------- */
+static short   gCdId;                 /* cached Toolbox CD-ROM SCSI id            */
+static int     gCdFound;              /* 1 = a CD device answered                 */
+static int     gCdScanned;            /* 1 = we've run a scan this session        */
+static int     gCdN;                  /* cached entry count                       */
+static TbEntry gCdCds[TB_MAX_CDS];    /* cached listing (~4.4 KB, off the stack)  */
+
+void cdswap_scan(void)
+{
+    gCdScanned = 1;
+    gCdN       = 0;
+    gCdFound   = toolbox_probe_id(-1, &gCdId) ? 1 : 0;
+    if (gCdFound)
+        (void)toolbox_list_cds(gCdId, gCdCds, TB_MAX_CDS, &gCdN);
+}
+
+static void cd_scan_once(void) { if (!gCdScanned) cdswap_scan(); }
+
+int cdswap_ready(short *id)
+{
+    cd_scan_once();
+    if (!gCdFound) return 0;
+    if (id) *id = gCdId;
+    return 1;
+}
+
+const TbEntry *cdswap_cds(int *n, int *found, short *id)
+{
+    cd_scan_once();
+    if (n)     *n = gCdN;
+    if (found) *found = gCdFound;
+    if (id)    *id = gCdId;
+    return gCdCds;
+}
+
+int cdswap_find(const char *cdImage)
+{
+    int idx;
+    cd_scan_once();
+    if (!gCdFound || !cdImage || !cdImage[0]) return -1;
+    idx = toolbox_find_cd(cdImage, gCdCds, gCdN);
+    if (idx < 0) {                    /* maybe a disc was added to the folder since startup */
+        cdswap_scan();
+        idx = toolbox_find_cd(cdImage, gCdCds, gCdN);
+    }
+    return idx;
+}
+
 static void say(const CdSwapUI *ui, const char *m)
 {
     if (ui && ui->message) ui->message(ui->ctx, m);
@@ -36,8 +84,7 @@ static void say(const CdSwapUI *ui, const char *m)
 CdResult cdswap_ensure(const CatItem *it, const CdSwapUI *ui, short *cdVref)
 {
     short   tbId;
-    TbEntry cds[TB_MAX_CDS];
-    int     ncds, idx;
+    int     idx;
     short   vref;
     long    deadline, timeout;
 
@@ -50,8 +97,8 @@ CdResult cdswap_ensure(const CatItem *it, const CdSwapUI *ui, short *cdVref)
         return CD_OK;
     }
 
-    /* Locate the Toolbox device (probe on first use each boot, cached in RAM). */
-    if (!toolbox_probe_id(ui ? ui->pinId : -1, &tbId))
+    /* Locate the Toolbox CD from the session cache (scanned at startup, docs/45). */
+    if (!cdswap_ready(&tbId))
         return CD_UNSUPPORTED;
 
     /* 2. Unmount the CD we last inserted, if it's still mounted and isn't the one we
@@ -63,10 +110,8 @@ CdResult cdswap_ensure(const CatItem *it, const CdSwapUI *ui, short *cdVref)
         gLastCdVol[0] = '\0';
     }
 
-    /* 3. Enumerate the host's CD images and find the one this title needs. */
-    if (!toolbox_list_cds(tbId, cds, TB_MAX_CDS, &ncds))
-        return CD_UNSUPPORTED;
-    idx = toolbox_find_cd(it->cdImage, cds, ncds);
+    /* 3. Find the image this title needs in the cached listing (re-scans on a miss). */
+    idx = cdswap_find(it->cdImage);
     if (idx < 0) return CD_NOT_FOUND;
 
     /* 4. Switch immediately — the index is only meaningful against that enumeration. */

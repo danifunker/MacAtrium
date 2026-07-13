@@ -1735,21 +1735,26 @@ static void run_status_dialog(void)
 #define CDL_ROWS 12                 /* visible disc rows                          */
 #define CDL_UP   0x1E               /* Mac arrow char codes                       */
 #define CDL_DOWN 0x1F
+#define CDL_X_MARK  16              /* active-disc ">" marker column (x)          */
+#define CDL_X_IDXR  50              /* index column: right edge (right-aligned)   */
+#define CDL_X_NAME  62              /* name column: fixed left edge               */
 
 /* Draw a C string at the current pen position. */
 static void cdl_str(const char *s) { DrawText((Ptr)s, 0, (short)strlen(s)); }
 
-/* Draw the SET NEXT CD index followed by two spaces ("12  "), so each row is
- * identifiable by number even when its filename is clipped or hard to read. */
-static void cdl_index(int n)
+/* Draw the SET NEXT CD index right-aligned in its own column (right edge at
+ * CDL_X_IDXR), so numbers line up and the names all start at CDL_X_NAME instead
+ * of being pushed around by the proportional font. */
+static void cdl_index(int n, short y)
 {
-    char b[8];
-    int  i = (int)sizeof b;
-    b[--i] = ' ';
-    b[--i] = ' ';
+    char  b[8];
+    int   i = (int)sizeof b;
+    short len;
     if (n <= 0) b[--i] = '0';
     else while (n > 0 && i > 0) { b[--i] = (char)('0' + n % 10); n /= 10; }
-    DrawText((Ptr)&b[i], 0, (short)((int)sizeof b - i));
+    len = (short)((int)sizeof b - i);
+    MoveTo((short)(CDL_X_IDXR - TextWidth((Ptr)&b[i], 0, len)), y);
+    DrawText((Ptr)&b[i], 0, len);
 }
 
 static void cdl_draw(WindowPtr dlg, const TbEntry *cds, int n, int sel, int top,
@@ -1773,9 +1778,9 @@ static void cdl_draw(WindowPtr dlg, const TbEntry *cds, int n, int sel, int top,
         int   idx      = top + i;
         short y        = (short)(40 + i * 16);
         int   isActive = active[0] && toolbox_name_eq(active, cds[idx].name);
-        MoveTo(20, y);
-        cdl_str(isActive ? "> " : "  ");
-        cdl_index(cds[idx].index);
+        if (isActive) { MoveTo(CDL_X_MARK, y); cdl_str(">"); }
+        cdl_index(cds[idx].index, y);          /* right-aligned index column */
+        MoveTo(CDL_X_NAME, y);                 /* names all start here       */
         cdl_str(cds[idx].name);
         if (isActive) cdl_str("   (in drive)");
     }
@@ -1804,18 +1809,19 @@ static void cdl_insert(short tbId, const TbEntry *cd)
 /* List the host's CD images and let the user insert one. Reached from the Esc menu. */
 static void run_cd_list_dialog(void)
 {
-    static TbEntry cds[TB_MAX_CDS];   /* ~4.4 KB — static, off the small 68k stack */
+    const TbEntry *cds;
     WindowPtr     dlg;
     Rect          bounds, r, sb = qd.screenBits.bounds;
     short         W = 420, H = 300;
     short         L = (short)(sb.left + ((sb.right - sb.left) - W) / 2);
     short         T = (short)(sb.top  + ((sb.bottom - sb.top) - H) / 2);
-    int           running = 1, sel = 0, top = 0, n = 0;
-    short         tbId = 0, tbFound;
+    int           running = 1, sel = 0, top = 0, n = 0, tbFound = 0;
+    short         tbId = 0;
     ControlHandle insBtn, doneBtn;
 
-    tbFound = toolbox_probe_id(-1, &tbId) ? 1 : 0;   /* auto-probe the Toolbox id */
-    if (tbFound) (void)toolbox_list_cds(tbId, cds, TB_MAX_CDS, &n);
+    /* Refresh the session cache on open (the folder may have changed), then read it. */
+    cdswap_scan();
+    cds = cdswap_cds(&n, &tbFound, &tbId);
 
     if (T < (short)(sb.top + 44)) T = (short)(sb.top + 44);
     SetRect(&bounds, L, T, (short)(L + W), (short)(T + H));
@@ -2126,6 +2132,11 @@ int main(void)
         model_build(&gModel, &gCat);   /* empty catalog -> just "All" with 0 items */
     }
     if (gPrefs.haveSel) model_select(&gModel, gPrefs.category, gPrefs.item);
+
+    /* Scan and cache the host CD listing once, so CD-title launches resolve their
+     * disc without re-walking the SCSI bus each time (docs/45). No-op if there's no
+     * Toolbox CD device; the CD Library refreshes it on open. */
+    cdswap_scan();
 
     ui_init(&gUi, &gEnv, &gRender, &gModel, gWin, loaded ? 0 : 1);
     gUi.vols = &gVols;   /* multi-disk (docs/37): art/launch resolve per source volume */

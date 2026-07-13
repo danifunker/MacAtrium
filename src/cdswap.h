@@ -9,6 +9,7 @@
 #define MACATRIUM_CDSWAP_H
 
 #include "catalog.h"
+#include "toolbox.h"   /* TbEntry, for the cached CD listing */
 
 typedef enum {
     CD_OK = 0,        /* the required volume is mounted (and verified by name)  */
@@ -40,5 +41,26 @@ const char *cdswap_active_image(void);
 /* Record an image as the active disc (the CD Library browser sets this after a
  * manual insert). */
 void        cdswap_set_active_image(const char *image);
+
+/* ---- session CD-image cache (docs/45) ------------------------------------------
+ * Scan the host CD listing once (probe + LIST CDS) and keep it in RAM, so title
+ * launches don't re-walk the SCSI bus each time and the app can resolve a title's
+ * disc up front. Call cdswap_scan() at startup (and to refresh, e.g. on opening the
+ * CD Library); it's safe when no CD device answers. */
+void cdswap_scan(void);
+
+/* 1 (and *id when non-NULL) if a Toolbox CD-ROM was found this session, else 0.
+ * Scans on first use if cdswap_scan() hasn't run yet. */
+int  cdswap_ready(short *id);
+
+/* The cached listing for the CD Library browser: entries, with *n = count, *found =
+ * a CD device answered, *id = its SCSI id. Any out-param may be NULL. Scans on first
+ * use. The returned pointer is owned by cdswap (valid until the next scan). */
+const TbEntry *cdswap_cds(int *n, int *found, short *id);
+
+/* Find `cdImage` in the cached listing (fuzzy, via toolbox_find_cd): returns the
+ * SET NEXT CD index, or -1 if absent / no CD device. Re-scans once on a miss, in
+ * case a disc appeared in the folder since startup. */
+int  cdswap_find(const char *cdImage);
 
 #endif /* MACATRIUM_CDSWAP_H */
