@@ -74,11 +74,15 @@ typedef struct {
     char       filter[24];    /* List view name filter; "" = off (type to filter)   */
     int        listColType;   /* List view: px from the right (minus the scroll bar) of
                               * the Name|Type divider — draggable; Year stays at 40    */
+    int        listItemTop;   /* List view: first visible ITEM row (view scroll offset, */
+    int        listCatTop;    /* independent of the selection); first visible CATEGORY  */
     int        lastDrawnItem; /* selection at the last FULL browse-view draw, so an */
     int        lastDrawnTop;  /* in-page selection move can repaint just the changed */
     int        lastDrawnCat;  /* cells (else a scroll/category change -> full draw)   */
+    int        lastDrawnCatTop;/* category-pane scroll offset at last draw (cat scroll -> pane repaint) */
     int        lastDrawnFocus;/* List pane focus at the last full draw (focus change -> full) */
-    ControlHandle scrollV;    /* real Control-Manager vertical scroll bar (grid + list) */
+    ControlHandle scrollV;    /* real Control-Manager vertical scroll bar (grid + list items) */
+    ControlHandle scrollCat;  /* List view: vertical scroll bar for the categories pane   */
     ControlHandle launch;     /* real "Launch" push button                              */
     ControlHandle quitBtn;    /* quit-confirm dialog: "Quit" (default) push button      */
     ControlHandle cancelBtn;  /* quit-confirm dialog: "Cancel" push button              */
@@ -142,6 +146,8 @@ void      ui_set_status(Ui *u, const char *msg);
  * by an arrow/page part, or jump to the thumb's value. */
 void      ui_scroll_step(Ui *u, short part);
 void      ui_scroll_to(Ui *u, short val);
+void      ui_scroll_cat_step(Ui *u, short part);   /* List view: category-pane scroll bar */
+void      ui_scroll_cat_to(Ui *u, short val);
 
 /* Open the "Are you sure you want to quit?" confirmation (the close box / File >
  * Quit / Cmd-Opt-Q route through this instead of quitting directly). */
@@ -155,6 +161,7 @@ void      ui_set_text_size(Ui *u, int pts);
 void      ui_show_about(Ui *u);              /* Apple > About MacAtrium     */
 void      ui_show_info(Ui *u);               /* File  > Get Info            */
 void      ui_set_view(Ui *u, int view);      /* View  > Carousel/Icon/List  */
+void      ui_list_reveal(Ui *u);             /* scroll the List panes to show the selection */
 
 /* ---- Settings model (the real Settings window in main.c renders + drives these,
  * so the actual setting logic stays here as the single source of truth) ---------

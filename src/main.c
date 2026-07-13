@@ -81,8 +81,9 @@ static Prefs     gPrefs;
 static ControlActionUPP gScrollAction = 0;
 static pascal void scroll_action(ControlHandle ctl, short part)
 {
-    (void)ctl;
-    if (part) ui_scroll_step(&gUi, part);
+    if (!part) return;
+    if (ctl == gUi.scrollCat) ui_scroll_cat_step(&gUi, part);   /* List categories pane */
+    else                      ui_scroll_step(&gUi, part);       /* items / grid / carousel */
 }
 
 /* WaitNextEvent is a MultiFinder/System-7 trap — absent on base System 6. We
@@ -319,7 +320,7 @@ static void rebuild_window(void)
     gWin = make_window(&gEnv, gUi.hideMenuBar, gUi.hideTitleBar);
     gUi.win = gWin;
     gUi.controlsReady = 0;                /* the controls belonged to the old port */
-    gUi.scrollV = gUi.launch = gUi.quitBtn = gUi.cancelBtn = gUi.settingsBtn = 0;
+    gUi.scrollV = gUi.scrollCat = gUi.launch = gUi.quitBtn = gUi.cancelBtn = gUi.settingsBtn = 0;
     render_reset_for_depth(&gRender, &gEnv, display_current_depth());  /* GWorld re-fits */
     gUi.bgValid = 0;                      /* the fresh GWorld is blank: repaint the
                                            * whole browse screen, not just the overlay */
@@ -2158,6 +2159,7 @@ int main(void)
     gUi.cdTimeout = gPrefs.haveCdTimeout ? gPrefs.cdTimeout : 15;     /* docs/45: default 15 s */
     if (gPrefs.haveView)        gUi.view        = gPrefs.view;        /* restore browse view */
     else if (loaded)            gUi.mode        = UI_MODE_SETUP;      /* first run: ask how to browse */
+    if (gUi.view == VIEW_LIST)  ui_list_reveal(&gUi);                 /* show the restored selection */
 
     bring_self_front();
     if (gUi.hideMenuBar || gUi.hideTitleBar) {
@@ -2268,9 +2270,16 @@ int main(void)
                                 if (TrackControl(ctl, p, (ControlActionUPP)0))
                                     ui_scroll_to(&gUi, GetControlValue(ctl));
                             } else {
-                                /* Arrow / page region: the action proc steps the
-                                 * selection for as long as the part is held (a quick
-                                 * click still fires it once), so no post-track step. */
+                                /* Arrow / page region: the action proc scrolls the
+                                 * view for as long as the part is held (a quick click
+                                 * still fires it once), so no post-track step. */
+                                TrackControl(ctl, p, gScrollAction);
+                            }
+                        } else if (cp && ctl == gUi.scrollCat) {   /* List categories scroll bar */
+                            if (cp == inThumb) {
+                                if (TrackControl(ctl, p, (ControlActionUPP)0))
+                                    ui_scroll_cat_to(&gUi, GetControlValue(ctl));
+                            } else {
                                 TrackControl(ctl, p, gScrollAction);
                             }
                         } else {

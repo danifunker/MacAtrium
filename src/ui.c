@@ -1598,6 +1598,7 @@ static void vbar(Ui *u, short x, short y, short h)   /* 1px vertical divider */
  * the draw painted. */
 typedef struct {
     short bTop, bBot, lstBot, rx, rw;
+    short catW;                /* categories pane content width (narrowed for its scroll bar) */
     int   catRows, catTop;     /* categories pane: visible rows + first index */
     int   itemRows, itemTop;   /* items pane: visible rows + first index      */
     int   nItems;
@@ -1605,6 +1606,10 @@ typedef struct {
 
 static void list_col_x(Ui *u, short *nameX, short *typeX, short *yearX);   /* fwd */
 
+/* Both panes scroll on an INDEPENDENT view offset (u->listCatTop / u->listItemTop),
+ * not derived from the selection — a real Mac list where the scroll bar moves the view
+ * and the selection can sit anywhere (even off-screen). The offset is clamped to a valid
+ * range here and written back, so a category change or resize can't leave it dangling. */
 static void list_layout(Ui *u, ListLayout *L)
 {
     Model    *m = u->m;
@@ -1616,18 +1621,33 @@ static void list_layout(Ui *u, ListLayout *L)
     L->lstBot = (short)(L->bBot - LDET);
     L->rx     = (short)(LPANE + 1);
     L->rw     = (short)(W - LPANE - 1);
-    rows = (L->bBot - (L->bTop + 24)) / ROW_H; n = m->ncats;
-    top = m->curCat - rows / 2; if (top > n - rows) top = n - rows; if (top < 0) top = 0;
+    /* categories pane */
+    rows = (L->bBot - (L->bTop + 24)) / ROW_H; if (rows < 1) rows = 1; n = m->ncats;
+    top = u->listCatTop; if (top > n - rows) top = n - rows; if (top < 0) top = 0;
+    u->listCatTop = top;
     L->catRows = rows; L->catTop = top;
+    L->catW = (short)((n > rows) ? (LPANE - SBW) : LPANE);   /* room for the cat scroll bar */
+    /* items pane */
     n = cat ? cat->count : 0;
-    rows = (L->lstBot - (L->bTop + 24)) / ROW_H;
-    /* Page-based scroll (like the carousel + grid): moving within a screenful leaves
-     * itemTop unchanged so the items pane redraws incrementally; only crossing a page
-     * edge scrolls. The old re-centre-every-move changed itemTop each step -> a full
-     * redraw of the whole list on every game switch. */
-    top = (rows > 0) ? (m->curItem / rows) * rows : 0;
-    if (top < 0) top = 0;
+    rows = (L->lstBot - (L->bTop + 24)) / ROW_H; if (rows < 1) rows = 1;
+    top = u->listItemTop; if (top > n - rows) top = n - rows; if (top < 0) top = 0;
+    u->listItemTop = top;
     L->itemRows = rows; L->itemTop = top; L->nItems = n;
+}
+
+/* Scroll a pane so the current selection is visible (called after a keyboard move,
+ * which drives the selection; the view follows just enough to keep it on-screen). */
+static void list_reveal_item(Ui *u)
+{
+    ListLayout L; list_layout(u, &L);
+    if (u->m->curItem < L.itemTop)                    u->listItemTop = u->m->curItem;
+    else if (u->m->curItem >= L.itemTop + L.itemRows) u->listItemTop = u->m->curItem - L.itemRows + 1;
+}
+static void list_reveal_cat(Ui *u)
+{
+    ListLayout L; list_layout(u, &L);
+    if (u->m->curCat < L.catTop)                    u->listCatTop = u->m->curCat;
+    else if (u->m->curCat >= L.catTop + L.catRows)  u->listCatTop = u->m->curCat - L.catRows + 1;
 }
 
 /* One categories-pane row (visible index i). Selected + focused = filled; selected
@@ -1643,12 +1663,12 @@ static void draw_list_cat_row(Ui *u, const ListLayout *L, int i)
     if (i < 0 || ci < 0 || ci >= m->ncats) return;
     sel = (ci == m->curCat); active = (u->listFocus == 0);
     y0 = (short)(L->bTop + 26 + i * ROW_H);
-    SetRect(&rr, 1, y0, (short)(LPANE - 1), (short)(y0 + ROW_H));
+    SetRect(&rr, 1, y0, (short)(L->catW - 1), (short)(y0 + ROW_H));
     render_fill(r, &rr, FILL_BG);
     if (sel) { if (active) render_fill(r, &rr, FILL_SEL); else render_frame(r, &rr); }
     strncpy(nm, m->cats[ci].name, sizeof nm - 1); nm[sizeof nm - 1] = '\0';
     ui_append_disk_tag(u, m->cats[ci].vol, nm, (int)sizeof nm);   /* [N] when multi-disk (docs/37) */
-    while (nm[0] && render_text_width(r, nm) > LPANE - 14) nm[strlen(nm) - 1] = '\0';
+    while (nm[0] && render_text_width(r, nm) > L->catW - 14) nm[strlen(nm) - 1] = '\0';
     render_text(r, 8, (short)(y0 + ROW_H - 5), nm, (sel && active) ? INK_SELECTED : INK_NORMAL);
 }
 
@@ -1845,26 +1865,31 @@ static void draw_listview(Ui *u)
         draw_browse_footer(u, fg, 5);
     }
 
-    u->lastDrawnItem  = m->curItem;
-    u->lastDrawnTop   = L.itemTop;
-    u->lastDrawnCat   = m->curCat;
-    u->lastDrawnFocus = u->listFocus;
+    u->lastDrawnItem   = m->curItem;
+    u->lastDrawnTop    = L.itemTop;
+    u->lastDrawnCat    = m->curCat;
+    u->lastDrawnCatTop = L.catTop;
+    u->lastDrawnFocus  = u->listFocus;
 }
 
 /* Left/Right move focus between the two panes (Left at the categories pane reaches
- * the gear, as before); Up/Down operate within the focused pane. */
+ * the gear, as before); Up/Down move the selection within the focused pane, and the
+ * view auto-scrolls just enough to keep the new selection visible (a real list). A new
+ * category resets the items view to the top. */
 static int listview_nav(Ui *u, char ch)
 {
     Model *m = u->m;
     switch (ch) {
         case kCharUp:
             if (u->listFocus == 0) { u->filter[0] = '\0';   /* a new category reloads unfiltered */
-                                     if (!model_move_cat(m, -1)) u->settingsFocus = 1; }
-            else                     model_move_item(m, -1);
+                                     if (!model_move_cat(m, -1)) u->settingsFocus = 1;
+                                     else { u->listItemTop = 0; list_reveal_cat(u); } }
+            else                   { model_move_item(m, -1); list_reveal_item(u); }
             return 1;
         case kCharDown:
-            if (u->listFocus == 0) { u->filter[0] = '\0'; model_move_cat(m, +1); }
-            else                     model_move_item(m, +1);
+            if (u->listFocus == 0) { u->filter[0] = '\0';
+                                     if (model_move_cat(m, +1)) { u->listItemTop = 0; list_reveal_cat(u); } }
+            else                   { model_move_item(m, +1); list_reveal_item(u); }
             return 1;
         case kCharLeft:
             if (u->listFocus == 1)   u->listFocus = 0;       /* items -> categories */
@@ -1929,10 +1954,11 @@ static int listview_click(Ui *u, Point pt, UiCommand *out)
         for (i = 0; i < L.catRows && L.catTop + i < m->ncats; i++) {
             int   ci = L.catTop + i;
             short y0 = (short)(L.bTop + 26 + i * ROW_H);
-            Rect  rr; SetRect(&rr, 1, y0, (short)(LPANE - 1), (short)(y0 + ROW_H));
+            Rect  rr; SetRect(&rr, 1, y0, (short)(L.catW - 1), (short)(y0 + ROW_H));
             if (PtInRect(pt, &rr)) {
                 u->listFocus = 0;
-                if (ci != m->curCat) { u->filter[0] = '\0'; model_move_cat(m, ci - m->curCat); }
+                if (ci != m->curCat) { u->filter[0] = '\0'; model_move_cat(m, ci - m->curCat);
+                                       u->listItemTop = 0; }   /* new category -> items view to top */
                 return 1;
             }
         }
@@ -2156,6 +2182,7 @@ static void ensure_controls(Ui *u)
     if (u->controlsReady || !u->win) return;
     SetRect(&z, 0, 0, SBW, 100);
     u->scrollV   = NewControl(u->win, &z, "\p", false, 0, 0, 0, scrollBarProc, 0L);
+    u->scrollCat = NewControl(u->win, &z, "\p", false, 0, 0, 0, scrollBarProc, 0L);  /* List categories */
     SetRect(&z, 0, 0, 84, 20);
     u->launch    = NewControl(u->win, &z, "\pLaunch", false, 1, 0, 1, pushButProc, 0L);
     u->quitBtn   = NewControl(u->win, &z, "\pQuit",   false, 1, 0, 1, pushButProc, 0L);
@@ -2164,7 +2191,7 @@ static void ensure_controls(Ui *u)
      * gear glyph over it in ui_paint_controls) that opens the Quick-Launch menu. */
     SetRect(&z, 0, 0, 26, 20);
     u->settingsBtn = NewControl(u->win, &z, "\p", false, 1, 0, 1, pushButProc, 0L);
-    u->controlsReady = (u->scrollV && u->launch && u->quitBtn && u->cancelBtn &&
+    u->controlsReady = (u->scrollV && u->scrollCat && u->launch && u->quitBtn && u->cancelBtn &&
                         u->settingsBtn) ? 1 : 0;
 }
 
@@ -2233,13 +2260,13 @@ static void place_control(ControlHandle c, const Rect *want)
 static void ui_paint_controls(Ui *u, int incremental)
 {
     Rect sb, lb;
-    int  n, vis, val, max, canLaunch;
+    int  n, vis, val, max, canLaunch, vtop = 0;
     ensure_controls(u);
     if (!u->controlsReady) return;
     if (u->mode == UI_MODE_QUITCONFIRM) {       /* the modal's two real buttons */
         Rect panel, qb, cb, ring;
         quitconfirm_rects(u, &panel, &qb, &cb);
-        HideControl(u->scrollV); HideControl(u->launch); HideControl(u->settingsBtn);
+        HideControl(u->scrollV); HideControl(u->scrollCat); HideControl(u->launch); HideControl(u->settingsBtn);
         place_control(u->quitBtn, &qb);   ShowControl(u->quitBtn);   Draw1Control(u->quitBtn);
         place_control(u->cancelBtn, &cb);  ShowControl(u->cancelBtn); Draw1Control(u->cancelBtn);
         /* the bold default-button ring around Quit (the CDEF doesn't draw it) */
@@ -2280,6 +2307,7 @@ static void ui_paint_controls(Ui *u, int incremental)
     if (u->safe || u->mode != UI_MODE_LIST ||
         (u->view != VIEW_CAROUSEL && u->view != VIEW_ICON && u->view != VIEW_LIST)) {
         HideControl(u->scrollV);
+        HideControl(u->scrollCat);
         HideControl(u->launch);
         return;
     }
@@ -2296,19 +2324,36 @@ static void ui_paint_controls(Ui *u, int incremental)
     } else {  /* VIEW_LIST */
         ListLayout L; list_layout(u, &L);
         SetRect(&sb, (short)(win_w(u) - SBW), (short)(L.bTop + 24), (short)win_w(u), L.lstBot);
-        n = L.nItems; vis = L.itemRows;
+        n = L.nItems; vis = L.itemRows; vtop = L.itemTop;
         list_launch_rect(u, &L, &lb);           /* same rect the incremental blit avoids */
     }
-    /* The scroll bar reflects the selection's position in the category; inactive
-     * (max == min) when everything fits, per HIG. */
-    max = (n > vis) ? (n - 1) : 0;
-    val = (n > vis) ? u->m->curItem : 0;
+    /* The List bar scrolls the VIEW (value = the top visible row, range = the off-screen
+     * rows); the carousel/grid bars still track the selection. Inactive (max == min) when
+     * everything fits, per HIG. */
+    if (u->view == VIEW_LIST) { max = (n > vis) ? (n - vis) : 0; val = (n > vis) ? vtop : 0; }
+    else                      { max = (n > vis) ? (n - 1)   : 0; val = (n > vis) ? u->m->curItem : 0; }
     place_control(u->scrollV, &sb);
     SetControlMaximum(u->scrollV, (short)max);
     SetControlValue(u->scrollV, (short)val);           /* moves just the thumb */
     if (!incremental) { ShowControl(u->scrollV); Draw1Control(u->scrollV); }
     /* On an incremental pass the blit never touches the scroll-bar gutter, so the bar
      * itself is intact — SetControlValue already re-drew the thumb; no full redraw. */
+
+    /* Categories-pane scroll bar (List view only): shown when the categories overflow. */
+    if (u->view == VIEW_LIST) {
+        ListLayout L; list_layout(u, &L);
+        if (u->m->ncats > L.catRows) {
+            Rect cb; SetRect(&cb, L.catW, (short)(L.bTop + 24), (short)LPANE, L.bBot);
+            place_control(u->scrollCat, &cb);
+            SetControlMaximum(u->scrollCat, (short)(u->m->ncats - L.catRows));
+            SetControlValue(u->scrollCat, (short)L.catTop);
+            if (!incremental) { ShowControl(u->scrollCat); Draw1Control(u->scrollCat); }
+        } else {
+            HideControl(u->scrollCat);
+        }
+    } else {
+        HideControl(u->scrollCat);
+    }
 
     canLaunch = (model_cur_item(u->m) != 0);
     place_control(u->launch, &lb);
@@ -2511,55 +2556,197 @@ void ui_draw_art(Ui *u)
     if (cur_view(u)->draw_art) cur_view(u)->draw_art(u);
 }
 
-/* Repaint after a browse-view selection move: an incremental redraw of just the
- * changed cells/detail when the view offers one and is already on-screen, else a
- * full ui_draw (a scroll/category change, an overlay, a non-list mode). This is the
- * Mac update model — redraw only what changed instead of the whole window. The blit
- * straddles the real controls (it never copies over them), so the follow-up only
- * nudges the scroll thumb to the new selection — the bar + Launch are left as-is. */
+/* Repaint just the items pane (its rows region), optionally the detail strip, into the
+ * off-screen buffer and blit ONLY those rects — a view scroll (or a selection move that
+ * scrolled) without re-blitting the whole window. Falls back to a full ui_draw when
+ * off-screen compositing isn't available. */
+static void list_repaint_items(Ui *u, int withDetail)
+{
+    ListLayout L;
+    Render    *r = u->r;
+    int        i, W = win_w(u), nr = 0;
+    Rect       region, rects[8];
+    if (!r->useOffscreen || !u->bgValid || u->mode != UI_MODE_LIST) { ui_draw(u); return; }
+    list_layout(u, &L);
+    render_begin(r, u->win);
+    SetRect(&region, L.rx, (short)(L.bTop + 24), (short)(W - SBW), L.lstBot);
+    render_fill(r, &region, FILL_BG);
+    for (i = 0; i < L.itemRows && L.itemTop + i < L.nItems; i++)
+        draw_list_item_row(u, &L, i);
+    if (!u->filter[0]) {                                   /* the Name|Type divider */
+        short nameX, typeX, yearX;
+        list_col_x(u, &nameX, &typeX, &yearX);
+        vbar(u, (short)(typeX - 6), (short)(L.bTop + 24), (short)(L.lstBot - (L.bTop + 24)));
+    }
+    rects[nr++] = region;
+    if (withDetail) {                                      /* selection changed -> detail too */
+        Rect strip, lb;
+        draw_list_detail(u, &L);
+        SetRect(&strip, L.rx, L.lstBot, (short)W, L.bBot);
+        list_launch_rect(u, &L, &lb);
+        push_around(rects, &nr, 8, &strip, &lb);           /* keep the Launch button intact */
+    }
+    render_end_rects(r, u->win, rects, nr);
+    u->lastDrawnTop  = L.itemTop;
+    u->lastDrawnItem = u->m->curItem;
+    ui_paint_controls(u, 1);
+}
+
+/* Repaint just the categories pane (its rows region) + blit it. */
+static void list_repaint_cats(Ui *u)
+{
+    ListLayout L;
+    Render    *r = u->r;
+    int        i;
+    Rect       region;
+    if (!r->useOffscreen || !u->bgValid || u->mode != UI_MODE_LIST) { ui_draw(u); return; }
+    list_layout(u, &L);
+    render_begin(r, u->win);
+    SetRect(&region, 0, (short)(L.bTop + 24), L.catW, L.bBot);
+    render_fill(r, &region, FILL_BG);
+    for (i = 0; i < L.catRows && L.catTop + i < u->m->ncats; i++)
+        draw_list_cat_row(u, &L, i);
+    render_end_rects(r, u->win, &region, 1);
+    u->lastDrawnCatTop = L.catTop;
+    ui_paint_controls(u, 1);
+}
+
+/* Minimal List-view repaint after a selection/scroll change: a category or focus change
+ * needs the full window; a pane scroll repaints just that pane; an in-page selection move
+ * repaints the two changed rows. Returns 0 to fall back to a full ui_draw. */
+static int list_try_incremental(Ui *u)
+{
+    ListLayout L;
+    if (!u->bgValid) return 0;
+    list_layout(u, &L);
+    if (u->m->curCat != u->lastDrawnCat || u->listFocus != u->lastDrawnFocus) return 0;
+    if (L.itemTop != u->lastDrawnTop) {                    /* items pane scrolled */
+        list_repaint_items(u, u->m->curItem != u->lastDrawnItem);
+        return 1;
+    }
+    if (L.catTop != u->lastDrawnCatTop) {                  /* categories pane scrolled */
+        list_repaint_cats(u);
+        return 1;
+    }
+    if (u->m->curItem != u->lastDrawnItem)                 /* in-page selection move */
+        return listview_draw_sel(u) ? (ui_paint_controls(u, 1), 1) : 0;
+    return 1;                                              /* nothing visible changed */
+}
+
+/* Repaint after a browse-view selection/scroll change: an incremental redraw of just the
+ * changed cells/detail/pane when the view is already on-screen, else a full ui_draw (a
+ * category change, an overlay, a non-list mode). This is the Mac update model — redraw
+ * only what changed instead of the whole window. */
 static void browse_redraw(Ui *u)
 {
-    if (u->mode == UI_MODE_LIST && !u->safe && u->bgValid &&
-        cur_view(u)->draw_sel && cur_view(u)->draw_sel(u)) {
-        ui_paint_controls(u, 1);   /* incremental: just the scroll thumb, no flashy redraws */
+    if (u->mode == UI_MODE_LIST && !u->safe && u->bgValid && u->view == VIEW_LIST) {
+        if (list_try_incremental(u)) return;
+    } else if (u->mode == UI_MODE_LIST && !u->safe && u->bgValid &&
+               cur_view(u)->draw_sel && cur_view(u)->draw_sel(u)) {
+        ui_paint_controls(u, 1);   /* carousel / grid: just the scroll thumb, no full redraw */
         return;
     }
     ui_draw(u);
 }
 
-/* Step the selection by a scroll-bar arrow/page part (called by main.c after
- * TrackControl). The scroll bar tracks the selection's position in the category. */
-void ui_scroll_step(Ui *u, short part)
+/* Scroll the List items/categories view by `delta` rows (clamped), then repaint. The
+ * selection is left where it is — a real Mac list scroll bar moves the view, not the
+ * selection. */
+static void list_scroll_items(Ui *u, int delta)
 {
-    ModelCat *cat = model_cur_cat(u->m);
-    int       n = cat ? cat->count : 0, page = 1, step = 0, target;
-    if (n <= 0) return;
-    if (u->view == VIEW_ICON)      { GridLayout g; grid_layout(u, &g); page = g.vis * g.cols; }
-    else if (u->view == VIEW_LIST) { ListLayout L; list_layout(u, &L); page = L.itemRows; }
-    else                           { CarLayout L; carousel_layout(u, &L); page = L.nTiles; }
-    if (page < 1) page = 1;
-    switch (part) {
-        case inUpButton:   step = -1;    break;
-        case inDownButton: step = +1;    break;
-        case inPageUp:     step = -page; break;
-        case inPageDown:   step = +page; break;
-        default: return;
-    }
-    target = u->m->curItem + step;
-    if (target < 0) target = 0;
-    if (target >= n) target = n - 1;
-    if (target != u->m->curItem) { model_move_item(u->m, target - u->m->curItem); browse_redraw(u); }
+    ListLayout L; int max, top;
+    list_layout(u, &L);
+    max = L.nItems - L.itemRows; if (max < 0) max = 0;
+    top = u->listItemTop + delta; if (top > max) top = max; if (top < 0) top = 0;
+    if (top == u->listItemTop) return;
+    u->listItemTop = top;
+    browse_redraw(u);
+}
+static void list_scroll_cats(Ui *u, int delta)
+{
+    ListLayout L; int max, top;
+    list_layout(u, &L);
+    max = u->m->ncats - L.catRows; if (max < 0) max = 0;
+    top = u->listCatTop + delta; if (top > max) top = max; if (top < 0) top = 0;
+    if (top == u->listCatTop) return;
+    u->listCatTop = top;
+    browse_redraw(u);
 }
 
-/* Jump the selection to the thumb's value (called after a thumb drag). */
+/* Step the items scroll bar by an arrow/page part (called by main.c after TrackControl).
+ * List view: scroll the VIEW (selection stays put). Carousel/grid: step the selection. */
+void ui_scroll_step(Ui *u, short part)
+{
+    if (u->view == VIEW_LIST) {
+        ListLayout L; int step = 0; list_layout(u, &L);
+        switch (part) {
+            case inUpButton:   step = -1;          break;
+            case inDownButton: step = +1;          break;
+            case inPageUp:     step = -L.itemRows; break;
+            case inPageDown:   step = +L.itemRows; break;
+            default: return;
+        }
+        list_scroll_items(u, step);
+        return;
+    }
+    {   ModelCat *cat = model_cur_cat(u->m);
+        int n = cat ? cat->count : 0, page = 1, step = 0, target;
+        if (n <= 0) return;
+        if (u->view == VIEW_ICON) { GridLayout g; grid_layout(u, &g); page = g.vis * g.cols; }
+        else                      { CarLayout L; carousel_layout(u, &L); page = L.nTiles; }
+        if (page < 1) page = 1;
+        switch (part) {
+            case inUpButton:   step = -1;    break;
+            case inDownButton: step = +1;    break;
+            case inPageUp:     step = -page; break;
+            case inPageDown:   step = +page; break;
+            default: return;
+        }
+        target = u->m->curItem + step;
+        if (target < 0) target = 0;
+        if (target >= n) target = n - 1;
+        if (target != u->m->curItem) { model_move_item(u->m, target - u->m->curItem); browse_redraw(u); }
+    }
+}
+
+/* Jump to the thumb's value after a drag. List = view offset; carousel/grid = selection. */
 void ui_scroll_to(Ui *u, short val)
 {
-    ModelCat *cat = model_cur_cat(u->m);
-    int       n = cat ? cat->count : 0, target = val;
-    if (n <= 0) return;
-    if (target < 0) target = 0;
-    if (target >= n) target = n - 1;
-    if (target != u->m->curItem) { model_move_item(u->m, target - u->m->curItem); browse_redraw(u); }
+    if (u->view == VIEW_LIST) {
+        ListLayout L; int max, top; list_layout(u, &L);
+        max = L.nItems - L.itemRows; if (max < 0) max = 0;
+        top = val; if (top > max) top = max; if (top < 0) top = 0;
+        if (top != u->listItemTop) { u->listItemTop = top; browse_redraw(u); }
+        return;
+    }
+    {   ModelCat *cat = model_cur_cat(u->m);
+        int n = cat ? cat->count : 0, target = val;
+        if (n <= 0) return;
+        if (target < 0) target = 0;
+        if (target >= n) target = n - 1;
+        if (target != u->m->curItem) { model_move_item(u->m, target - u->m->curItem); browse_redraw(u); }
+    }
+}
+
+/* The categories-pane scroll bar (List view only): scroll the category VIEW. */
+void ui_scroll_cat_step(Ui *u, short part)
+{
+    ListLayout L; int step = 0;
+    if (u->view != VIEW_LIST) return;
+    list_layout(u, &L);
+    switch (part) {
+        case inUpButton:   step = -1;         break;
+        case inDownButton: step = +1;         break;
+        case inPageUp:     step = -L.catRows; break;
+        case inPageDown:   step = +L.catRows; break;
+        default: return;
+    }
+    list_scroll_cats(u, step);
+}
+void ui_scroll_cat_to(Ui *u, short val)
+{
+    if (u->view != VIEW_LIST) return;
+    list_scroll_cats(u, val - u->listCatTop);
 }
 
 /* ---- Quick-Launch menu model (the real menu window in main.c renders these) ---- */
@@ -3251,11 +3438,21 @@ void ui_show_info(Ui *u)
     ui_draw(u);
 }
 
+/* Scroll the List panes so the current category + item are visible — used when the
+ * List view is (re)entered, since the selection may sit outside the default top-of-list
+ * view. A no-op away from the List view (the offsets are only read there). */
+void ui_list_reveal(Ui *u)
+{
+    list_reveal_item(u);
+    list_reveal_cat(u);
+}
+
 void ui_set_view(Ui *u, int view)
 {
     if (view < 0 || view >= VIEW_N) return;
     u->settingsFocus = 0;
     u->mode = UI_MODE_LIST;            /* dismiss any panel so the new view shows */
     if (u->view != view) { ui_filter_clear(u); u->view = view; u->bgValid = 0; }
+    if (view == VIEW_LIST) ui_list_reveal(u);   /* keep the selection on-screen */
     ui_draw(u);
 }
