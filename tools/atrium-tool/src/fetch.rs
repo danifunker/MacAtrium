@@ -290,6 +290,8 @@ pub fn run(
                 }
                 match pick_appl_path(&appls, &title) {
                     Some(full) => {
+                        let leaf = full.rsplit('/').next().unwrap_or(full.as_str());
+                        let was_installer = harvest::is_installer_name(leaf);
                         let app_rel = full
                             .strip_prefix("/MacAtrium/")
                             .unwrap_or(full.trim_start_matches('/'))
@@ -310,6 +312,11 @@ pub fn run(
                             genre,
                             app_path: app_rel,
                             files: Vec::new(),
+                            // Provenance (Q1): record the MacGarden download + nid,
+                            // and flag when the picked launch app is an installer.
+                            was_installer,
+                            download: Some(filename.clone()),
+                            mg_nid: Some(nid),
                         });
                     }
                     None => eprintln!("    note: no APPL found under {apps_root} — no stub emitted"),

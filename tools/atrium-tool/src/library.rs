@@ -427,6 +427,7 @@ pub struct ReservoirReport {
     pub linked: usize,
     pub missing: Vec<String>,    // ids whose folder wasn't found in the donor image
     pub long_names: Vec<String>, // donor folder names > 31 chars (HFS truncated)
+    pub installers: Vec<String>, // ids whose launch app looks like an installer/patch
 }
 
 /// Derive a reservoir title's donor folder name + absolute donor path from its
@@ -480,6 +481,13 @@ pub fn scan_reservoir(
             }
             if folder.chars().count() > 31 {
                 report.long_names.push(folder);
+            }
+            // Provenance QA (Q1): flag a title whose launch app still looks like an
+            // installer/patcher rather than the game itself.
+            let leaf = app.rsplit('/').next().unwrap_or(app.as_str());
+            if crate::harvest::is_installer_name(leaf) {
+                rec.insert("was_installer".into(), Value::Bool(true));
+                report.installers.push(id.clone());
             }
             let mut hs = Map::new();
             hs.insert("donor".into(), Value::from(donor_key));

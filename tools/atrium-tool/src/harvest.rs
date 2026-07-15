@@ -25,6 +25,22 @@ pub struct Harvested {
     pub genre: Option<String>,
     pub app_path: String, // relative to /MacAtrium, e.g. "Apps/Dark Castle/Dark Castle"
     pub files: Vec<String>,
+    /// Provenance (Q1): the picked launch app looks like an installer/patcher
+    /// rather than the game itself — so a redistributor knows this record's `app`
+    /// is (or came from) an installer.
+    pub was_installer: bool,
+    /// The original download's filename (Macintosh Garden), when known.
+    pub download: Option<String>,
+    /// The Macintosh Garden node id the software came from, when known.
+    pub mg_nid: Option<i64>,
+}
+
+/// Whether a file/app name looks like an installer/patcher rather than the
+/// runnable game (a provenance signal, Q1): matches "install(er)", "setup",
+/// "updater", or "patch", case-insensitively.
+pub fn is_installer_name(name: &str) -> bool {
+    let n = name.to_ascii_lowercase();
+    ["install", "setup", "updater", "patch"].iter().any(|k| n.contains(k))
 }
 
 /// Files we never copy out of a game folder (a bundled mini-System, the Finder,
@@ -323,6 +339,9 @@ fn harvest_one(
         genre,
         app_path: format!("Apps/{app_dst}/{app_dst}"),
         files,
+        was_installer: is_installer_name(&app),
+        download: None,
+        mg_nid: None,
     }))
 }
 
@@ -406,7 +425,17 @@ fn stub_line(h: &Harvested) -> String {
     if let Some(g) = &h.genre {
         s.push_str(&format!(",\"genre\":[{}]", jstr(g)));
     }
-    s.push_str(&format!(",\"app\":{}}}", jstr(&h.app_path)));
+    s.push_str(&format!(",\"app\":{}", jstr(&h.app_path)));
+    if h.was_installer {
+        s.push_str(",\"was_installer\":true");
+    }
+    if let Some(d) = &h.download {
+        s.push_str(&format!(",\"download\":{}", jstr(d)));
+    }
+    if let Some(nid) = h.mg_nid {
+        s.push_str(&format!(",\"mg_nid\":{nid}"));
+    }
+    s.push('}');
     s
 }
 
@@ -628,8 +657,8 @@ mod tests {
     fn merge_dedups_by_id() {
         let existing = "# header\n{\"id\":\"dark-castle\",\"name\":\"Dark Castle\",\"vendor\":\"Silicon Beach Software\"}\n";
         let stubs = vec![
-            Harvested { id: "dark-castle".into(), name: "Dark Castle".into(), kind: "game".into(), year: None, genre: None, app_path: "Apps/Dark Castle/Dark Castle".into(), files: vec![] },
-            Harvested { id: "lemmings".into(), name: "Lemmings".into(), kind: "game".into(), year: Some(1991), genre: None, app_path: "Apps/Lemmings/Lemmings".into(), files: vec![] },
+            Harvested { id: "dark-castle".into(), name: "Dark Castle".into(), kind: "game".into(), year: None, genre: None, app_path: "Apps/Dark Castle/Dark Castle".into(), files: vec![], was_installer: false, download: None, mg_nid: None },
+            Harvested { id: "lemmings".into(), name: "Lemmings".into(), kind: "game".into(), year: Some(1991), genre: None, app_path: "Apps/Lemmings/Lemmings".into(), files: vec![], was_installer: false, download: None, mg_nid: None },
         ];
         let (out, appended, skipped) = merge_stubs(existing, &stubs);
         assert_eq!((appended, skipped), (1, 1));
@@ -649,10 +678,36 @@ mod tests {
             genre: None,
             app_path: "Apps/Dark Castle/Dark Castle".into(),
             files: vec![],
+            was_installer: false,
+            download: None,
+            mg_nid: None,
         };
         assert_eq!(
             stub_line(&h),
             r#"{"id":"dark-castle","name":"Dark Castle","kind":"game","year":1986,"app":"Apps/Dark Castle/Dark Castle"}"#
         );
+    }
+
+    #[test]
+    fn installer_name_detection() {
+        assert!(is_installer_name("Apeiron Installer"));
+        assert!(is_installer_name("Install Foo"));
+        assert!(is_installer_name("BDC Data A patch"));
+        assert!(!is_installer_name("Apeiron"));
+        assert!(!is_installer_name("Dark Castle"));
+    }
+
+    #[test]
+    fn stub_emits_provenance_only_when_set() {
+        let h = Harvested {
+            id: "apeiron".into(), name: "Apeiron".into(), kind: "game".into(),
+            year: None, genre: None, app_path: "Apps/Apeiron/Apeiron".into(),
+            files: vec![], was_installer: true,
+            download: Some("Apeiron 1.0.2.sit".into()), mg_nid: Some(123),
+        };
+        let line = stub_line(&h);
+        assert!(line.contains(r#""was_installer":true"#));
+        assert!(line.contains(r#""download":"Apeiron 1.0.2.sit""#));
+        assert!(line.contains(r#""mg_nid":123"#));
     }
 }

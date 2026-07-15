@@ -834,6 +834,13 @@ fn main() -> Result<()> {
                         r.long_names.join(", ")
                     );
                 }
+                if !r.installers.is_empty() {
+                    eprintln!(
+                        "  {} title(s) whose app looks like an installer/patch (was_installer): {}",
+                        r.installers.len(),
+                        r.installers.join(", ")
+                    );
+                }
             }
         },
         Cmd::Targets => {
