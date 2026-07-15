@@ -40,6 +40,9 @@ pub fn d_apps_root() -> String { "/MacAtrium/Apps".into() }
 pub fn d_metadir() -> String { "/MacAtrium/metadata".into() }
 pub fn d_imagesdir() -> String { "/MacAtrium/images".into() }
 pub fn d_artdepth() -> String { "8".into() }
+/// Default depth variants: all three art modes (1/8/24-bit, docs/44), so a build
+/// bakes B&W + 8-bit colour + 24-bit truecolour unless a config/Target overrides.
+pub fn d_art_depths() -> Vec<String> { vec!["1".into(), "8".into(), "24".into()] }
 pub fn d_curl() -> String { "curl".into() }
 
 /// Default art bound (px) when neither `max_art_size` nor `art_max` is set.
@@ -169,7 +172,10 @@ pub struct BuildConfig {
     #[serde(default = "d_artdepth")]
     pub art_depth: String,
     /// Generate multiple depth variants (e.g. ["1","8"]) named `<id>.<depth>.pict`.
-    #[serde(default)]
+    /// Defaults to all three art modes (`["1","8","24"]`, docs/44) so a build bakes
+    /// B&W + colour + truecolour; set explicitly to override — e.g. `["1"]` for a
+    /// pure-B&W compact build, or `[]` to fall back to the single `art_depth`.
+    #[serde(default = "d_art_depths")]
     pub art_depths: Vec<String>,
     /// Pack each item's depth variants into ONE per-item resource fork
     /// (`images/<id>.rsrc`: a 1-bit `ABMP` + a `PICT` per colour depth, id =
@@ -471,6 +477,21 @@ mod tests {
     }
 
     #[test]
+    fn art_depths_default_to_all_three_modes() {
+        // Default bakes all three art modes (1/8/24-bit, docs/44) so a build is
+        // colour + truecolour, never accidentally B&W-only.
+        assert_eq!(BuildConfig::default().art_depths, ["1", "8", "24"]);
+        assert!(BuildConfig::default().wants_color_art());
+        // A config that omits the field still gets the default (existing builds gain colour).
+        let c: BuildConfig = serde_json::from_str(r#"{"out":"o"}"#).unwrap();
+        assert_eq!(c.art_depths, ["1", "8", "24"]);
+        // An explicit list still wins — e.g. a pure-B&W compact build.
+        let c: BuildConfig = serde_json::from_str(r#"{"out":"o","art_depths":["1"]}"#).unwrap();
+        assert_eq!(c.art_depths, ["1"]);
+        assert!(!c.wants_color_art());
+    }
+
+    #[test]
     fn launcher_path_defaults_to_build_dir() {
         // No config path + no env override -> build/MacAtrium.bin (the launcher is
         // never embedded; it's built by Retro68 or dropped in from a release).
@@ -517,7 +538,7 @@ impl Default for BuildConfig {
             harvest: Vec::new(),
             art_dir: None,
             art_depth: d_artdepth(),
-            art_depths: Vec::new(),
+            art_depths: d_art_depths(),
             art_forks: d_art_forks(),
             art_max: None,
             max_art_size: None,
