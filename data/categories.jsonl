@@ -408,7 +408,7 @@
 {"id":"elevator-espionage","categories":["Action & Arcade","Black & White"]}
 {"id":"empire-deluxe-1-1","categories":["Strategy & Sim","Color"]}
 {"id":"empire-master-1-9-3","categories":["Color"]}
-{"id":"enchanted-scepters","categories":["Adventure","Interactive Fiction","Black & White"]}
+{"id":"enchanted-scepters","categories":["Adventure","Color"]}
 {"id":"enchanter","categories":["Interactive Fiction","Black & White"]}
 {"id":"enhanced-release-1","categories":["Interactive Fiction","Color"]}
 {"id":"enhanced-release-2","categories":["Interactive Fiction","Color"]}
@@ -1113,7 +1113,7 @@
 {"id":"reversi","categories":["Strategy & Sim","Black & White"]}
 {"id":"rhodes-1-0","categories":["Puzzle","Color"]}
 {"id":"ringwarp-0-9d","categories":["Color"]}
-{"id":"risk","categories":["Recommended","Strategy & Sim","Black & White"]}
+{"id":"risk","categories":["Recommended","Strategy & Sim","Color"]}
 {"id":"risk-deluxe-1-0","categories":["Strategy & Sim","Color"]}
 {"id":"risk-ii-2-40","categories":["Color"]}
 {"id":"road-racer","categories":["Black & White"]}
@@ -1489,85 +1489,85 @@
 {"id":"spectre","categories":["Recommended","Action & Arcade","Color","No Mouse Required"]}
 {"id":"tetris","categories":["Puzzle","Black & White"]}
 {"id":"simpletext","categories":["Applications"]}
-{"id":"amazon-trail","categories":["Color"]}
-{"id":"apeiron","categories":["Color"]}
-{"id":"avara","categories":["Color"]}
-{"id":"balance-of-power-1990-edition","categories":["Color"]}
-{"id":"barrack","categories":["Color"]}
-{"id":"battle-chess","categories":["Color"]}
-{"id":"bolo","categories":["Color"]}
-{"id":"castle-of-dr-brain","categories":["Color"]}
-{"id":"chiral","categories":["Color"]}
-{"id":"civilization","categories":["Color"]}
-{"id":"continuum","categories":["Color"]}
+{"id":"amazon-trail","categories":["Educational","Color"]}
+{"id":"apeiron","categories":["Action & Arcade","Color"]}
+{"id":"avara","categories":["Action & Arcade","Color"]}
+{"id":"balance-of-power-1990-edition","categories":["Strategy & Sim","Color"]}
+{"id":"barrack","categories":["Action & Arcade","Color"]}
+{"id":"battle-chess","categories":["Action & Arcade","Color"]}
+{"id":"bolo","categories":["Action & Arcade","Color"]}
+{"id":"castle-of-dr-brain","categories":["Educational","Color"]}
+{"id":"chiral","categories":["Action & Arcade","Color"]}
+{"id":"civilization","categories":["Strategy & Sim","Color"]}
+{"id":"continuum","categories":["Action & Arcade","Color"]}
 {"id":"cosmic-osmo","categories":["Adventure","Color"]}
 {"id":"d-j-vu-a-nightmare-comes-true","categories":["Adventure","Black & White"]}
 {"id":"d-j-vu-ii-lost-in-las-vegas","categories":["Adventure","Color"]}
-{"id":"defender-of-the-crown","categories":["Color"]}
-{"id":"dinopark-tycoon","categories":["Color"]}
+{"id":"defender-of-the-crown","categories":["Action & Arcade","Color"]}
+{"id":"dinopark-tycoon","categories":["Educational","Color"]}
 {"id":"earl-weaver-baseball","categories":["Strategy & Sim","Color"]}
-{"id":"empire-deluxe","categories":["Color"]}
-{"id":"eric-s-ultimate-solitaire","categories":["Color"]}
+{"id":"empire-deluxe","categories":["Strategy & Sim","Color"]}
+{"id":"eric-s-ultimate-solitaire","categories":["Card & Casino","Color"]}
 {"id":"falcon-mc","categories":["Strategy & Sim","Color"]}
-{"id":"flashback","categories":["Color"]}
+{"id":"flashback","categories":["Action & Arcade","Color"]}
 {"id":"freddy-pharkas-frontier-pharmacist","categories":["Adventure","Color"]}
-{"id":"gato","categories":["Color"]}
-{"id":"glider","categories":["Color"]}
-{"id":"glider-4-0","categories":["Color"]}
-{"id":"glider-pro","categories":["Color"]}
-{"id":"harpoon","categories":["Color"]}
+{"id":"gato","categories":["Strategy & Sim","Color"]}
+{"id":"glider","categories":["Action & Arcade","Color"]}
+{"id":"glider-4-0","categories":["Action & Arcade","Color"]}
+{"id":"glider-pro","categories":["Action & Arcade","Color"]}
+{"id":"harpoon","categories":["Strategy & Sim","Color"]}
 {"id":"hellcats-over-the-pacific","categories":["Strategy & Sim","Color"]}
-{"id":"hoyle-classic-card-games","categories":["Color"]}
+{"id":"hoyle-classic-card-games","categories":["Card & Casino","Color"]}
 {"id":"indiana-jones-and-the-fate-of-atlantis","categories":["Adventure","Color"]}
 {"id":"iron-helix","categories":["Adventure","Color"]}
 {"id":"king-s-quest-iii-to-heir-is-human","categories":["Adventure","Color"]}
 {"id":"king-s-quest-v","categories":["Adventure","Color"]}
 {"id":"king-s-quest-vi","categories":["Adventure","Color"]}
-{"id":"lode-runner-the-legend-returns","categories":["Color"]}
-{"id":"mac-bzone","categories":["Color"]}
-{"id":"maelstrom","categories":["Color"]}
-{"id":"marathon","categories":["Color"]}
-{"id":"marathon-2-durandal","categories":["Color"]}
+{"id":"lode-runner-the-legend-returns","categories":["Action & Arcade","Color"]}
+{"id":"mac-bzone","categories":["Action & Arcade","Color"]}
+{"id":"maelstrom","categories":["Action & Arcade","Color"]}
+{"id":"marathon","categories":["Action & Arcade","Color"]}
+{"id":"marathon-2-durandal","categories":["Action & Arcade","Color"]}
 {"id":"might-and-magic-ii-gates-to-another-world","categories":["Role-Playing","Color"]}
 {"id":"might-and-magic-iii-isles-of-terra","categories":["Role-Playing","Color"]}
-{"id":"minotaur-the-labyrinths-of-crete","categories":["Color"]}
+{"id":"minotaur-the-labyrinths-of-crete","categories":["Action & Arcade","Color"]}
 {"id":"monkey-island-2-lechuck-s-revenge","categories":["Adventure","Color"]}
-{"id":"number-munchers","categories":["Color"]}
+{"id":"number-munchers","categories":["Educational","Color"]}
 {"id":"odyssey-the-legend-of-nemesis","categories":["Role-Playing","Color"]}
-{"id":"operation-desert-storm","categories":["Color"]}
-{"id":"pathways-into-darkness","categories":["Color"]}
-{"id":"populous","categories":["Color"]}
-{"id":"prince-of-persia-2-the-shadow-and-the-flame","categories":["Color"]}
+{"id":"operation-desert-storm","categories":["Action & Arcade","Color"]}
+{"id":"pathways-into-darkness","categories":["Action & Arcade","Color"]}
+{"id":"populous","categories":["Strategy & Sim","Color"]}
+{"id":"prince-of-persia-2-the-shadow-and-the-flame","categories":["Action & Arcade","Color"]}
 {"id":"realmz","categories":["Role-Playing","Color"]}
-{"id":"sensory-overload","categories":["Color"]}
+{"id":"sensory-overload","categories":["Action & Arcade","Color"]}
 {"id":"shanghai","categories":["Puzzle","Black & White"]}
-{"id":"shufflepuck-caf","categories":["Color"]}
-{"id":"sid-meier-s-pirates","categories":["Color"]}
-{"id":"simearth","categories":["Color"]}
-{"id":"simlife","categories":["Color"]}
-{"id":"solarian-ii","categories":["Color"]}
-{"id":"solitaire-royale","categories":["Color"]}
+{"id":"shufflepuck-caf","categories":["Action & Arcade","Color"]}
+{"id":"sid-meier-s-pirates","categories":["Strategy & Sim","Color"]}
+{"id":"simearth","categories":["Strategy & Sim","Color"]}
+{"id":"simlife","categories":["Strategy & Sim","Color"]}
+{"id":"solarian-ii","categories":["Action & Arcade","Color"]}
+{"id":"solitaire-royale","categories":["Card & Casino","Color"]}
 {"id":"space-quest-iv","categories":["Adventure","Color"]}
-{"id":"spaceward-ho","categories":["Color"]}
-{"id":"spectre-supreme","categories":["Color"]}
-{"id":"spectre-vr","categories":["Color"]}
+{"id":"spaceward-ho","categories":["Strategy & Sim","Color"]}
+{"id":"spectre-supreme","categories":["Action & Arcade","Color"]}
+{"id":"spectre-vr","categories":["Action & Arcade","Color"]}
 {"id":"star-trek-25th-anniversary","categories":["Adventure","Color"]}
-{"id":"storybook-weaver","categories":["Color"]}
-{"id":"strategic-conquest","categories":["Black & White"]}
-{"id":"super-munchers","categories":["Color"]}
-{"id":"swoop","categories":["Color"]}
+{"id":"storybook-weaver","categories":["Educational","Color"]}
+{"id":"strategic-conquest","categories":["Strategy & Sim","Black & White"]}
+{"id":"super-munchers","categories":["Educational","Color"]}
+{"id":"swoop","categories":["Action & Arcade","Color"]}
 {"id":"tesserae","categories":["Puzzle","Color"]}
-{"id":"the-ancient-art-of-war-at-sea","categories":["Color"]}
-{"id":"the-chessmaster-2100","categories":["Color"]}
-{"id":"the-colony","categories":["Color"]}
+{"id":"the-ancient-art-of-war-at-sea","categories":["Strategy & Sim","Color"]}
+{"id":"the-chessmaster-2100","categories":["Card & Casino","Color"]}
+{"id":"the-colony","categories":["Action & Arcade","Color"]}
 {"id":"the-even-more-incredible-machine","categories":["Puzzle","Color"]}
 {"id":"the-fool-s-errand","categories":["Puzzle","Color"]}
-{"id":"the-oregon-trail","categories":["Color"]}
+{"id":"the-oregon-trail","categories":["Educational","Color"]}
 {"id":"the-secret-of-monkey-island","categories":["Adventure","Color"]}
-{"id":"warlords","categories":["Color"]}
+{"id":"warlords","categories":["Strategy & Sim","Color"]}
 {"id":"welltris","categories":["Puzzle","Color"]}
-{"id":"where-in-europe-is-carmen-sandiego","categories":["Color"]}
-{"id":"where-in-the-world-is-carmen-sandiego-deluxe","categories":["Color"]}
-{"id":"word-munchers","categories":["Color"]}
-{"id":"airborne","categories":["Black & White"]}
-{"id":"banzai","categories":["Black & White"]}
+{"id":"where-in-europe-is-carmen-sandiego","categories":["Educational","Color"]}
+{"id":"where-in-the-world-is-carmen-sandiego-deluxe","categories":["Educational","Color"]}
+{"id":"word-munchers","categories":["Educational","Color"]}
+{"id":"airborne","categories":["Action & Arcade","Black & White"]}
+{"id":"banzai","categories":["Action & Arcade","Black & White"]}

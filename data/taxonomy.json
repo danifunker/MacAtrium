@@ -47,7 +47,13 @@
     "Educational": "Educational",
     "Early Childhood": "Educational",
     "Creative": "Educational",
-    "Science & Math": "Educational"
+    "Science & Math": "Educational",
+    "Educational / Edutainment": "Educational",
+    "Action & Arcade": "Action & Arcade",
+    "3D Action/Shooters": "Action & Arcade",
+    "Platform & Side-Scrolling": "Action & Arcade",
+    "Strategy & Wargames": "Strategy & Sim",
+    "Card, Board & Casino": "Card & Casino"
   },
   "recommended": [
     "prince-of-persia",
