@@ -1,0 +1,26 @@
+# Keep line endings consistent across this WSL/Unix repo. It is built with a
+# Unix toolchain (Retro68, shell scripts, rb-cli), but Windows-side editors and
+# tools occasionally rewrite files with CRLF. The text=auto eol=lf rule makes
+# git store and check out text as LF and normalize on the fly, so a stray CRLF
+# working-tree write is never committed and never shows up as a spurious git
+# diff. (A local core.autocrlf=input reinforces this on the checkin side.)
+* text=auto eol=lf
+
+# Shell scripts break outright if they ever get CRLF -- pin explicitly.
+*.sh text eol=lf
+
+# Binary assets: never normalize or diff as text.
+*.png  binary
+*.ico  binary
+*.gif  binary
+*.jpg  binary
+*.jpeg binary
+*.bin  binary
+*.hfv  binary
+*.hda  binary
+*.img  binary
+*.iso  binary
+*.dsk  binary
+*.rom  binary
+*.sit  binary
+*.hqx  binary
