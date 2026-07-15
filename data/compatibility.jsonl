@@ -350,7 +350,7 @@
 {"id":"life-1-2","color":false}
 {"id":"life-death-1-01","color":false}
 {"id":"little-pythagoras","color":false}
-{"id":"loom","color":true}
+{"id": "loom", "color": true, "maxDepth": 8}
 {"id":"lost-adventure-2-0-2","color":false}
 {"id":"lost-princess","color":false}
 {"id":"lunar-rescue-pcai","color":false}
@@ -385,7 +385,7 @@
 {"id":"mine-field-1-1","color":false}
 {"id":"mission-starlight-1-1","color":false}
 {"id":"mission-thunderbolt-1-0","color":true}
-{"id":"mixed-up-mother-goose","color":true}
+{"id": "mixed-up-mother-goose", "color": true, "maxDepth": 4}
 {"id":"mode32-7-5","color":true}
 {"id":"moebius","color":true}
 {"id":"mombasa-1-1","color":true}
@@ -464,7 +464,7 @@
 {"id":"quill-2-2","color":false}
 {"id":"ray-s-maze-1-5","color":false}
 {"id":"reach-for-the-stars-3-01","color":false}
-{"id":"reader-rabbit-2","color":true}
+{"id": "reader-rabbit-2", "color": true, "maxDepth": 8}
 {"id":"reader-rabbit-2-2","color":true}
 {"id":"reader-rabbit-3","color":true}
 {"id":"reader-rabbit-3-0","color":true}
@@ -634,3 +634,29 @@
 {"id":"zhore-s-xers-2-3","color":false}
 {"id":"zippy","color":false}
 {"id":"zork-zero","color":true}
+# 2026-07-15: 93-game Millions-of-colors emulator audit (this session) — see
+# memory macatrium-color-depth-audit.md for methodology.
+{"id": "amazon-trail", "maxDepth": 8}
+{"id": "castle-of-dr-brain", "maxDepth": 8}
+{"id": "dinopark-tycoon", "maxDepth": 8}
+{"id": "flashback", "maxDepth": 8}
+{"id": "hellcats-over-the-pacific", "maxDepth": 8}
+{"id": "indiana-jones-and-the-fate-of-atlantis", "maxDepth": 8}
+{"id": "king-s-quest-v", "maxDepth": 8}
+{"id": "king-s-quest-vi", "maxDepth": 8}
+{"id": "minotaur-the-labyrinths-of-crete", "maxDepth": 8}
+{"id": "number-munchers", "maxDepth": 8}
+{"id": "prince-of-persia-2-the-shadow-and-the-flame", "maxDepth": 8}
+{"id": "solarian-ii", "maxDepth": 8}
+{"id": "spectre-supreme", "maxDepth": 8}
+{"id": "star-trek-25th-anniversary", "maxDepth": 8}
+{"id": "storybook-weaver", "maxDepth": 8}
+{"id": "super-munchers", "maxDepth": 8}
+{"id": "the-chessmaster-2100", "maxDepth": 8}
+{"id": "the-secret-of-monkey-island", "maxDepth": 8}
+{"id": "where-in-the-world-is-carmen-sandiego-deluxe", "maxDepth": 8}
+{"id": "word-munchers", "maxDepth": 8}
+{"id": "risk", "maxDepth": 8}
+{"id": "glider-4-0", "maxDepth": 4}
+{"id": "king-s-quest-iii-to-heir-is-human", "maxDepth": 4}
+{"id": "space-quest-iii", "maxDepth": 4}
