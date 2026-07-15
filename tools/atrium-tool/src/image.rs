@@ -668,6 +668,23 @@ pub fn run(cfg: &BuildConfig) -> Result<()> {
         }
     );
 
+    // A named collection (a saved game list) is resolved to a List selection here:
+    // its ids drive the build and its per-title overrides merge over the working
+    // dataset. It takes precedence over an inline `selection`.
+    let effective_sel: Option<crate::config::Selection> = match &cfg.collection {
+        Some(name) => {
+            let col = crate::collections::find(name)?;
+            eprintln!("[lib] collection '{}' — {} title(s)", col.name, col.ids.len());
+            if !col.overrides.is_empty() {
+                let ov = stage.join("collection-overrides.jsonl");
+                std::fs::write(&ov, col.overrides_jsonl())?;
+                merge::run(&work, &ov, &work, false)?;
+            }
+            Some(crate::config::Selection::List { ids: col.ids })
+        }
+        None => cfg.selection.clone(),
+    };
+
     // 1. base system -> out
     let system = cfg.system.as_ref().expect("resolve() guarantees system is set");
     eprintln!("[1/7] base system  {} -> {}", system.display(), cfg.out.display());
@@ -681,7 +698,7 @@ pub fn run(cfg: &BuildConfig) -> Result<()> {
     // 1b. preflight: project disk usage before doing the expensive work, and warn
     // if it won't fit the target (~95% estimate; not a hard gate).
     {
-        let n_items: u64 = match &cfg.selection {
+        let n_items: u64 = match &effective_sel {
             Some(sel) => crate::selection::resolve(&work, sel, cfg.base_os.as_deref())
                 .map(|(ids, _)| ids.len() as u64)
                 .unwrap_or(0),
@@ -716,7 +733,7 @@ pub fn run(cfg: &BuildConfig) -> Result<()> {
     // 3. harvest apps from donor images into the output + append stubs. Two paths,
     // both may run: a high-level `selection` (dataset ids/categories → donor
     // registry) and the low-level explicit `harvest` list (manual override).
-    if let Some(sel) = &cfg.selection {
+    if let Some(sel) = &effective_sel {
         let donors = crate::donors::Registry::load_default();
         let (plan, reservoir, unresolved, curated) = crate::selection::harvest_plan(
             &work,

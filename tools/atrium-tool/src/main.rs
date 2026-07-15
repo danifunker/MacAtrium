@@ -375,6 +375,12 @@ enum Cmd {
     /// bundled defaults overlaid with any user targets from ~/.macatrium.json.
     Targets,
 
+    /// List the saved **collections** — named game lists (a subset of the library
+    /// a build is driven by, via the config `collection` field). Shows bundled
+    /// examples (`data/collections/*.json`) overlaid with user collections in
+    /// `~/.macatrium/collections`.
+    Collections,
+
     /// Explore the Macintosh Garden archive, cross-referenced against MacPack —
     /// to find what we're missing. Filters by type/architecture/OS/year/category
     /// (+ colour via the offline cache); `--missing` shows only titles NOT in
@@ -842,6 +848,19 @@ fn main() -> Result<()> {
                 eprintln!("      base OS {}  ·  art {depths}  ·  RAM {mem}", t.base_os);
                 if !t.label.is_empty() {
                     eprintln!("      {}", t.label);
+                }
+            }
+        }
+        Cmd::Collections => {
+            let cols = atrium::collections::list();
+            eprintln!("collections ({} total):", cols.len());
+            for c in &cols {
+                eprintln!(
+                    "  {}  [{}]  — {} title(s)",
+                    c.collection.name, c.origin, c.collection.ids.len()
+                );
+                if !c.collection.label.is_empty() {
+                    eprintln!("      {}", c.collection.label);
                 }
             }
         }

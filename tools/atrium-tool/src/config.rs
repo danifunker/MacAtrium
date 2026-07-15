@@ -131,6 +131,12 @@ pub struct BuildConfig {
     /// Which dataset apps to include. None falls back to the `harvest` block.
     #[serde(default)]
     pub selection: Option<Selection>,
+    /// Build from a named **collection** (a saved game list — `data/collections/
+    /// <name>.json`, or a user collection under `~/.macatrium/collections`). Its
+    /// `ids` become the selection and its per-title `overrides` merge over the
+    /// dataset. Takes precedence over `selection` when set.
+    #[serde(default)]
+    pub collection: Option<String>,
     #[serde(default = "d_startup")]
     pub startup_items: String,
     /// Compatibility/facets overlay (`data/compatibility.jsonl`) merged over the
@@ -500,6 +506,7 @@ impl Default for BuildConfig {
             dataset: None,
             disk_size_mb: None,
             selection: None,
+            collection: None,
             startup_items: d_startup(),
             overrides: None,
             metadata: None,

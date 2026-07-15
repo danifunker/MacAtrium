@@ -5,6 +5,7 @@
 //! of truth, the GUI is a thin front-end over it.
 
 pub mod catalog;
+pub mod collections;
 pub mod config;
 pub mod donors;
 pub mod enrich;
