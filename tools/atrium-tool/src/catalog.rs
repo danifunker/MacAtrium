@@ -265,6 +265,14 @@ fn build(src_text: &str) -> Result<(Vec<OutItem>, Report)> {
         if it.app.chars().count() > ITEM_PATH_LEN {
             warn(format!("app path longer than {ITEM_PATH_LEN} chars"));
         }
+        // Each path component is an HFS folder/file name (31-char cap). A longer
+        // component is silently truncated on the volume — which once made two
+        // "…Carmen Sandiego" folders collide — so surface it at build time.
+        for comp in it.app.split('/').filter(|c| c.chars().count() > 31) {
+            warn(format!(
+                "app component \"{comp}\" is >31 chars; HFS truncates it on the volume (shorten the on-disk name — see config::hfs_name)"
+            ));
+        }
         if let Some(v) = &it.cd_image {
             if v.chars().count() > ITEM_CDIMG_LEN {
                 warn(format!("cdImage longer than {ITEM_CDIMG_LEN} chars (will truncate on device)"));

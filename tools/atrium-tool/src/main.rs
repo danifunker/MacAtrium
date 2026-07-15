@@ -491,6 +491,30 @@ enum LibraryCmd {
         #[arg(long, default_value = "data/categories.jsonl")]
         out: PathBuf,
     },
+
+    /// Enrich a dataset with reservoir `harvest_src`: derive each title's donor
+    /// folder from its `app` path and validate it against an installed-content
+    /// donor image (e.g. donor.hfv), so a build copies each folder verbatim
+    /// instead of harvesting it. Records with no `app` pass through unchanged.
+    ScanReservoir {
+        /// Dataset (the "game list") whose records to enrich (e.g. delta.jsonl).
+        #[arg(long)]
+        dataset: PathBuf,
+        /// The reservoir donor image to validate folders against.
+        #[arg(long)]
+        image: PathBuf,
+        /// Donor KEY recorded in harvest_src (mark it `reservoir` in donors.json).
+        #[arg(long)]
+        donor: String,
+        /// Apps root inside the donor image.
+        #[arg(long, default_value = "/MacAtrium/Apps")]
+        apps_root: String,
+        /// Output enriched dataset (e.g. data/curated.jsonl).
+        #[arg(long)]
+        out: PathBuf,
+        #[arg(long, default_value = "rb-cli")]
+        rb_cli: String,
+    },
 }
 
 /// Truncate a display string to `n` chars (… if cut), for table columns.
@@ -784,6 +808,25 @@ fn main() -> Result<()> {
                     if let Some(n) = r.per_category.get(&cat) {
                         eprintln!("  {n:5}  {cat}");
                     }
+                }
+            }
+            LibraryCmd::ScanReservoir { dataset, image, donor, apps_root, out, rb_cli } => {
+                let rb = atrium::rbcli::RbCli::new(&rb_cli);
+                let r = atrium::library::scan_reservoir(&rb, &dataset, &image, &donor, &apps_root, &out)?;
+                eprintln!("scan-reservoir: linked {} title(s) -> {}", r.linked, out.display());
+                if !r.missing.is_empty() {
+                    eprintln!(
+                        "  {} folder(s) NOT found in the donor: {}",
+                        r.missing.len(),
+                        r.missing.join(", ")
+                    );
+                }
+                if !r.long_names.is_empty() {
+                    eprintln!(
+                        "  {} folder name(s) >31 chars (HFS-truncated on the donor): {}",
+                        r.long_names.len(),
+                        r.long_names.join(", ")
+                    );
                 }
             }
         },

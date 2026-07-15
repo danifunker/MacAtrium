@@ -421,6 +421,79 @@ pub fn categorize(
     Ok(CategorizeReport { titles: rows.len(), assigned, preserved, uncategorized, per_category })
 }
 
+/// Report from [`scan_reservoir`].
+#[derive(Default)]
+pub struct ReservoirReport {
+    pub linked: usize,
+    pub missing: Vec<String>,    // ids whose folder wasn't found in the donor image
+    pub long_names: Vec<String>, // donor folder names > 31 chars (HFS truncated)
+}
+
+/// Derive a reservoir title's donor folder name + absolute donor path from its
+/// `app` (relative to `/MacAtrium`, e.g. `Apps/<folder>/<appl>`) and the donor's
+/// apps-root. `None` if `app` has no folder component.
+fn reservoir_paths(app: &str, apps_root: &str) -> Option<(String, String)> {
+    let rel = app.strip_prefix("Apps/").unwrap_or(app);
+    let folder = rel.split('/').next().filter(|s| !s.is_empty())?;
+    Some((folder.to_string(), format!("{}/{}", apps_root.trim_end_matches('/'), folder)))
+}
+
+/// Enrich a dataset (the "game list") with reservoir `harvest_src`: for each
+/// record, derive its donor folder from the `app` path, validate the folder
+/// exists in the reservoir `image`, and attach `harvest_src: {donor, path}` so a
+/// build copies that installed folder **verbatim** (the [`crate::image`] reservoir
+/// path) instead of harvesting it. Comments/blank lines and records with no `app`
+/// pass through unchanged. Writes to `out` (e.g. `data/curated.jsonl`).
+/// Idempotent — an existing `harvest_src` is overwritten.
+pub fn scan_reservoir(
+    rb: &RbCli,
+    dataset: &Path,
+    image: &Path,
+    donor_key: &str,
+    apps_root: &str,
+    out: &Path,
+) -> Result<ReservoirReport> {
+    let text = std::fs::read_to_string(dataset)
+        .with_context(|| format!("reading dataset {}", dataset.display()))?;
+    let mut report = ReservoirReport::default();
+    let mut body = String::new();
+    for line in text.lines() {
+        let t = line.trim();
+        if t.is_empty() || t.starts_with('#') || t.starts_with("//") {
+            body.push_str(line);
+            body.push('\n');
+            continue;
+        }
+        let mut rec: Map<String, Value> = match serde_json::from_str(t) {
+            Ok(Value::Object(o)) => o,
+            _ => {
+                body.push_str(line);
+                body.push('\n');
+                continue;
+            }
+        };
+        let id = rec.get("id").and_then(Value::as_str).unwrap_or_default().to_string();
+        let app = rec.get("app").and_then(Value::as_str).unwrap_or_default().to_string();
+        if let Some((folder, donor_path)) = reservoir_paths(&app, apps_root) {
+            if !rb.exists(image, &donor_path) {
+                report.missing.push(id.clone());
+            }
+            if folder.chars().count() > 31 {
+                report.long_names.push(folder);
+            }
+            let mut hs = Map::new();
+            hs.insert("donor".into(), Value::from(donor_key));
+            hs.insert("path".into(), Value::from(donor_path));
+            rec.insert("harvest_src".into(), Value::Object(hs));
+            report.linked += 1;
+        }
+        body.push_str(&Value::Object(rec).to_string());
+        body.push('\n');
+    }
+    std::fs::write(out, &body).with_context(|| format!("writing {}", out.display()))?;
+    Ok(report)
+}
+
 /// Serialize one title as a `library.jsonl` line (stable key order via the model).
 fn record_line(t: &Title) -> String {
     let mut m = Map::new();
@@ -514,5 +587,20 @@ mod tests {
         assert_eq!(v["year"], 1986);
         assert_eq!(v["harvest_src"]["donor"], "boot.vhd");
         assert_eq!(v["app"], "Apps/Archon/Archon");
+    }
+
+    #[test]
+    fn reservoir_paths_derives_folder_and_donor_path() {
+        assert_eq!(
+            reservoir_paths("Apps/Apeiron 1.0.2 ƒ/Apeiron", "/MacAtrium/Apps"),
+            Some(("Apeiron 1.0.2 ƒ".into(), "/MacAtrium/Apps/Apeiron 1.0.2 ƒ".into()))
+        );
+        // a trailing slash on apps_root is tolerated
+        assert_eq!(
+            reservoir_paths("Apps/Bolo/Bolo", "/MacAtrium/Apps/"),
+            Some(("Bolo".into(), "/MacAtrium/Apps/Bolo".into()))
+        );
+        // no folder component -> None (nothing to link)
+        assert_eq!(reservoir_paths("", "/MacAtrium/Apps"), None);
     }
 }

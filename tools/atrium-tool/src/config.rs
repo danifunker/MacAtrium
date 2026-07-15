@@ -278,6 +278,30 @@ pub fn fs_id(id: &str) -> String {
     format!("{}-{:04x}", &id[..MAX - 5], h & 0xffff)
 }
 
+/// Shorten a display title into a classic-HFS-safe **on-volume folder/file name**:
+/// **≤ 31 characters** (the HFS filename cap). A short name is returned unchanged;
+/// a longer one becomes a readable 26-char prefix + `-` + a 4-hex hash of the full
+/// name, so two distinct long titles never collapse to the same 31 chars — which
+/// is exactly how the HFS truncation of "Where in America's Past Is Carmen
+/// Sandiego" → "…Is Carm" made the title ambiguous. Deterministic and
+/// char-boundary-safe (titles carry `™`/`ƒ`; MacRoman is single-byte so char
+/// count ≈ the on-volume byte count). Use this whenever the tooling *creates* an
+/// on-volume name from a title, so a name is never silently mangled by HFS
+/// (docs/CODE_GUIDELINES.md). The catalog `id` and display `name` are untouched.
+pub fn hfs_name(name: &str) -> String {
+    const MAX: usize = 31;
+    if name.chars().count() <= MAX {
+        return name.to_string();
+    }
+    let mut h: u32 = 0x811c_9dc5; // FNV-1a over the full name
+    for b in name.bytes() {
+        h ^= b as u32;
+        h = h.wrapping_mul(0x0100_0193);
+    }
+    let prefix: String = name.chars().take(MAX - 5).collect(); // 26 + '-' + 4 = 31
+    format!("{prefix}-{:04x}", h & 0xffff)
+}
+
 /// Parse a `"WxH"` art-size string (e.g. `"1024x768"`) into `(w, h)`. Accepts a
 /// lower- or upper-case `x` separator; returns `None` on any malformed/zero input.
 pub fn parse_wh(s: &str) -> Option<(u32, u32)> {
@@ -383,6 +407,23 @@ mod tests {
         assert!(got.len() + ".shot.24.pict".len() <= 31);
         assert_eq!(fs_id(long), got); // deterministic
         assert_ne!(fs_id("a-very-long-game-name-one"), fs_id("a-very-long-game-name-two"));
+    }
+
+    #[test]
+    fn hfs_name_caps_at_31_and_stays_distinct() {
+        assert_eq!(hfs_name("Dark Castle"), "Dark Castle"); // short -> unchanged
+        let k31 = "a".repeat(31);
+        assert_eq!(hfs_name(&k31), k31); // exactly 31 is kept
+        let long = "Where in America's Past Is Carmen Sandiego?";
+        let got = hfs_name(long);
+        assert_eq!(got.chars().count(), 31, "shortened to the HFS cap");
+        assert_eq!(hfs_name(long), got); // deterministic
+        // Two long titles HFS would truncate to the same 31 chars stay distinct.
+        let a = "Where in America's Past Is Carmen Sandiego";
+        let b = "Where in America's Past Is Carmen Sandiego Deluxe Edition";
+        assert_ne!(hfs_name(a), hfs_name(b));
+        // Char-boundary safe with a multi-byte title (must not panic).
+        let _ = hfs_name("A Game\u{2122} With A Very Long Collector's Edition Name");
     }
 
     #[test]
