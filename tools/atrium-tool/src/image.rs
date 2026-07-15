@@ -718,7 +718,7 @@ pub fn run(cfg: &BuildConfig) -> Result<()> {
     // registry) and the low-level explicit `harvest` list (manual override).
     if let Some(sel) = &cfg.selection {
         let donors = crate::donors::Registry::load_default();
-        let (plan, unresolved, curated) = crate::selection::harvest_plan(
+        let (plan, reservoir, unresolved, curated) = crate::selection::harvest_plan(
             &work,
             sel,
             cfg.base_os.as_deref(),
@@ -731,6 +731,21 @@ pub fn run(cfg: &BuildConfig) -> Result<()> {
                 unresolved.len(),
                 unresolved.join(", ")
             );
+        }
+        // Reservoir donors: copy each selected installed folder verbatim (both
+        // forks, folder name + curated `app` preserved) — no harvest re-pick or
+        // rename. The dataset already carries the right `app`, so no stub rewrite.
+        let n_res: usize = reservoir.iter().map(|(_, f)| f.len()).sum();
+        if n_res > 0 {
+            rb.mkdir_p(&cfg.out, &cfg.apps_root)?;
+            let into = format!("{}/", cfg.apps_root.trim_end_matches('/'));
+            eprintln!("[2/7] reservoir    copy {n_res} title(s) verbatim");
+            for (image, folders) in &reservoir {
+                for folder in folders {
+                    rb.cp(image, folder, &cfg.out, &into)
+                        .with_context(|| format!("reservoir cp {folder}"))?;
+                }
+            }
         }
         eprintln!("[2/7] selection    harvest {} donor group(s)", plan.len());
         for (image, apps) in &plan {
@@ -990,11 +1005,22 @@ pub fn add_to_disk(cfg: &BuildConfig) -> Result<()> {
     // Harvest the selected titles' apps into the disk + append harvested stubs to
     // the delta (selection plan + any explicit harvest sources).
     let donors = crate::donors::Registry::load_default();
-    let (plan, unresolved, curated) = crate::selection::harvest_plan(
+    let (plan, reservoir, unresolved, curated) = crate::selection::harvest_plan(
         &lib, sel, cfg.base_os.as_deref(), &donors, settings.macpack_dir.as_deref(),
     )?;
     if !unresolved.is_empty() {
         eprintln!("[add] {} selected app(s) skipped (no source/donor): {}", unresolved.len(), unresolved.join(", "));
+    }
+    let n_res: usize = reservoir.iter().map(|(_, f)| f.len()).sum();
+    if n_res > 0 {
+        rb.mkdir_p(&cfg.out, &cfg.apps_root)?;
+        let into = format!("{}/", cfg.apps_root.trim_end_matches('/'));
+        eprintln!("[add] reservoir copy {n_res} title(s) verbatim");
+        for (image, folders) in &reservoir {
+            for folder in folders {
+                rb.cp(image, folder, &cfg.out, &into).with_context(|| format!("reservoir cp {folder}"))?;
+            }
+        }
     }
     eprintln!("[add] harvest {} donor group(s)", plan.len());
     for (image, apps) in &plan {

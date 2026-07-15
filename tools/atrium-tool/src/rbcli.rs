@@ -112,6 +112,20 @@ impl RbCli {
         Ok(())
     }
 
+    /// Copy a file or directory tree from one image to another **verbatim** —
+    /// both forks, names preserved, no re-pick/rename (`rb-cli cp -r --force`).
+    /// This is the reservoir path: an already-installed game folder is copied
+    /// as-is, unlike [`harvest`](crate::harvest), which re-derives the launchable
+    /// `APPL` and renames the destination folder to it. A `dst` ending in `/` (an
+    /// existing directory) keeps the source basename; otherwise `dst` is the
+    /// literal target name.
+    pub fn cp(&self, src_image: &Path, src: &str, dst_image: &Path, dst: &str) -> Result<()> {
+        let si = src_image.to_string_lossy();
+        let di = dst_image.to_string_lossy();
+        self.run(&["cp", "-r", &si, src, &di, dst, "--force", "-q"])?;
+        Ok(())
+    }
+
     /// Decode a .hqx and write it (both forks) into a directory inside an image.
     /// Clears `hasBeenInited` so the Finder re-reads each injected app's `BNDL` on
     /// the fresh disk and shows real icons (a copied-in app with `hasBeenInited`

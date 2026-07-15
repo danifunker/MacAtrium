@@ -156,49 +156,61 @@ pub fn resolve(
     Ok((chosen.iter().map(|r| r.id.clone()).collect(), missing))
 }
 
-/// Resolve a `harvest_src.donor` reference to a disk-image path: a `donors.json`
-/// alias first (e.g. "pop"/"supplement" — the curated overlay), else a disk
-/// *filename* (e.g. "boot.vhd" — what `library scan` records) found under the
-/// configured MacPack folder. `None` if neither resolves.
-fn resolve_donor(donor: &str, donors: &Donors, macpack_dir: Option<&Path>) -> Option<PathBuf> {
-    if let Some(p) = donors.get(donor) {
-        return Some(p.clone());
+/// Resolve a `harvest_src.donor` reference to `(disk-image path, is_reservoir)`:
+/// a `donors.json` entry first (e.g. "pop"/"supplement", or a reservoir like
+/// "macgarden"), else a disk *filename* (e.g. "boot.vhd" — what `library scan`
+/// records) found under the configured MacPack folder (always a harvest donor).
+/// `None` if neither resolves.
+fn resolve_donor(donor: &str, donors: &Donors, macpack_dir: Option<&Path>) -> Option<(PathBuf, bool)> {
+    if let Some(d) = donors.get(donor) {
+        return Some((d.path().to_path_buf(), d.reservoir()));
     }
     if let Some(dir) = macpack_dir {
         let p = dir.join(donor);
         if p.exists() {
-            return Some(p);
+            return Some((p, false));
         }
     }
     None
 }
 
-/// Turn a selection into a per-donor harvest list: each entry is a donor disk
-/// image and the app paths to pull from it. Selected apps with no `source`, or a
-/// `source` whose donor neither matches a registry alias nor a disk in the
-/// MacPack folder, are returned in `unresolved` (by id) so the caller can warn
-/// rather than silently skip.
-/// The third return value maps each donor app-path to the SELECTED record's id, so
-/// the harvester can keep the curated id on the produced stub (it otherwise derives
-/// an id from the launchable app's name, which can differ from the folder/curated
-/// title) — reconnecting the install to its curated metadata + categories.
+/// Turn a selection into the per-donor build sources. Returns:
+///  1. **harvest** groups — a MacPack donor image + the app folders to harvest
+///     (re-pick the `APPL`, rename the folder to it, extract both forks);
+///  2. **reservoir** groups — a reservoir donor image + the installed folders to
+///     copy **verbatim** (`rb-cli cp`; names and the curated `app` preserved);
+///  3. **unresolved** ids — selected apps with no `source`, or a `source` whose
+///     donor resolves to nothing, so the caller warns rather than silently skips;
+///  4. a map from each *harvest* donor app-path to the SELECTED record's id, so
+///     the harvester keeps the curated id on the produced stub (it otherwise
+///     derives one from the launchable app's name). Reservoir copies keep the
+///     dataset's own `app`/id, so they need no such map.
 pub fn harvest_plan(
     dataset: &Path,
     sel: &Selection,
     base_os: Option<&str>,
     donors: &Donors,
     macpack_dir: Option<&Path>,
-) -> Result<(Vec<(PathBuf, Vec<String>)>, Vec<String>, HashMap<String, String>)> {
+) -> Result<(
+    Vec<(PathBuf, Vec<String>)>,
+    Vec<(PathBuf, Vec<String>)>,
+    Vec<String>,
+    HashMap<String, String>,
+)> {
     let rows = rows(dataset)?;
     let (chosen, _missing) = select_rows(&rows, sel, base_os);
-    let mut groups: BTreeMap<PathBuf, Vec<String>> = BTreeMap::new();
+    let mut harvest: BTreeMap<PathBuf, Vec<String>> = BTreeMap::new();
+    let mut reservoir: BTreeMap<PathBuf, Vec<String>> = BTreeMap::new();
     let mut unresolved = Vec::new();
     let mut path_id: HashMap<String, String> = HashMap::new();
     for r in chosen {
         match &r.source {
             Some((donor, path)) => match resolve_donor(donor, donors, macpack_dir) {
-                Some(img) => {
-                    groups.entry(img).or_default().push(path.clone());
+                Some((img, true)) => {
+                    reservoir.entry(img).or_default().push(path.clone());
+                }
+                Some((img, false)) => {
+                    harvest.entry(img).or_default().push(path.clone());
                     path_id.insert(path.clone(), r.id.clone());
                 }
                 None => unresolved.push(r.id.clone()),
@@ -206,13 +218,18 @@ pub fn harvest_plan(
             None => unresolved.push(r.id.clone()),
         }
     }
-    Ok((groups.into_iter().collect(), unresolved, path_id))
+    Ok((
+        harvest.into_iter().collect(),
+        reservoir.into_iter().collect(),
+        unresolved,
+        path_id,
+    ))
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::donors::Registry;
+    use crate::donors::{Donor, Registry};
 
     #[test]
     fn os_range_bounds() {
@@ -232,16 +249,28 @@ mod tests {
     #[test]
     fn donor_resolves_alias_then_filename() {
         let mut reg = Registry::default();
-        reg.0.insert("pop".into(), PathBuf::from("/disks/pop.hda"));
-        // registry alias wins
-        assert_eq!(resolve_donor("pop", &reg, None), Some(PathBuf::from("/disks/pop.hda")));
-        // filename donor resolves under the MacPack folder (must exist)
+        reg.0.insert("pop".into(), Donor::Path(PathBuf::from("/disks/pop.hda")));
+        reg.0.insert(
+            "macgarden".into(),
+            Donor::Full { path: PathBuf::from("/disks/donor.hfv"), reservoir: true },
+        );
+        // a plain-path registry entry resolves as a harvest donor
+        assert_eq!(
+            resolve_donor("pop", &reg, None),
+            Some((PathBuf::from("/disks/pop.hda"), false))
+        );
+        // a reservoir entry resolves with the reservoir flag set
+        assert_eq!(
+            resolve_donor("macgarden", &reg, None),
+            Some((PathBuf::from("/disks/donor.hfv"), true))
+        );
+        // filename donor resolves under the MacPack folder (must exist) — harvest
         let dir = std::env::temp_dir();
         let f = dir.join("atrium_donor_boot.vhd");
         std::fs::write(&f, b"x").unwrap();
         assert_eq!(
             resolve_donor("atrium_donor_boot.vhd", &reg, Some(&dir)),
-            Some(f.clone())
+            Some((f.clone(), false))
         );
         // unknown alias + missing file -> None
         assert_eq!(resolve_donor("nope.vhd", &reg, Some(&dir)), None);
