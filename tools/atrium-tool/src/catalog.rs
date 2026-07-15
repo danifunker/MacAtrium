@@ -655,10 +655,15 @@ pub fn run_paged(
         Some(p) => Some(Taxonomy::load(p)?),
         None => None,
     };
-    // an item's categories: the DB (if given), else its derived set.
+    // an item's categories: the DB when it has an entry, else the item's derived
+    // set — so a title not yet in the category DB (e.g. a freshly added reservoir
+    // collection) is never orphaned/invisible; it falls back to Color/B&W + genre.
     let cats_of = |i: usize| -> Vec<String> {
         match &db {
-            Some(db) => db.get(&items[i].id).cloned().unwrap_or_default(),
+            Some(db) => match db.get(&items[i].id) {
+                Some(c) if !c.is_empty() => c.clone(),
+                _ => items[i].categories.clone(),
+            },
             None => items[i].categories.clone(),
         }
     };
