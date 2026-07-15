@@ -12,6 +12,10 @@ Name: **MacAtrium** · creator code (placeholder): `ATRM` (register/confirm uniq
 
 Read in order for the full picture; jump by topic once oriented.
 
+**Working in the code (agents + contributors):** start with
+[CODE_GUIDELINES.md](CODE_GUIDELINES.md) — repo map, conventions, and the
+invariants/gotchas that aren't obvious from the design docs.
+
 | # | Doc | What it covers |
 |---|-----|----------------|
 | — | [00-vision.md](00-vision.md) | Why this exists, goals, non-goals |
