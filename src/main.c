@@ -2133,6 +2133,9 @@ int main(void)
         model_build(&gModel, &gCat);   /* empty catalog -> just "All" with 0 items */
     }
     if (gPrefs.haveSel) model_select(&gModel, gPrefs.category, gPrefs.item);
+    else                model_select(&gModel, "Recommended", 0);  /* first run: land on
+                                        Recommended when curated; else model_select's own
+                                        not-found fallback leaves curCat at "All" (index 0) */
 
     /* The host CD listing is scanned lazily on FIRST USE (cd_scan_once in cdswap.c
      * — the first CD-title launch or CD Library open), never at boot: probing the
