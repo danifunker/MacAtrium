@@ -10,10 +10,12 @@ build/
 target/
 **/target/
 
-# Local test disk images (inject into copies, don't commit)
+# Local test disk images + release archives (inject into copies, don't commit)
 *.dsk
 *.hda
+*.hfv
 *.img
+*.zip
 
 # host unit-test binary
 tests/host_test
