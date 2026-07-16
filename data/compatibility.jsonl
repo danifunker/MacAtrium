@@ -499,7 +499,7 @@
 {"id":"screenrecorder","color":false}
 {"id":"scruffy-1-5","color":false}
 {"id":"shadow-keep-2-2","color":false}
-{"id":"shadowgate","color":false}
+{"id": "shadowgate", "color": false, "maxDepth": 1}
 {"id":"shanghai-2-01","color":true}
 {"id":"shanghai-ii-dragon-s-eye-1-04","color":true}
 {"id":"shatterball-0-27","color":false}
@@ -508,7 +508,7 @@
 {"id":"shufflepuck-cafe-1-0","color":false}
 {"id":"sierra-patch","color":false}
 {"id":"silicon-volleyball-2-0","color":true}
-{"id":"simcity","color":true,"mouse":true}
+{"id": "simcity", "color": true, "mouse": true, "maxDepth": 8}
 {"id":"simcity-1-1","color":true}
 {"id":"simcity-1-11","color":true}
 {"id":"simcity-1-4","color":true}
@@ -531,7 +531,7 @@
 {"id":"spacestation-pheta-2-3","color":false}
 {"id":"spacestation-pheta-2-7","color":false}
 {"id":"sparkz","color":true}
-{"id":"spectre","color":true,"mouse":false}
+{"id": "spectre", "color": true, "mouse": false, "maxDepth": 8}
 {"id":"spectre-1-0","color":true}
 {"id":"speedometer","color":false}
 {"id":"splat-ers-1-05","color":true}
@@ -573,7 +573,7 @@
 {"id":"tank-commander-90","color":false}
 {"id":"targhan-fr","color":false}
 {"id":"tee-oh","color":false}
-{"id":"tetris","color":false,"mouse":true}
+{"id": "tetris", "color": false, "mouse": true, "maxDepth": 1}
 {"id":"tetris-1-0","color":true}
 {"id":"tetris-1-1","color":true}
 {"id":"tetris-1-2","color":true}
@@ -661,3 +661,65 @@
 {"id": "king-s-quest-iii-to-heir-is-human", "maxDepth": 4}
 {"id": "space-quest-iii", "maxDepth": 4}
 # Sound Manager 3.0 dependency — hand-installed games confirmed to need it (see data/dependencies.json).
+# maxDepth caps for the colour build (added 2026-07-16): B&W->1, colour->8 — uncapped games launched at 24-bit and crashed
+{"id": "apeiron", "maxDepth": 8}
+{"id": "avara", "maxDepth": 8}
+{"id": "balance-of-power-1990-edition", "maxDepth": 8}
+{"id": "barrack", "maxDepth": 8}
+{"id": "battle-chess", "maxDepth": 8}
+{"id": "bolo", "maxDepth": 8}
+{"id": "chiral", "maxDepth": 8}
+{"id": "civilization", "maxDepth": 8}
+{"id": "continuum", "maxDepth": 8}
+{"id": "cosmic-osmo", "maxDepth": 8}
+{"id": "d-j-vu-a-nightmare-comes-true", "maxDepth": 1}
+{"id": "d-j-vu-ii-lost-in-las-vegas", "maxDepth": 8}
+{"id": "defender-of-the-crown", "maxDepth": 8}
+{"id": "earl-weaver-baseball", "maxDepth": 8}
+{"id": "empire-deluxe", "maxDepth": 8}
+{"id": "enchanted-scepters", "maxDepth": 8}
+{"id": "eric-s-ultimate-solitaire", "maxDepth": 8}
+{"id": "falcon-mc", "maxDepth": 8}
+{"id": "freddy-pharkas-frontier-pharmacist", "maxDepth": 8}
+{"id": "gato", "maxDepth": 8}
+{"id": "glider", "maxDepth": 8}
+{"id": "glider-pro", "maxDepth": 8}
+{"id": "harpoon", "maxDepth": 8}
+{"id": "hoyle-classic-card-games", "maxDepth": 8}
+{"id": "iron-helix", "maxDepth": 8}
+{"id": "lode-runner-the-legend-returns", "maxDepth": 8}
+{"id": "mac-bzone", "maxDepth": 8}
+{"id": "maelstrom", "maxDepth": 8}
+{"id": "marathon", "maxDepth": 8}
+{"id": "marathon-2-durandal", "maxDepth": 8}
+{"id": "might-and-magic-ii-gates-to-another-world", "maxDepth": 8}
+{"id": "might-and-magic-iii-isles-of-terra", "maxDepth": 8}
+{"id": "monkey-island-2-lechuck-s-revenge", "maxDepth": 8}
+{"id": "odyssey-the-legend-of-nemesis", "maxDepth": 8}
+{"id": "operation-desert-storm", "maxDepth": 8}
+{"id": "pathways-into-darkness", "maxDepth": 8}
+{"id": "populous", "maxDepth": 8}
+{"id": "realmz", "maxDepth": 8}
+{"id": "sensory-overload", "maxDepth": 8}
+{"id": "shanghai", "maxDepth": 1}
+{"id": "shufflepuck-caf", "maxDepth": 8}
+{"id": "sid-meier-s-pirates", "maxDepth": 8}
+{"id": "simearth", "maxDepth": 8}
+{"id": "simlife", "maxDepth": 8}
+{"id": "solitaire-royale", "maxDepth": 8}
+{"id": "space-quest-iv", "maxDepth": 8}
+{"id": "spaceward-ho", "maxDepth": 8}
+{"id": "spectre-vr", "maxDepth": 8}
+{"id": "strategic-conquest", "maxDepth": 1}
+{"id": "swoop", "maxDepth": 8}
+{"id": "tesserae", "maxDepth": 8}
+{"id": "the-ancient-art-of-war-at-sea", "maxDepth": 8}
+{"id": "the-colony", "maxDepth": 8}
+{"id": "the-even-more-incredible-machine", "maxDepth": 8}
+{"id": "the-fool-s-errand", "maxDepth": 8}
+{"id": "the-oregon-trail", "maxDepth": 8}
+{"id": "warlords", "maxDepth": 8}
+{"id": "welltris", "maxDepth": 8}
+{"id": "where-in-europe-is-carmen-sandiego", "maxDepth": 8}
+{"id": "airborne", "maxDepth": 1}
+{"id": "banzai", "maxDepth": 1}
