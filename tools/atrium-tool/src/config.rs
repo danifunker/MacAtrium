@@ -325,6 +325,19 @@ pub struct BuildConfig {
     /// Macintosh Display Card ROM for the Snow harness.
     #[serde(default)]
     pub snow_mdc_rom: Option<String>,
+    /// Right-size the finished image: after every content step, shrink the volume so
+    /// free space is `free_space_pct`% of the disk (min `free_space_min_mb` MB on a
+    /// small disk), reclaiming the slack from growing to the working `disk_size_mb`.
+    /// Default on; `expand` re-wraps the clone bootable (blessed System Folder + boot
+    /// blocks preserved), and the target never exceeds the current size or the 2 GB cap.
+    #[serde(default = "d_right_size")]
+    pub right_size: bool,
+    /// Free space as a percent of the final disk when `right_size` is on (default 10).
+    #[serde(default = "d_free_space_pct")]
+    pub free_space_pct: u64,
+    /// Floor on free space (MB) for a small disk, where the percent would be less (30).
+    #[serde(default = "d_free_space_min_mb")]
+    pub free_space_min_mb: u64,
     /// Where the chimes live on the volume.
     #[serde(default = "d_sounds_dir")]
     pub sounds_dir: String,
@@ -359,6 +372,9 @@ pub struct BuildConfig {
 /// per-item `images/<id>.rsrc` unless a config sets `"art_forks": false`.
 pub fn d_art_forks() -> bool { true }
 pub fn d_rebuild_desktop() -> bool { true }
+pub fn d_right_size() -> bool { true }
+pub fn d_free_space_pct() -> u64 { 10 }
+pub fn d_free_space_min_mb() -> u64 { 30 }
 
 /// Appliance cleanup default: quick-launch control panels removed from the target
 /// System Folder so they don't overlay the full-screen launcher (docs/36). No-op
@@ -682,6 +698,9 @@ impl Default for BuildConfig {
             snow_harness: None,
             snow_rom: None,
             snow_mdc_rom: None,
+            right_size: d_right_size(),
+            free_space_pct: d_free_space_pct(),
+            free_space_min_mb: d_free_space_min_mb(),
             sounds_dir: d_sounds_dir(),
             finder_replace: false,
             install_all_systems: false,

@@ -81,3 +81,57 @@ pub fn apply_disk_size(rb: &RbCli, cfg: &BuildConfig) -> Result<()> {
         .with_context(|| format!("replacing {} with expanded image", cfg.out.display()))?;
     Ok(())
 }
+
+/// Right-size the finished output: shrink the volume (via `rb-cli expand` into a
+/// fresh, smaller APM disk) so free space is `free_space_pct`% of the final disk,
+/// or at least `free_space_min_mb` MB on a small disk — reclaiming the slack left by
+/// growing to the working `disk_size_mb`. Run LAST, after every content write (incl.
+/// the Desktop rebuild). `expand` re-wraps the clone bootable, preserving the blessed
+/// System Folder + boot blocks; the target never exceeds the current size or the HFS
+/// 2 GB cap. A smaller volume re-packs at a smaller allocation block (freeing a little
+/// more), so iterate until within ~16 MB of the target (1–2 passes in practice).
+/// No-op when `right_size` is off or there's nothing worth reclaiming.
+pub fn right_size_image(rb: &RbCli, cfg: &BuildConfig) -> Result<()> {
+    if !cfg.right_size {
+        return Ok(());
+    }
+    let mb = 1024 * 1024;
+    let pct = cfg.free_space_pct.min(90);
+    let min_free = cfg.free_space_min_mb.saturating_mul(mb);
+    let ceil_mb = cfg.disk_size_mb.unwrap_or(MAX_DISK_MB).min(MAX_DISK_MB);
+    for pass in 0..3u32 {
+        let used = rb
+            .fs_used(&cfg.out)
+            .context("measuring used space to right-size the image")?;
+        // free = pct% of the FINAL disk: with total = used + free, that is
+        // free = used * pct / (100 - pct); floored at `free_space_min_mb`.
+        let free = (used.saturating_mul(pct) / (100 - pct).max(1)).max(min_free);
+        let used_mb = (used + mb - 1) / mb;
+        let target_mb = ((used + free + mb - 1) / mb)
+            .min(ceil_mb)
+            .max(used_mb + cfg.free_space_min_mb);
+        let have_mb = file_len(&cfg.out) / mb;
+        if have_mb <= target_mb + 16 {
+            if pass == 0 {
+                eprintln!(
+                    "[disk] right-size: {} MB used on a {} MB disk — already tight, left as-is",
+                    used_mb, have_mb
+                );
+            }
+            break;
+        }
+        eprintln!(
+            "[disk] right-sizing {} MB → {} MB ({} MB used + ~{} MB free)",
+            have_mb,
+            target_mb,
+            used_mb,
+            target_mb.saturating_sub(used_mb)
+        );
+        let tmp = cfg.out.with_extension("rightsize.tmp");
+        rb.expand(&cfg.out, target_mb, &tmp)
+            .with_context(|| format!("right-sizing {} to {} MB", cfg.out.display(), target_mb))?;
+        std::fs::rename(&tmp, &cfg.out)
+            .with_context(|| format!("replacing {} with the right-sized image", cfg.out.display()))?;
+    }
+    Ok(())
+}

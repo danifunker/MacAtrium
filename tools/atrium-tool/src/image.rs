@@ -1204,6 +1204,11 @@ pub fn run(cfg: &BuildConfig) -> Result<()> {
         eprintln!("[snd] startup/shutdown chimes -> {}", cfg.sounds_dir);
     }
 
+    // Right-size: reclaim the working slack so the shipped disk carries ~10% free
+    // (30 MB floor on a tiny disk) instead of the full `disk_size_mb`. LAST step —
+    // after every content write (systems, deps, Desktop rebuild, chimes).
+    crate::preflight::right_size_image(&rb, cfg)?;
+
     eprintln!(
         "\nimage built: {} ({} items, {} categories, {} page(s))",
         cfg.out.display(),
