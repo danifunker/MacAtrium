@@ -208,8 +208,15 @@ pub struct BuildConfig {
     /// to fill in `system` + deploy mode when those aren't set explicitly.
     #[serde(default)]
     pub base_os: Option<String>,
-    /// Output image to produce (overwritten).
+    /// Output image to produce (overwritten). Empty/omitted → auto-named
+    /// `<out_dir | stage-parent | ".">/<build_name>.hda` (see [`Self::resolve_out`]),
+    /// so a build's filename defaults from the collection / list it targets.
+    #[serde(default)]
     pub out: PathBuf,
+    /// Directory for the auto-named output when `out` is unset. `None` → the parent
+    /// of `stage`, else the current directory.
+    #[serde(default)]
+    pub out_dir: Option<PathBuf>,
     /// The launcher MacBinary to install. `None` (the default) reads
     /// `build/MacAtrium.bin` (or `$MACATRIUM_LAUNCHER`) — see [`Self::launcher_bytes`].
     /// The launcher is never embedded in this tool; you either build it with Retro68
@@ -453,6 +460,46 @@ pub fn parse_wh(s: &str) -> Option<(u32, u32)> {
 }
 
 impl BuildConfig {
+    /// The build's short name — used to auto-name the output image: the collection
+    /// (the "loadable game list") if set, else the selected categories, else
+    /// `"MacAtrium"`.
+    pub fn build_name(&self) -> String {
+        if let Some(c) = self
+            .collection
+            .as_deref()
+            .map(str::trim)
+            .filter(|c| !c.is_empty())
+        {
+            return c.to_string();
+        }
+        if let Some(Selection::Categories { categories }) = &self.selection {
+            if !categories.is_empty() {
+                return categories.join("-");
+            }
+        }
+        "MacAtrium".to_string()
+    }
+
+    /// The output image path. An explicit `out` wins; otherwise it is auto-named
+    /// `<out_dir | stage-parent | ".">/<build_name>.hda`, defaulting a build's
+    /// filename from the collection / list it targets.
+    pub fn resolve_out(&self) -> PathBuf {
+        if !self.out.as_os_str().is_empty() {
+            return self.out.clone();
+        }
+        let dir = self
+            .out_dir
+            .clone()
+            .or_else(|| {
+                self.stage
+                    .as_deref()
+                    .and_then(std::path::Path::parent)
+                    .map(std::path::Path::to_path_buf)
+            })
+            .unwrap_or_else(|| std::path::PathBuf::from("."));
+        dir.join(format!("{}.hda", self.build_name()))
+    }
+
     /// Pixel box `(w, h)` to downscale art into: `max_art_size` (`"WxH"`) if set
     /// and parseable, else the legacy `art_max` as a square bound, else
     /// [`DEFAULT_ART_BOUND`]. Art is fit within the box (aspect kept, never upscaled).
@@ -565,6 +612,24 @@ mod tests {
     }
 
     #[test]
+    fn resolve_out_defaults_from_collection() {
+        // An explicit `out` always wins.
+        let c: BuildConfig = serde_json::from_str(r#"{"out":"x.hda","collection":"Foo"}"#).unwrap();
+        assert_eq!(c.resolve_out(), std::path::PathBuf::from("x.hda"));
+        // No `out` → <stage-parent>/<collection>.hda (the loadable game-list name).
+        let c: BuildConfig =
+            serde_json::from_str(r#"{"collection":"Mac68KColorGames_v1","stage":"/b/imgstage"}"#).unwrap();
+        assert_eq!(c.resolve_out(), std::path::PathBuf::from("/b/Mac68KColorGames_v1.hda"));
+        // An explicit `out_dir` wins over the stage parent.
+        let c: BuildConfig =
+            serde_json::from_str(r#"{"collection":"Games","out_dir":"/out","stage":"/b/imgstage"}"#).unwrap();
+        assert_eq!(c.resolve_out(), std::path::PathBuf::from("/out/Games.hda"));
+        // No out / no collection → MacAtrium.hda in the current dir.
+        let c: BuildConfig = serde_json::from_str(r#"{}"#).unwrap();
+        assert_eq!(c.resolve_out(), std::path::PathBuf::from("./MacAtrium.hda"));
+    }
+
+    #[test]
     fn app_mem_kb_round_trips_and_clamps() {
         // The field both the GUI Save/Load and the `atrium image` CLI rely on.
         let mut c = BuildConfig::default();
@@ -667,6 +732,7 @@ impl Default for BuildConfig {
             system: None,
             base_os: None,
             out: PathBuf::new(),
+            out_dir: None,
             launcher: None,
             dataset: None,
             disk_size_mb: None,

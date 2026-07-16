@@ -743,10 +743,12 @@ fn copy_sparse(src: &Path, dst: &Path) -> Result<()> {
 /// CLI convenience (a *view* helper): load a [`BuildConfig`] from a JSON file and
 /// run it. The GUI builds the `BuildConfig` directly and calls [`run`].
 pub fn run_from_path(config: &Path) -> Result<()> {
-    let cfg: BuildConfig = serde_json::from_str(
+    let mut cfg: BuildConfig = serde_json::from_str(
         &std::fs::read_to_string(config).with_context(|| format!("reading {}", config.display()))?,
     )
     .with_context(|| format!("parsing config {}", config.display()))?;
+    // Default the output filename from the collection / list the build targets.
+    cfg.out = cfg.resolve_out();
     run(&cfg)
 }
 
