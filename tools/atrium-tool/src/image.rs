@@ -250,6 +250,20 @@ fn install_dependencies(rb: &RbCli, cfg: &BuildConfig, present_dataset: &Path) -
             if !dep_installs_on(&dep.install_os, &e.name) {
                 continue;
             }
+            // Already satisfied? The base System (or an earlier step) may already ship
+            // this dep — often a newer build (the QuickTime base bundles a modern Sound
+            // Manager). Never downgrade: if a `satisfied_if` file is present here, skip.
+            if let Some(hit) = dep
+                .satisfied_if
+                .iter()
+                .find(|rel| rb.exists(&cfg.out, &format!("{folder}/{rel}")))
+            {
+                eprintln!(
+                    "[deps]    {} already satisfied in {} ({hit} present) — skipping",
+                    dep.name, e.name
+                );
+                continue;
+            }
             // Resolve the donor key → disk-image path (fail-soft on an unknown donor).
             let Some((donor_img, _reservoir)) =
                 crate::selection::resolve_donor(&dep.source.donor, &donors, macpack.as_deref())
@@ -738,6 +752,127 @@ pub fn run_from_path(config: &Path) -> Result<()> {
 
 /// The build **controller**: assemble a bootable image from a [`BuildConfig`].
 /// Both the CLI and the GUI call this with the same model.
+/// Ensure each id in `ids` carries the "Recommended" category in the staged
+/// category DB (`categories.jsonl`) — the collection-scoped recommended list.
+/// Adds it to an existing record's `categories`, or appends a minimal record for an
+/// id the DB doesn't mention. Idempotent; presence-only.
+fn add_recommended_to_cats(cats: &Path, ids: &[String]) -> Result<()> {
+    use std::collections::BTreeSet;
+    let want: BTreeSet<&str> = ids.iter().map(String::as_str).collect();
+    let text = std::fs::read_to_string(cats).unwrap_or_default();
+    let mut seen: BTreeSet<String> = BTreeSet::new();
+    let mut out = String::new();
+    for line in text.lines() {
+        let t = line.trim();
+        if t.is_empty() || t.starts_with('#') || t.starts_with("//") {
+            out.push_str(line);
+            out.push('\n');
+            continue;
+        }
+        if let Ok(mut v) = serde_json::from_str::<Value>(t) {
+            if let Some(id) = v.get("id").and_then(Value::as_str).map(str::to_string) {
+                if want.contains(id.as_str()) {
+                    seen.insert(id.clone());
+                    match v.get_mut("categories").and_then(Value::as_array_mut) {
+                        Some(arr) => {
+                            if !arr.iter().any(|c| c.as_str() == Some("Recommended")) {
+                                arr.insert(0, Value::from("Recommended"));
+                            }
+                        }
+                        None => {
+                            if let Some(obj) = v.as_object_mut() {
+                                obj.insert("categories".into(), Value::from(vec!["Recommended"]));
+                            }
+                        }
+                    }
+                }
+                out.push_str(&v.to_string());
+                out.push('\n');
+                continue;
+            }
+        }
+        out.push_str(line);
+        out.push('\n');
+    }
+    for id in ids {
+        if !seen.contains(id) {
+            out.push_str(&format!("{{\"id\":{id:?},\"categories\":[\"Recommended\"]}}\n"));
+        }
+    }
+    std::fs::write(cats, out)?;
+    Ok(())
+}
+
+/// Boot the freshly-built image in Snow (7.5.5) so the Finder rebuilds the volume's
+/// Desktop DB, then drive MacAtrium's Shut Down for a clean unmount and re-bless 7.1
+/// (the ship default). Key/cycle marks are validated for the ≤2 GB HFS volume — the
+/// 2 GB cap bounds the Desktop-rebuild time, so they're stable. Fail-soft: any hiccup
+/// warns and continues (a finalize step must never abort an otherwise-good build).
+fn rebuild_desktop_via_snow(rb: &RbCli, cfg: &BuildConfig, stage: &Path) -> Result<()> {
+    if !cfg.rebuild_desktop {
+        return Ok(());
+    }
+    let (Some(harness), Some(rom), Some(mdc)) = (
+        cfg.snow_harness.as_ref(),
+        cfg.snow_rom.as_ref(),
+        cfg.snow_mdc_rom.as_ref(),
+    ) else {
+        eprintln!("[desktop] rebuild_desktop is on but snow_harness/snow_rom/snow_mdc_rom are not all set — skipping Desktop rebuild");
+        return Ok(());
+    };
+    eprintln!("[desktop]   rebuilding the Desktop DB via Snow (7.5.5 boot, ~90s)…");
+    // No Desktop DB ⇒ the Finder rebuilds it on boot (no key-injection needed for it).
+    let _ = rb.rm(&cfg.out, "/Desktop DB");
+    let _ = rb.rm(&cfg.out, "/Desktop DF");
+    if let Err(e) = rb.bless_set(&cfg.out, "/System Folder 7.5.5") {
+        eprintln!("[desktop] WARNING: could not bless 7.5.5 ({e:#}); skipping Desktop rebuild — continuing");
+        return Ok(());
+    }
+    let snow_out = stage.join("desktop-snow");
+    let _ = std::fs::create_dir_all(&snow_out);
+    // Marks: Return past the first-run chooser (10G), ESC menu (10.5G), Up→Shut Down
+    // (10.8G), Return to activate (11G); run to 13G. MacAtrium's Shut Down does a
+    // clean FlushVol + power-off, so the volume unmounts clean (no repair needed).
+    let status = std::process::Command::new(harness)
+        .arg(rom)
+        .arg(mdc)
+        .arg(&cfg.out)
+        .arg(&snow_out)
+        .arg("13000000000")
+        .arg("--snap-every")
+        .arg("3000000000")
+        .arg("--keys")
+        .arg("10000000000:return;10500000000:esc;10800000000:up;11000000000:return")
+        .status();
+    match status {
+        Ok(s) if s.success() => {}
+        Ok(s) => eprintln!("[desktop] WARNING: Snow harness exited {s}; Desktop DB may be stale — continuing"),
+        Err(e) => eprintln!("[desktop] WARNING: could not run Snow harness ({e}); skipping Desktop rebuild — continuing"),
+    }
+    // Fresh first-run: drop the launcher prefs from every System Folder (+ the S6 spot).
+    if let Ok(roots) = rb.ls(&cfg.out, "/") {
+        for e in roots.iter().filter(|e| e.is_dir) {
+            if rb.exists(&cfg.out, &format!("/{}/System", e.name)) {
+                let _ = rb.rm(&cfg.out, &format!("/{}/Preferences/MacAtrium Prefs", e.name));
+            }
+        }
+    }
+    let _ = rb.rm(&cfg.out, "/MacAtrium/MacAtrium Prefs");
+    // Restore the ship default boot.
+    if let Err(e) = rb.bless_set(&cfg.out, "/System Folder 7.1") {
+        eprintln!("[desktop] WARNING: could not restore the 7.1 bless ({e:#}) — the image may boot 7.5.5!");
+    }
+    // Read-only clean check (never --repair: a clean Shut Down should leave it clean).
+    match rb.fsck(&cfg.out) {
+        Ok(out) if out.to_lowercase().contains("error") => {
+            eprintln!("[desktop] WARNING: fsck reports the volume is not clean (Shut Down may have mistimed):\n{out}")
+        }
+        Ok(_) => eprintln!("[desktop]   volume clean; Desktop DB rebuilt; re-blessed 7.1"),
+        Err(e) => eprintln!("[desktop] WARNING: fsck did not pass (volume may be dirty): {e:#}"),
+    }
+    Ok(())
+}
+
 pub fn run(cfg: &BuildConfig) -> Result<()> {
     // Resolve base_os -> system + deploy mode via the template registry first, so
     // the rest of the controller works against a fully-populated config.
@@ -1001,6 +1136,19 @@ pub fn run(cfg: &BuildConfig) -> Result<()> {
     std::fs::write(&tax, crate::config::EMBEDDED_TAXONOMY)?;
     let cats = stage.join("categories.jsonl");
     std::fs::write(&cats, crate::config::EMBEDDED_CATEGORIES)?;
+    // Collection-scoped Recommended: tag the collection's `recommended` ids into the
+    // staged category DB so they populate the Recommended nav category for this build.
+    if let Some(cname) = &cfg.collection {
+        if let Ok(coll) = crate::collections::find(cname) {
+            if !coll.recommended.is_empty() {
+                add_recommended_to_cats(&cats, &coll.recommended)?;
+                eprintln!(
+                    "[6/7] catalog      {} collection-recommended title(s) -> Recommended",
+                    coll.recommended.len()
+                );
+            }
+        }
+    }
     let report = catalog::run_paged(&present, &paged_dir, Some(&cats), Some(&tax), false, false)?;
     eprintln!(
         "[6/7] catalog      {} item(s) in {} categor(y/ies) / {} page(s)",
@@ -1024,6 +1172,8 @@ pub fn run(cfg: &BuildConfig) -> Result<()> {
         // `requires` into the System Folders whose OS needs it (verbatim from a
         // reservoir donor). No-op unless an installed title declares `requires:[…]`.
         install_dependencies(&rb, cfg, &present)?;
+        // Rebuild the volume's Desktop DB in Snow (7.5.5 boot), then re-bless 7.1.
+        rebuild_desktop_via_snow(&rb, cfg, &stage)?;
     } else if cfg.finder_replace {
         eprintln!("[7/7] launcher     install AS the Finder (System 6 boot shell)");
         install_as_finder(&rb, &cfg, &stage)?;

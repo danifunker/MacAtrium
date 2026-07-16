@@ -126,6 +126,20 @@ impl RbCli {
         Ok(())
     }
 
+    /// Set the bootable (blessed) System Folder on an HFS/HFS+ volume (`bless set`).
+    pub fn bless_set(&self, image: &Path, folder: &str) -> Result<()> {
+        let img = image.to_string_lossy();
+        self.run(&["bless", "set", &img, folder])?;
+        Ok(())
+    }
+
+    /// Read-only filesystem check (`fsck`, never `--repair`); returns the report
+    /// text so a caller can tell a clean volume from a dirty one.
+    pub fn fsck(&self, image: &Path) -> Result<String> {
+        let img = image.to_string_lossy();
+        self.run(&["fsck", &img])
+    }
+
     /// Decode a .hqx and write it (both forks) into a directory inside an image.
     /// Clears `hasBeenInited` so the Finder re-reads each injected app's `BNDL` on
     /// the fresh disk and shows real icons (a copied-in app with `hasBeenInited`

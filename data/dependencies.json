@@ -5,13 +5,15 @@
     "name": "Sound Manager 3.0",
     "source": { "donor": "macgarden", "path": "/MacAtrium/_deps/sound-manager-3" },
     "install_os": ["7.1"],
-    "note": "Async/multi-channel Sound Manager (Apple, 1993). System 7.5+ bundle it in the System file (skip); System 6.0.x keep their built-in enhanced Sound Manager from 6.0.7 and predate the System-7 Extensions architecture (skip); only 7.0/7.1/7.1.x ship the older 2.x Sound Manager and need this Extension."
+    "satisfied_if": ["Extensions/Sound Manager"],
+    "note": "Async/multi-channel Sound Manager (Apple, 1993). System 7.5+ bundle it in the System file (skip); System 6.0.x keep their built-in enhanced Sound Manager from 6.0.7 and predate the System-7 Extensions architecture (skip); only 7.0/7.1/7.1.x ship the older 2.x Sound Manager and need this Extension. satisfied_if: a base that already carries a Sound Manager Extension (e.g. one bundling QuickTime 4's modern Sound Manager) is left untouched."
   },
 
   "quicktime": {
     "name": "QuickTime",
     "source": { "donor": "macgarden", "path": "/MacAtrium/_deps/quicktime" },
     "install_os": [],
-    "note": "Placeholder. Titles that play QuickTime movies (e.g. Spectre VR's intro/wall .mov files) need QuickTime + its Power/Sound support. Not yet staged in the reservoir, so install_os is empty (a no-op) until the extension is captured."
+    "satisfied_if": ["Extensions/QuickTime™"],
+    "note": "Placeholder. Titles that play QuickTime movies (e.g. Spectre VR's intro/wall .mov files) need QuickTime + its Power/Sound support. The QuickTime-4 base already ships it in 7.1/7.5.5/7.6.1 (satisfied). install_os is empty (a no-op) until/unless a base without it needs the extension staged in the reservoir."
   }
 }

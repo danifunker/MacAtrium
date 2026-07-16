@@ -124,6 +124,14 @@ pub struct Dependency {
     /// build; documentation only.
     #[serde(default)]
     pub note: Option<String>,
+    /// Files (each relative to a System Folder, e.g. "Extensions/Sound Manager")
+    /// whose presence means the dep is already satisfied *there* — the base System
+    /// (or an earlier step) already ships it, often a newer build. If any is present
+    /// in a target folder, the install is skipped so a build never downgrades the
+    /// base. Empty = no check (install wherever `install_os` matches). Presence-only;
+    /// no version comparison.
+    #[serde(default)]
+    pub satisfied_if: Vec<String>,
 }
 
 /// Parse a dependency-registry JSON object (dep-id → [`Dependency`]) from text,
@@ -302,6 +310,21 @@ pub struct BuildConfig {
     /// Optional shutdown chime (PCM WAV).
     #[serde(default)]
     pub shutdown_sound: Option<PathBuf>,
+    /// After the build, boot 7.5.5 in Snow so the Finder rebuilds the volume's
+    /// Desktop database, then cleanly shut down and re-bless 7.1. Default on;
+    /// a no-op unless `snow_harness`/`snow_rom`/`snow_mdc_rom` are all set.
+    #[serde(default = "d_rebuild_desktop")]
+    pub rebuild_desktop: bool,
+    /// Path to the Snow harness binary (`macatrium_harness`) — machine-local, like
+    /// `rb_cli`. Required for `rebuild_desktop`; absent ⇒ the rebuild is skipped.
+    #[serde(default)]
+    pub snow_harness: Option<String>,
+    /// Mac II ROM for the Snow harness.
+    #[serde(default)]
+    pub snow_rom: Option<String>,
+    /// Macintosh Display Card ROM for the Snow harness.
+    #[serde(default)]
+    pub snow_mdc_rom: Option<String>,
     /// Where the chimes live on the volume.
     #[serde(default = "d_sounds_dir")]
     pub sounds_dir: String,
@@ -335,6 +358,7 @@ pub struct BuildConfig {
 /// `art_forks` defaults ON (Phase 1 complete, docs/36): builds pack art into
 /// per-item `images/<id>.rsrc` unless a config sets `"art_forks": false`.
 pub fn d_art_forks() -> bool { true }
+pub fn d_rebuild_desktop() -> bool { true }
 
 /// Appliance cleanup default: quick-launch control panels removed from the target
 /// System Folder so they don't overlay the full-screen launcher (docs/36). No-op
@@ -654,6 +678,10 @@ impl Default for BuildConfig {
             stage: None,
             startup_sound: None,
             shutdown_sound: None,
+            rebuild_desktop: d_rebuild_desktop(),
+            snow_harness: None,
+            snow_rom: None,
+            snow_mdc_rom: None,
             sounds_dir: d_sounds_dir(),
             finder_replace: false,
             install_all_systems: false,

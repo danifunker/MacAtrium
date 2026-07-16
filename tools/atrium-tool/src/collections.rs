@@ -31,6 +31,11 @@ pub struct Collection {
     /// Keyed by id; each value is a partial record whose fields win.
     #[serde(default)]
     pub overrides: BTreeMap<String, Value>,
+    /// Library ids this build should surface in the **Recommended** nav category,
+    /// in addition to any taxonomy seeds. Scoped to this loadable game list, so it
+    /// uses the collection's own ids (build order preserved).
+    #[serde(default)]
+    pub recommended: Vec<String>,
 }
 
 impl Collection {
