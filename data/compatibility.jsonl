@@ -660,3 +660,15 @@
 {"id": "glider-4-0", "maxDepth": 4}
 {"id": "king-s-quest-iii-to-heir-is-human", "maxDepth": 4}
 {"id": "space-quest-iii", "maxDepth": 4}
+# Sound Manager 3.0 dependency — hand-installed games confirmed to need it (see data/dependencies.json).
+{"id":"apeiron","requires":["sound-manager-3"]}
+{"id":"avara","requires":["sound-manager-3"]}
+{"id":"barrack","requires":["sound-manager-3"]}
+{"id":"civilization","requires":["sound-manager-3"]}
+{"id":"freddy-pharkas-frontier-pharmacist","requires":["sound-manager-3"]}
+{"id":"glider-pro","requires":["sound-manager-3"]}
+{"id":"hoyle-classic-card-games","requires":["sound-manager-3"]}
+{"id":"might-and-magic-iii-isles-of-terra","requires":["sound-manager-3"]}
+{"id":"monkey-island-2-lechuck-s-revenge","requires":["sound-manager-3"]}
+{"id":"sensory-overload","requires":["sound-manager-3"]}
+{"id":"simlife","requires":["sound-manager-3"]}
