@@ -708,21 +708,21 @@ mod tests {
     }
 
     #[test]
-    fn dependencies_loader_skips_doc_key_and_parses_sound_manager() {
+    fn dependencies_loader_skips_doc_key_and_parses_quicktime() {
         // Parse the bundled registry directly (deterministic — no user overlay).
         let reg = parse_dependencies(EMBEDDED_DEPENDENCIES);
         // The `"//"` documentation key is NOT a dependency and must be skipped, as
         // must any other slash-prefixed key.
         assert!(!reg.contains_key("//"), "the // documentation key leaked in as a dependency");
         assert!(reg.keys().all(|k| !k.starts_with('/')), "a slash-prefixed key survived");
-        // The real dependency parses, including its {donor, path} source + install_os.
-        let sm = reg.get("sound-manager-3").expect("sound-manager-3 must parse");
-        assert_eq!(sm.name, "Sound Manager 3.0");
-        assert_eq!(sm.source.donor, "macgarden");
-        assert_eq!(sm.source.path, "/MacAtrium/_deps/sound-manager-3");
-        assert_eq!(sm.install_os, ["7.1"]);
-        // The placeholder entry parses too, with an empty (no-op) install_os.
-        assert!(reg.get("quicktime").expect("quicktime placeholder present").install_os.is_empty());
+        // The quicktime placeholder parses, including its {donor, path} source, with an
+        // empty (no-op) install_os — the QuickTime-base template already ships it, so
+        // the Sound Manager 3 dependency was retired (the base bundles it).
+        let qt = reg.get("quicktime").expect("quicktime must parse");
+        assert_eq!(qt.name, "QuickTime");
+        assert_eq!(qt.source.donor, "macgarden");
+        assert_eq!(qt.source.path, "/MacAtrium/_deps/quicktime");
+        assert!(qt.install_os.is_empty());
     }
 }
 
