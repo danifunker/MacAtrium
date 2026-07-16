@@ -2834,10 +2834,17 @@ static Art *load_item_art(Ui *u, const char *image)
     Art *p;
     int cand[5], nc = 0, i, depth;
     short vref = ui_cur_vref(u);   /* art loads from the item's source disk (docs/37) */
-    /* docs/44 P2: cap the art tier at what the partition can hold — the min of the
-     * screen depth and the ArtCaps affordability ceiling — so a deep screen on a small
-     * partition loads shallower art instead of trying a cover it can't hold. */
-    short cap = (u->caps && u->caps->maxAffordableDepth > 0) ? u->caps->maxAffordableDepth : 24;
+    /* Art-tier ceiling -- deliberately wide open (24). docs/44 P2 (the budget-aware
+     * loader) is NOT finished: the ArtCaps affordability estimate (artcaps.c
+     * peak_art_bytes, a coarse uncompressed 720^2 guess) under-budgets 8-bit on a real
+     * Quadra granted the 1 MB SIZE minimum and wrongly collapses maxAffordableDepth to
+     * 1, so covers load the 1-bit ABMP (B&W) even though the 8-bit PICT is present,
+     * displayable and actually fits. Do NOT gate art on that startup estimate: the
+     * authoritative memory guard is the per-resource on-disk size check in
+     * art_load_rsrc (live MaxBlock, art.c:151-173), which drops a tier only when it
+     * truly won't fit -- no OOM. (ArtCaps is still probed and shown in Status; it just
+     * doesn't veto art loading until P2 lands.) */
+    short cap = 24;
 
     if (n >= 5 && strcmp(image + n - 5, ".rsrc") == 0)
         return art_load_rsrc(vref, image, (short)u->env->pixelSize, cap);
