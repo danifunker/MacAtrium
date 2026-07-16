@@ -160,8 +160,10 @@ pub fn resolve(
 /// a `donors.json` entry first (e.g. "pop"/"supplement", or a reservoir like
 /// "macgarden"), else a disk *filename* (e.g. "boot.vhd" — what `library scan`
 /// records) found under the configured MacPack folder (always a harvest donor).
-/// `None` if neither resolves.
-fn resolve_donor(donor: &str, donors: &Donors, macpack_dir: Option<&Path>) -> Option<(PathBuf, bool)> {
+/// `None` if neither resolves. Shared by [`harvest_plan`] (the reservoir game-copy)
+/// and the build's runtime-dependency install, so both resolve a donor key the
+/// same way.
+pub fn resolve_donor(donor: &str, donors: &Donors, macpack_dir: Option<&Path>) -> Option<(PathBuf, bool)> {
     if let Some(d) = donors.get(donor) {
         return Some((d.path().to_path_buf(), d.reservoir()));
     }

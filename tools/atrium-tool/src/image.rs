@@ -170,6 +170,116 @@ pub fn install_all_systems_on_image(image: &Path, launcher: Option<PathBuf>) -> 
     install_into_all_systems(&rb, &cfg, &stage)
 }
 
+/// A System Folder needs a dependency when any of the dep's `install_os` version
+/// strings is a **substring** of the folder's name — e.g. "7.1" matches "System
+/// Folder 7.1" (and 7.1.x) but neither "System Folder 6.0.8" nor "System Folder
+/// 7.5.5". An empty `install_os` never matches: it's a deliberate no-op (the dep
+/// isn't staged, or no OS on this disk needs it).
+fn dep_installs_on(install_os: &[String], folder_name: &str) -> bool {
+    install_os.iter().any(|v| folder_name.contains(v.as_str()))
+}
+
+/// The distinct set of `requires:[<dep-id>]` across every record in a dataset file.
+/// `requires` is an optional compatibility facet read **generically** (records flow
+/// through this pipeline as `serde_json::Value`, like `id`/`app` in
+/// [`dataset_records`]/[`filter_present_apps`]) — a title lists the runtime
+/// Extensions its OS needs but doesn't bundle. Sorted, for a stable build log.
+fn required_dep_ids(dataset: &Path) -> Result<Vec<String>> {
+    let text = std::fs::read_to_string(dataset)?;
+    let mut ids: std::collections::BTreeSet<String> = std::collections::BTreeSet::new();
+    for line in text.lines() {
+        let t = line.trim();
+        if t.is_empty() || t.starts_with('#') || t.starts_with("//") {
+            continue;
+        }
+        if let Ok(v) = serde_json::from_str::<Value>(t) {
+            if let Some(arr) = v.get("requires").and_then(Value::as_array) {
+                for dep in arr.iter().filter_map(Value::as_str) {
+                    let dep = dep.trim();
+                    if !dep.is_empty() {
+                        ids.insert(dep.to_string());
+                    }
+                }
+            }
+        }
+    }
+    Ok(ids.into_iter().collect())
+}
+
+/// Install each required runtime dependency into the System Folders that need it —
+/// run right after the launcher's all-systems install so every bootable System is
+/// covered. For each dep-id in the union of the installed titles' `requires`, and
+/// each System Folder whose name matches the dep's `install_os`, the dep's files are
+/// copied **verbatim** from its reservoir donor into `<folder>/Extensions` — the
+/// same image-to-image `rb-cli cp` reservoir games use. System Folders are found
+/// exactly as [`install_into_all_systems`] finds them (a root dir holding a `System`
+/// file), and donor keys resolve through the same [`resolve_donor`] the reservoir
+/// game-copy uses.
+///
+/// Fail-soft throughout: an empty union is a quiet no-op; an unknown dep-id, an
+/// unresolvable donor, or a copy failure each warn and continue — a missing
+/// Extension must never abort an otherwise-good build.
+fn install_dependencies(rb: &RbCli, cfg: &BuildConfig, present_dataset: &Path) -> Result<()> {
+    // (a) union of required dep-ids across the installed titles; (b) quiet no-op.
+    let want = required_dep_ids(present_dataset)?;
+    if want.is_empty() {
+        return Ok(());
+    }
+    // Registry (bundled ⊕ user) + the SAME donor resolution the reservoir game-copy
+    // uses (donors.json first, else a filename under the MacPack folder).
+    let registry = crate::config::dependencies();
+    let donors = crate::donors::Registry::load_default();
+    let macpack = crate::settings::Settings::load_default().macpack_dir;
+
+    // (c) iterate System Folders exactly like install_into_all_systems: a root dir
+    // is a System Folder iff it holds a `System` file.
+    let roots = rb.ls(&cfg.out, "/")?;
+    for e in roots.iter().filter(|e| e.is_dir) {
+        let folder = format!("/{}", e.name);
+        if !rb.exists(&cfg.out, &format!("{folder}/System")) {
+            continue;
+        }
+        for dep_id in &want {
+            let Some(dep) = registry.get(dep_id) else {
+                eprintln!(
+                    "[deps] WARNING: unknown dependency {dep_id:?} (declared in a title's `requires`) — skipping"
+                );
+                continue;
+            };
+            // Empty install_os (no-op) or a folder that doesn't match → skip silently.
+            if !dep_installs_on(&dep.install_os, &e.name) {
+                continue;
+            }
+            // Resolve the donor key → disk-image path (fail-soft on an unknown donor).
+            let Some((donor_img, _reservoir)) =
+                crate::selection::resolve_donor(&dep.source.donor, &donors, macpack.as_deref())
+            else {
+                eprintln!(
+                    "[deps] WARNING: {}: donor {:?} did not resolve (donors.json / MacPack dir) — skipping",
+                    dep.name, dep.source.donor
+                );
+                continue;
+            };
+            // Copy the dep's files verbatim into this System Folder's Extensions.
+            let ext_dir = format!("{folder}/Extensions");
+            if let Err(err) = rb.mkdir_p(&cfg.out, &ext_dir) {
+                eprintln!("[deps] WARNING: {}: could not create {ext_dir}: {err:#} — skipping", dep.name);
+                continue;
+            }
+            let src = format!("{}/*", dep.source.path.trim_end_matches('/'));
+            match rb.cp(&donor_img, &src, &cfg.out, &ext_dir) {
+                Ok(()) => eprintln!("[deps]    {} -> {ext_dir}", dep.name),
+                Err(err) => eprintln!(
+                    "[deps] WARNING: {}: copy {} -> {ext_dir} failed: {err:#} — skipping",
+                    dep.name,
+                    donor_img.display()
+                ),
+            }
+        }
+    }
+    Ok(())
+}
+
 /// (id, app-path) for every dataset record with an id. `app` is the launcher
 /// path relative to /MacAtrium (e.g. "Apps/Foo/Foo"), used for icon harvest.
 fn dataset_records(path: &Path) -> Result<Vec<(String, Option<String>)>> {
@@ -910,6 +1020,10 @@ pub fn run(cfg: &BuildConfig) -> Result<()> {
         // bless-swap between Systems always boots back into it (docs/36 Phase 2).
         let n = install_into_all_systems(&rb, &cfg, &stage)?;
         eprintln!("[7/7] launcher     installed into {n} System Folder(s) (all-systems)");
+        // Per-title runtime dependencies: install each Extension a present title
+        // `requires` into the System Folders whose OS needs it (verbatim from a
+        // reservoir donor). No-op unless an installed title declares `requires:[…]`.
+        install_dependencies(&rb, cfg, &present)?;
     } else if cfg.finder_replace {
         eprintln!("[7/7] launcher     install AS the Finder (System 6 boot shell)");
         install_as_finder(&rb, &cfg, &stage)?;
@@ -1141,7 +1255,20 @@ pub fn add_to_disk_from_path(config: &Path) -> Result<()> {
 
 #[cfg(test)]
 mod tests {
-    use super::is_system6_folder_name;
+    use super::{dep_installs_on, is_system6_folder_name};
+
+    #[test]
+    fn dep_install_os_substring_match() {
+        let os = vec!["7.1".to_string()];
+        // "7.1" matches a 7.1 folder (and its 7.1.x point releases) …
+        assert!(dep_installs_on(&os, "System Folder 7.1"));
+        assert!(dep_installs_on(&os, "System Folder 7.1.2"));
+        // … but not 6.0.8 or 7.5.5 (the version isn't a substring of either name).
+        assert!(!dep_installs_on(&os, "System Folder 6.0.8"));
+        assert!(!dep_installs_on(&os, "System Folder 7.5.5"));
+        // An empty install_os is a deliberate no-op — it never matches any folder.
+        assert!(!dep_installs_on(&[], "System Folder 7.1"));
+    }
 
     #[test]
     fn system6_name_gate_accepts_6_0_4_and_up_only() {

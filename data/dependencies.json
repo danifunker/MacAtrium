@@ -1,0 +1,17 @@
+{
+  "//": "Per-title runtime dependencies (system extensions the OS needs but doesn't bundle). A title declares `requires:[<dep-id>]` (a compatibility facet); a build installs each required dep into every System Folder whose name matches the dep's `install_os`, sourcing the files verbatim from a reservoir donor. OS versions NOT listed in `install_os` either bundle the dep already or predate it — so they're left untouched. Bundled + embedded; user overrides live in ~/.macatrium.json (\"dependencies\": {...}).",
+
+  "sound-manager-3": {
+    "name": "Sound Manager 3.0",
+    "source": { "donor": "macgarden", "path": "/MacAtrium/_deps/sound-manager-3" },
+    "install_os": ["7.1"],
+    "note": "Async/multi-channel Sound Manager (Apple, 1993). System 7.5+ bundle it in the System file (skip); System 6.0.x keep their built-in enhanced Sound Manager from 6.0.7 and predate the System-7 Extensions architecture (skip); only 7.0/7.1/7.1.x ship the older 2.x Sound Manager and need this Extension."
+  },
+
+  "quicktime": {
+    "name": "QuickTime",
+    "source": { "donor": "macgarden", "path": "/MacAtrium/_deps/quicktime" },
+    "install_os": [],
+    "note": "Placeholder. Titles that play QuickTime movies (e.g. Spectre VR's intro/wall .mov files) need QuickTime + its Power/Sound support. Not yet staged in the reservoir, so install_os is empty (a no-op) until the extension is captured."
+  }
+}

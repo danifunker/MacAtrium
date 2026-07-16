@@ -4,6 +4,7 @@
 //! or rb-cli path is specific to one machine. The build reads `macpack_dir` to
 //! resolve donor disks referenced by their original filename (e.g. `boot.vhd`).
 
+use crate::config::Dependency;
 use crate::targets::Target;
 use anyhow::{Context, Result};
 use serde::{Deserialize, Serialize};
@@ -29,6 +30,11 @@ pub struct Settings {
     /// [`targets::Registry::load_default`](crate::targets::Registry::load_default).
     #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
     pub targets: BTreeMap<String, Target>,
+    /// User-defined runtime [dependencies](crate::config::Dependency), keyed by
+    /// dep-id. These overlay the bundled registry (a user entry wins on an id
+    /// collision) — see [`config::dependencies`](crate::config::dependencies).
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    pub dependencies: BTreeMap<String, Dependency>,
 }
 
 impl Settings {

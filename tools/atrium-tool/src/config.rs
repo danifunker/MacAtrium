@@ -32,6 +32,15 @@ pub const EMBEDDED_TAXONOMY: &[u8] =
     include_bytes!(concat!(env!("CARGO_MANIFEST_DIR"), "/../../data/taxonomy.json"));
 pub const EMBEDDED_CATEGORIES: &[u8] =
     include_bytes!(concat!(env!("CARGO_MANIFEST_DIR"), "/../../data/categories.jsonl"));
+/// The per-title runtime **dependency** registry (`data/dependencies.json`): a
+/// dep-id → {name, source, install_os, note} map (a `"//"` documentation key is
+/// skipped by the loader). Embedded so a build resolves a title's `requires:[…]`
+/// facet with no extra paths — mirrors the library / compatibility / taxonomy /
+/// targets embeds. User entries under `~/.macatrium.json` `"dependencies"` overlay
+/// it (see [`dependencies`]). Kept as text (`include_str!`) so the loader parses it
+/// straight into a `serde_json::Map`.
+pub const EMBEDDED_DEPENDENCIES: &str =
+    include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/../../data/dependencies.json"));
 
 pub fn d_startup() -> String { "/System Folder/Startup Items".into() }
 pub fn d_platform() -> String { "Apple Mac OS".into() }
@@ -76,6 +85,83 @@ pub struct HarvestSrc {
     pub apps: Vec<String>,
     #[serde(default)]
     pub scan: Option<String>,
+}
+
+/// The reservoir **source** a runtime dependency's files are copied from: a donor
+/// *key* (resolved through [`donors`](crate::donors), exactly like a title's
+/// `harvest_src`) plus the path to the dep's files on that donor. Same `{donor,
+/// path}` shape the dataset's `harvest_src` uses — the files are copied **verbatim**
+/// (image-to-image `rb-cli cp`), the same mechanism reservoir games use. (Distinct
+/// from [`HarvestSrc`], which is the manual `{image, apps}` harvest-config source.)
+#[derive(Deserialize, Serialize, Clone, Debug)]
+pub struct DepSource {
+    /// Donor key into `donors.json` (e.g. "macgarden") — resolved to a disk image.
+    pub donor: String,
+    /// Path to the dep's files on that donor (its contents are copied verbatim).
+    pub path: String,
+}
+
+/// A per-title runtime **dependency**: a system Extension the OS needs but doesn't
+/// bundle (e.g. Sound Manager 3.0 on System 7.1). A title declares
+/// `requires:[<dep-id>]` (a compatibility facet); a build installs each required
+/// dep's files (from its [`DepSource`]) into every System Folder whose name matches
+/// one of [`install_os`](Dependency::install_os). Bundled in
+/// [`EMBEDDED_DEPENDENCIES`], user-overridable via `~/.macatrium.json` — mirroring
+/// the [`Target`](crate::targets::Target) bundled⊕user pattern.
+#[derive(Deserialize, Serialize, Clone, Debug)]
+pub struct Dependency {
+    /// Human name, for the build log (e.g. "Sound Manager 3.0").
+    pub name: String,
+    /// Where the dep's files come from (a reservoir donor key + path).
+    pub source: DepSource,
+    /// The OS versions that actually need this dep. Each entry is **substring**-
+    /// matched against a System Folder's name (e.g. "7.1" matches "System Folder
+    /// 7.1"). Empty = a deliberate no-op: the dep isn't staged yet, or no OS on the
+    /// disk needs it (OS versions not listed bundle it already or predate it).
+    #[serde(default)]
+    pub install_os: Vec<String>,
+    /// Optional curator note (provenance / why these OS versions). Not read by the
+    /// build; documentation only.
+    #[serde(default)]
+    pub note: Option<String>,
+}
+
+/// Parse a dependency-registry JSON object (dep-id → [`Dependency`]) from text,
+/// **skipping any key that starts with `/`** — the committed `data/dependencies.json`
+/// carries a `"//"` documentation key that is not a dependency. A malformed entry is
+/// skipped with a warning (fail-soft), not aborted. Pure (no I/O), so it stays
+/// deterministic and unit-testable; [`dependencies`] wraps it with the user overlay.
+fn parse_dependencies(json: &str) -> std::collections::HashMap<String, Dependency> {
+    let mut out = std::collections::HashMap::new();
+    let map: serde_json::Map<String, serde_json::Value> = match serde_json::from_str(json) {
+        Ok(m) => m,
+        Err(e) => {
+            eprintln!("[deps] WARNING: dependency registry is not valid JSON: {e}");
+            return out;
+        }
+    };
+    for (id, v) in map {
+        if id.starts_with('/') {
+            continue; // "//" documentation key — not a dependency
+        }
+        match serde_json::from_value::<Dependency>(v) {
+            Ok(dep) => {
+                out.insert(id, dep);
+            }
+            Err(e) => eprintln!("[deps] WARNING: skipping malformed dependency {id:?}: {e}"),
+        }
+    }
+    out
+}
+
+/// The dependency registry a build resolves `requires:[…]` against: the bundled
+/// [`EMBEDDED_DEPENDENCIES`] overlaid with the user's `"dependencies"` entries from
+/// `~/.macatrium.json` (a user entry wins on an id collision), mirroring the Targets
+/// bundled⊕user pattern.
+pub fn dependencies() -> std::collections::HashMap<String, Dependency> {
+    let mut reg = parse_dependencies(EMBEDDED_DEPENDENCIES);
+    reg.extend(crate::settings::Settings::load_default().dependencies);
+    reg
 }
 
 /// How to choose which dataset apps go into the image. Apps are matched against
@@ -514,6 +600,24 @@ mod tests {
         // sanity: the bundled library is real JSONL, the compat overlay non-empty
         assert!(EMBEDDED_LIBRARY.len() > 1000 && EMBEDDED_LIBRARY.contains(&b'{'));
         assert!(!EMBEDDED_COMPAT.is_empty());
+    }
+
+    #[test]
+    fn dependencies_loader_skips_doc_key_and_parses_sound_manager() {
+        // Parse the bundled registry directly (deterministic — no user overlay).
+        let reg = parse_dependencies(EMBEDDED_DEPENDENCIES);
+        // The `"//"` documentation key is NOT a dependency and must be skipped, as
+        // must any other slash-prefixed key.
+        assert!(!reg.contains_key("//"), "the // documentation key leaked in as a dependency");
+        assert!(reg.keys().all(|k| !k.starts_with('/')), "a slash-prefixed key survived");
+        // The real dependency parses, including its {donor, path} source + install_os.
+        let sm = reg.get("sound-manager-3").expect("sound-manager-3 must parse");
+        assert_eq!(sm.name, "Sound Manager 3.0");
+        assert_eq!(sm.source.donor, "macgarden");
+        assert_eq!(sm.source.path, "/MacAtrium/_deps/sound-manager-3");
+        assert_eq!(sm.install_os, ["7.1"]);
+        // The placeholder entry parses too, with an empty (no-op) install_os.
+        assert!(reg.get("quicktime").expect("quicktime placeholder present").install_os.is_empty());
     }
 }
 
