@@ -57,6 +57,7 @@ enum Tab {
     Build,
     AddToDisk,
     Library,
+    Collections,
     Database,
     Attain,
     Settings,
@@ -140,6 +141,12 @@ struct App {
     db_search: String,
     db_selected: Option<usize>, // index into `db` of the detail-panel title
     db_shot: usize,             // which screenshot of the selected title is shown
+    // ---- Collections editor (curate each collection's Recommended set) ----
+    coll_names: Vec<String>,       // collection names = *.json stems in bundled_dir()
+    coll_selected: Option<String>, // the picked collection (name/stem)
+    coll_loaded: Option<atrium::collections::Collection>, // its parsed JSON, the edit target
+    coll_recommended: HashSet<String>, // ids currently toggled Recommended (edit buffer)
+    coll_status: String,           // load/save status shown in the tab
     // ---- shared paths / dataset editing ----
     rb_cli: String,
     metadata: String,   // LaunchBox Metadata.xml
@@ -265,6 +272,11 @@ impl Default for App {
             db_search: String::new(),
             db_selected: None,
             db_shot: 0,
+            coll_names: Vec::new(),
+            coll_selected: None,
+            coll_loaded: None,
+            coll_recommended: HashSet::new(),
+            coll_status: String::new(),
             rb_cli,
             metadata: String::new(),
             mg_archive,
@@ -1557,6 +1569,226 @@ impl App {
         });
     }
 
+    /// Re-scan the collections folder (`collections::bundled_dir()`) for the
+    /// available `*.json` collection names (their filename stems), sorted.
+    fn reload_collections(&mut self) {
+        let dir = atrium::collections::bundled_dir();
+        let mut names: Vec<String> = Vec::new();
+        if let Ok(entries) = std::fs::read_dir(&dir) {
+            for e in entries.flatten() {
+                let p = e.path();
+                if p.extension().and_then(|x| x.to_str()) == Some("json") {
+                    if let Some(stem) = p.file_stem().and_then(|s| s.to_str()) {
+                        names.push(stem.to_string());
+                    }
+                }
+            }
+        }
+        names.sort();
+        self.coll_names = names;
+    }
+
+    /// Load a collection by name into the editor, seeding the Recommended edit
+    /// buffer from its saved `recommended` ids.
+    fn load_collection(&mut self, name: &str) {
+        let path = atrium::collections::bundled_dir().join(format!("{name}.json"));
+        match atrium::collections::Collection::load(&path) {
+            Ok(c) => {
+                self.coll_recommended = c.recommended.iter().cloned().collect();
+                self.coll_status = format!(
+                    "Loaded \"{name}\": {} games · {} recommended.",
+                    c.ids.len(),
+                    c.recommended.len()
+                );
+                self.coll_loaded = Some(c);
+                self.coll_selected = Some(name.to_string());
+            }
+            Err(e) => {
+                self.coll_loaded = None;
+                self.coll_selected = Some(name.to_string());
+                self.coll_status = format!("Load failed: {e}");
+            }
+        }
+    }
+
+    /// Write the loaded collection back to `collections::bundled_dir()`, setting
+    /// its `recommended` to the collection's own ids filtered to the toggled set
+    /// (so the saved order matches build order).
+    fn save_collection(&mut self) {
+        let name = match &self.coll_selected {
+            Some(n) => n.clone(),
+            None => {
+                self.coll_status = "Pick a collection first.".into();
+                return;
+            }
+        };
+        if self.coll_loaded.is_none() {
+            self.coll_status = "No collection loaded.".into();
+            return;
+        }
+        // Recommended = the collection's ids that are toggled on, in id order.
+        let rec: Vec<String> = {
+            let coll = self.coll_loaded.as_ref().unwrap();
+            coll.ids
+                .iter()
+                .filter(|id| self.coll_recommended.contains(id.as_str()))
+                .cloned()
+                .collect()
+        };
+        let path = atrium::collections::bundled_dir().join(format!("{name}.json"));
+        let coll = self.coll_loaded.as_mut().unwrap();
+        coll.recommended = rec;
+        let n = coll.recommended.len();
+        match serde_json::to_string_pretty(&*coll) {
+            Ok(json) => match std::fs::write(&path, json) {
+                Ok(()) => self.coll_status = format!("Saved {n} recommended -> {}", path.display()),
+                Err(e) => self.coll_status = format!("Save failed: {e}"),
+            },
+            Err(e) => self.coll_status = format!("Encode failed: {e}"),
+        }
+    }
+
+    /// The Collections editor: pick a collection, toggle which of its games are
+    /// **Recommended** (surfaced in the launcher's Recommended nav category), Save.
+    fn tab_collections(&mut self, ui: &mut egui::Ui, _ctx: &egui::Context) {
+        self.ensure_library();
+        if self.coll_names.is_empty() {
+            self.reload_collections();
+        }
+        ui.label(
+            egui::RichText::new(
+                "Pick a collection, toggle which games are Recommended (surfaced in the launcher's \
+                 Recommended nav category), then Save.",
+            )
+            .small()
+            .weak(),
+        );
+        ui.add_space(6.0);
+
+        // Collection picker + a re-scan button (mirrors the Target combo).
+        ui.horizontal(|ui| {
+            ui.label("Collection:");
+            let names = self.coll_names.clone();
+            let cur = self.coll_selected.clone().unwrap_or_else(|| "(choose)".to_string());
+            let mut pick: Option<String> = None;
+            egui::ComboBox::from_id_salt("coll_pick")
+                .selected_text(cur)
+                .width(340.0)
+                .show_ui(ui, |ui| {
+                    for n in &names {
+                        if ui
+                            .selectable_label(self.coll_selected.as_deref() == Some(n.as_str()), n)
+                            .clicked()
+                        {
+                            pick = Some(n.clone());
+                        }
+                    }
+                });
+            if ui.button("Reload").on_hover_text("Re-scan the collections folder for *.json.").clicked() {
+                self.reload_collections();
+            }
+            if let Some(n) = pick {
+                self.load_collection(&n);
+            }
+        });
+
+        // Nothing loaded yet — invite a pick and stop.
+        let (label, ids) = match self.coll_loaded.as_ref() {
+            Some(c) => (c.label.clone(), c.ids.clone()),
+            None => {
+                ui.add_space(8.0);
+                ui.label(egui::RichText::new("Pick a collection above to edit its Recommended set.").weak());
+                return;
+            }
+        };
+
+        ui.add_space(6.0);
+        if !label.is_empty() {
+            ui.label(egui::RichText::new(label.as_str()).weak());
+        }
+        ui.label(
+            egui::RichText::new(format!("{} games · {} recommended", ids.len(), self.coll_recommended.len()))
+                .small()
+                .weak(),
+        );
+        ui.add_space(4.0);
+
+        // Shared search + kind/genre filter bar.
+        self.filter_bar(ui, "coll");
+
+        // The rows to show: (id, display name) in collection order, passing the
+        // filter. Owned so the scroll closure only borrows `coll_recommended`.
+        let rows: Vec<(String, String)> = {
+            let q = self.lib_search.to_lowercase();
+            let by_id: HashMap<&str, &LibRow> =
+                self.library.iter().map(|r| (r.id.as_str(), r)).collect();
+            ids.iter()
+                .filter_map(|id| {
+                    let row = by_id.get(id.as_str()).copied();
+                    let name = row.map(|r| r.name.clone()).unwrap_or_else(|| id.clone());
+                    let kind_ok =
+                        self.lib_kind.is_empty() || row.map(|r| r.kind == self.lib_kind).unwrap_or(false);
+                    let genre_ok = self.lib_genre.is_empty()
+                        || row.map(|r| r.genres.iter().any(|g| *g == self.lib_genre)).unwrap_or(false);
+                    let hit = q.is_empty()
+                        || name.to_lowercase().contains(&q)
+                        || id.to_lowercase().contains(&q);
+                    (kind_ok && genre_ok && hit).then(|| (id.clone(), name))
+                })
+                .collect()
+        };
+
+        ui.horizontal(|ui| {
+            if ui.small_button("Recommend all shown").clicked() {
+                for (id, _) in &rows {
+                    self.coll_recommended.insert(id.clone());
+                }
+            }
+            if ui.small_button("Clear recommended").clicked() {
+                self.coll_recommended.clear();
+            }
+            ui.separator();
+            ui.label(
+                egui::RichText::new(format!("{} shown · {} recommended", rows.len(), self.coll_recommended.len()))
+                    .small()
+                    .weak(),
+            );
+        });
+        ui.separator();
+
+        let row_h = ui.text_style_height(&egui::TextStyle::Body) + 6.0;
+        egui::ScrollArea::vertical()
+            .id_salt("coll_edit")
+            .auto_shrink([false, false])
+            .max_height(380.0)
+            .show_rows(ui, row_h, rows.len(), |ui, range| {
+                for vis in range {
+                    let (id, name) = &rows[vis];
+                    let mut is_rec = self.coll_recommended.contains(id.as_str());
+                    ui.horizontal(|ui| {
+                        if ui.checkbox(&mut is_rec, "Recommended").changed() {
+                            if is_rec {
+                                self.coll_recommended.insert(id.clone());
+                            } else {
+                                self.coll_recommended.remove(id.as_str());
+                            }
+                        }
+                        ui.label(name);
+                        ui.label(egui::RichText::new(id.as_str()).small().weak());
+                    });
+                }
+            });
+
+        ui.separator();
+        if ui.button(egui::RichText::new("Save collection").strong()).clicked() {
+            self.save_collection();
+        }
+        if !self.coll_status.is_empty() {
+            ui.add_space(2.0);
+            ui.label(egui::RichText::new(self.coll_status.as_str()).small().weak());
+        }
+    }
+
     /// Kick off (once) loading the MG archive cross-referenced against MacPack,
     /// on a worker thread (~21k records). Self-gates; needs a valid MG-Archive.
     fn ensure_db(&mut self, ctx: &egui::Context) {
@@ -2060,6 +2292,7 @@ impl eframe::App for App {
             ui.selectable_value(&mut self.tab, Tab::Build, "Build");
             ui.selectable_value(&mut self.tab, Tab::AddToDisk, "Add to disk");
             ui.selectable_value(&mut self.tab, Tab::Library, "Library");
+            ui.selectable_value(&mut self.tab, Tab::Collections, "Collections");
             ui.selectable_value(&mut self.tab, Tab::Database, "Database");
             ui.selectable_value(&mut self.tab, Tab::Attain, "Attain");
             ui.selectable_value(&mut self.tab, Tab::Settings, "⚙ Settings");
@@ -2084,6 +2317,7 @@ impl eframe::App for App {
                     Tab::Build => self.tab_build(ui, &ctx, busy),
                     Tab::AddToDisk => self.tab_add_to_disk(ui, &ctx, busy),
                     Tab::Library => self.tab_library(ui, &ctx, busy),
+                    Tab::Collections => self.tab_collections(ui, &ctx),
                     Tab::Database => self.tab_database(ui, &ctx, busy),
                     Tab::Attain => self.tab_attain(ui, &ctx, busy),
                     Tab::Settings => self.tab_settings(ui, &ctx, busy),
