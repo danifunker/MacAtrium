@@ -18,6 +18,7 @@
 #include "env.h"
 #include "macfs.h"
 #include "catalog.h"
+#include "compat.h"
 #include "model.h"
 #include "render.h"
 #include "ui.h"
@@ -702,52 +703,9 @@ static int cd_insert_for_launch(const CatItem *it, short *cdVref)
     }
 }
 
-/* ---- Per-title hardware compatibility preflight (docs/40) ---------------- */
-
-static char *cr_append(char *p, const char *s) { while (*s) *p++ = *s++; return p; }
-
-static char *cr_uint(char *p, long v)
-{
-    char t[12]; int k = 0;
-    if (v <= 0) { *p++ = '0'; return p; }
-    while (v > 0 && k < 11) { t[k++] = (char)('0' + (int)(v % 10)); v /= 10; }
-    while (k > 0) *p++ = t[--k];
-    return p;
-}
-
-/* Fill `out` (>= 128 bytes) with a short human reason THIS Mac falls short of the
- * item's declared hardware needs (docs/40): a higher CPU tier, a hardware FPU, an
- * unreachable min colour depth, or more RAM. Returns 1 when under-spec (out is a
- * "Needs …" sentence), 0 when the Mac is adequate (out[0] = '\0'). A min depth the
- * screen CAN reach is not flagged here — do_launch raises the depth instead. */
-static int compat_reason(const CatItem *it, char *out)
-{
-    static const char *kNeedTier[] = { "", "a 68030", "a 68040", "a PowerPC" };
-    char *p = out;
-    int   n = 0;
-
-    if (it->minCPU > 0 && gEnv.tier < it->minCPU) {           /* CPU generation */
-        int t = it->minCPU > 3 ? 3 : it->minCPU;
-        p = cr_append(p, n++ ? " and " : "Needs ");
-        p = cr_append(p, kNeedTier[t]);
-    }
-    if (it->needsFPU && !gEnv.hasFPU) {                        /* hardware FPU */
-        p = cr_append(p, n++ ? " and " : "Needs ");
-        p = cr_append(p, "an FPU");
-    }
-    if (it->minDepth > 0 && display_depth_at_least((short)it->minDepth) == 0) {
-        p = cr_append(p, n++ ? " and " : "Needs ");           /* colour depth unreachable */
-        p = cr_append(p, gEnv.hasColorQD ? "a deeper colour display" : "a colour display");
-    }
-    if (it->minMem > 0 && gEnv.ramKB > 0 && gEnv.ramKB < it->minMem) {   /* RAM */
-        p = cr_append(p, n++ ? " and " : "Needs ");
-        p = cr_uint(p, it->minMem / 1024);
-        p = cr_append(p, " MB of memory");
-    }
-    if (n > 0) *p++ = '.';
-    *p = '\0';
-    return n > 0;
-}
+/* ---- Per-title hardware compatibility preflight (docs/40) ----------------
+ * compat_reason() itself lives in compat.c (pure, shared with the browse flag in
+ * ui.c and host-tested); main.c owns the modal that surfaces it at launch. */
 
 /* Draw a two-button confirm: up to three message lines + the default-button ring. */
 static void modal_confirm_draw(WindowPtr dlg, const char *l1, const char *l2,
@@ -860,8 +818,8 @@ static void do_launch(void)
      * the depth, or launch. Cancel is the default — a "may crash" prompt shouldn't
      * bomb an LC just because someone held Return. */
     {
-        char reason[128];
-        if (compat_reason(it, reason) &&
+        char reason[COMPAT_REASON_LEN];
+        if (compat_reason(it, &gEnv, reason) &&
             !modal_confirm(name, reason, "It may not run on this Mac. Launch anyway?",
                            "\pLaunch anyway", "\pCancel")) {
             SetPort(gWin);

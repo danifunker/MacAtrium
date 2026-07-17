@@ -6,6 +6,7 @@
  */
 #include "json.h"
 #include "catalog.h"
+#include "compat.h"    /* pure per-title compatibility check (docs/40) */
 #include "model.h"
 #include "artcaps.h"   /* pure half only, via -DARTCAPS_HOST_TEST (docs/44) */
 #include "toolbox.h"   /* pure half only, via -DTOOLBOX_HOST_TEST (docs/45) */
@@ -635,6 +636,50 @@ static void test_toolbox_magic(void)
     CHECK(!toolbox_has_magic(page, (int)sizeof page), "tb no magic in ordinary mode data");
 }
 
+/* ---- compat (docs/40) --------------------------------------------------- */
+
+static void test_compat(void)
+{
+    CatItem it;
+    Env     e;
+    char    out[COMPAT_REASON_LEN];
+
+    /* Marathon 2 (needs a 68040 + FPU + 8 MB) on a Mac LC (68020/tier 0, no FPU,
+     * 4 MB, 8-bit): under-spec, and the reason names each shortfall. */
+    memset(&e, 0, sizeof e);
+    e.tier = 0; e.hasFPU = 0; e.ramKB = 4096; e.maxScreenDepth = 8; e.hasColorQD = 1;
+    memset(&it, 0, sizeof it);
+    it.minCPU = 2; it.needsFPU = 1; it.minMem = 8192; it.minDepth = 8; it.maxDepth = 8;
+    CHECK(compat_reason(&it, &e, out) == 1, "compat: M2 under-spec on an LC");
+    CHECK(strstr(out, "68040") != 0, "compat: names the 68040");
+    CHECK(strstr(out, "FPU") != 0, "compat: names the FPU");
+    CHECK(strstr(out, "8 MB") != 0, "compat: names the RAM");
+
+    /* Same title on a Quadra (68040/tier 2, FPU, 16 MB) — adequate, empty reason. */
+    e.tier = 2; e.hasFPU = 1; e.ramKB = 16384;
+    CHECK(compat_reason(&it, &e, out) == 0, "compat: M2 fine on a Quadra");
+    CHECK(out[0] == '\0', "compat: empty reason when adequate");
+
+    /* A 256-colour title on a 1-bit B&W Mac: min depth unreachable → flagged. */
+    memset(&it, 0, sizeof it); it.minDepth = 8;
+    memset(&e, 0, sizeof e); e.tier = 0; e.hasColorQD = 0; e.maxScreenDepth = 1; e.ramKB = 4096;
+    CHECK(compat_reason(&it, &e, out) == 1, "compat: 256-colour title on a B&W Mac");
+    CHECK(strstr(out, "colour display") != 0, "compat: names the colour display");
+    /* Reachable min depth (8-bit screen) is NOT flagged (launcher raises instead). */
+    e.hasColorQD = 1; e.maxScreenDepth = 8;
+    CHECK(compat_reason(&it, &e, out) == 0, "compat: reachable min depth not flagged");
+
+    /* maxCPU: a title that tolerates <= 68030 (maxCPU = tier 1 + 1 = 2) breaks on a
+     * 68040 (tier 2) but is fine on a 68030 (tier 1). */
+    memset(&it, 0, sizeof it); it.maxCPU = 2;
+    memset(&e, 0, sizeof e); e.hasColorQD = 1; e.maxScreenDepth = 8; e.ramKB = 8192;
+    e.tier = 2;
+    CHECK(compat_reason(&it, &e, out) == 1, "compat: too-fast title flagged on a 68040");
+    CHECK(strstr(out, "crash") != 0, "compat: maxCPU warns of a crash");
+    e.tier = 1;
+    CHECK(compat_reason(&it, &e, out) == 0, "compat: too-fast title fine on a 68030");
+}
+
 int main(void)
 {
     test_json_scalars();
@@ -646,6 +691,7 @@ int main(void)
     test_catalog_drops_bad();
     test_catalog_optional_fields();
     test_catalog_cd_fields();
+    test_compat();
     test_catindex();
     test_model_paged();
     test_model_categories();

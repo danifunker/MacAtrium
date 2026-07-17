@@ -85,6 +85,9 @@ static int item_from_object(const JsonObject *o, CatItem *it)
     f = json_get(o, "minCPU");
     if (f && f->type == JT_NUM) it->minCPU = (int)f->num;
 
+    f = json_get(o, "maxCPU");
+    if (f && f->type == JT_NUM) it->maxCPU = (int)f->num;
+
     f = json_get(o, "fpu");
     if (f && f->type == JT_BOOL)      it->needsFPU = f->boolean;
     else if (f && f->type == JT_NUM)  it->needsFPU = (f->num != 0);

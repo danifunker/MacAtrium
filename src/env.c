@@ -3,6 +3,7 @@
  */
 #include "env.h"
 #include "mac_compat.h"
+#include "display.h"
 
 #include <Gestalt.h>
 #include <LowMem.h>
@@ -68,6 +69,16 @@ void env_probe(Env *e)
     /* Backend: color only when Color QD is present AND the screen actually has
      * colour depth; otherwise the B&W path (also the graceful fallback). */
     e->useColor = (e->hasColorQD && e->pixelSize >= 4);
+
+    /* Deepest bpp the main screen supports — the per-title minDepth reachability
+     * test (compat.c) reads this: a title needing 8-bit is flagged on a Mac that
+     * tops out at 1-bit. 1 when there is no Color QD. */
+    e->maxScreenDepth = 1;
+    if (e->hasColorQD) {
+        short list[8];
+        int   nd = display_depths(list, 8), k;
+        for (k = 0; k < nd; k++) if (list[k] > e->maxScreenDepth) e->maxScreenDepth = list[k];
+    }
 
     /* CPU→OS-compatibility tier (docs/40). OS support clusters by CPU/ROM, not by
      * model; detect the tier from the *native* CPU (correct even under the PPC 68k

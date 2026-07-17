@@ -71,6 +71,11 @@ struct SourceItem {
     /// covers the B&W 68000). The Marathon-2-on-a-Mac-LC guard (docs/40).
     #[serde(rename = "minCPU", default)]
     min_cpu: Option<String>,
+    /// Highest CPU generation this title tolerates ("68020"/"68030"/"68040") — a
+    /// title that breaks on a FASTER Mac (self-modifying code vs the 68040 cache,
+    /// timing loops). Emitted as (tier+1); absent → no ceiling. The mirror of minCPU.
+    #[serde(rename = "maxCPU", default)]
+    max_cpu: Option<String>,
     /// true → this title needs a hardware FPU (e.g. Marathon; a 68LC040 lacks one).
     #[serde(default)]
     fpu: Option<bool>,
@@ -179,6 +184,10 @@ struct OutItem {
     /// omitted → no CPU gate. Only tiers ≥ 1 are emitted (see [`min_cpu_tier`]).
     #[serde(rename = "minCPU", skip_serializing_if = "Option::is_none")]
     min_cpu: Option<i64>,
+    /// Max CPU as (tolerated tier + 1): the launcher flags a title when
+    /// `gEnv.tier >= this` (too fast); omitted → no CPU ceiling. See [`min_cpu_tier`].
+    #[serde(rename = "maxCPU", skip_serializing_if = "Option::is_none")]
+    max_cpu: Option<i64>,
     /// true → the title needs a hardware FPU; omitted → no FPU requirement.
     #[serde(rename = "fpu", skip_serializing_if = "Option::is_none")]
     fpu: Option<bool>,
@@ -442,6 +451,9 @@ fn build(src_text: &str) -> Result<(Vec<OutItem>, Report)> {
             max_depth: it.max_depth,
             // minCPU: human string → launcher CPU tier; drop tier 0 (no gate).
             min_cpu: it.min_cpu.as_deref().and_then(min_cpu_tier).filter(|&t| t > 0),
+            // maxCPU: (tolerated tier + 1) so the launcher flags tier >= it. No `>0`
+            // filter — a 68000/020 ceiling (tier 0 → 1) is a real limit, unlike minCPU.
+            max_cpu: it.max_cpu.as_deref().and_then(min_cpu_tier).map(|t| t + 1),
             fpu: it.fpu.filter(|&b| b),
             min_depth: it.min_depth,
             min_mem: it.min_mem,
@@ -941,6 +953,19 @@ mod tests {
         // Absent minCPU → None.
         let it = item(r#"{"id":"x","name":"X","app":"a"}"#);
         assert_eq!(it.min_cpu.as_deref().and_then(min_cpu_tier).filter(|&t| t > 0), None);
+    }
+
+    #[test]
+    fn max_cpu_facet_emits_tolerated_tier_plus_one() {
+        // Breaks above a 68030 → tolerated tier 1, emitted as 2 (launcher flags tier >= 2).
+        let it = item(r#"{"id":"x","name":"X","app":"a","maxCPU":"68030"}"#);
+        assert_eq!(it.max_cpu.as_deref().and_then(min_cpu_tier).map(|t| t + 1), Some(2));
+        // A 68020 ceiling is a REAL limit (tier 0 → 1), unlike minCPU where 0 = no gate.
+        let it = item(r#"{"id":"x","name":"X","app":"a","maxCPU":"68020"}"#);
+        assert_eq!(it.max_cpu.as_deref().and_then(min_cpu_tier).map(|t| t + 1), Some(1));
+        // Absent → None.
+        let it = item(r#"{"id":"x","name":"X","app":"a"}"#);
+        assert_eq!(it.max_cpu.as_deref().and_then(min_cpu_tier).map(|t| t + 1), None);
     }
 
     fn item(json: &str) -> SourceItem {

@@ -48,6 +48,9 @@ typedef struct {
      * this Mac (CPU tier / FPU / min depth / RAM) and confirms before launch. */
     int  minCPU;                             /* min CPU tier (TIER_* in env.h:
                                               * 1=68030, 2=68040, 3=PPC); 0 = no gate */
+    int  maxCPU;                             /* max CPU as (tolerated tier + 1): a title
+                                              * that breaks on a FASTER Mac fires when
+                                              * gEnv.tier >= this; 0 = no ceiling */
     int  needsFPU;                           /* 1 = needs a hardware FPU (68LC040 lacks one) */
     int  minDepth;                           /* raise screen to >= this bpp before launch
                                               * (inverse of maxDepth); 0 = no floor */

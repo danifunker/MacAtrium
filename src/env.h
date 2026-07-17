@@ -6,7 +6,14 @@
 #ifndef MACATRIUM_ENV_H
 #define MACATRIUM_ENV_H
 
+#ifdef MACATRIUM_HOST_TEST
+/* Host unit tests (tests/) have no Toolbox: supply the only Toolbox type the Env
+ * struct uses (Rect) so the pure compat.c can be exercised off-target. The real
+ * 68k build takes the Quickdraw definition. */
+typedef struct { short top, left, bottom, right; } Rect;
+#else
 #include <Quickdraw.h>
+#endif
 
 /* CPU→OS compatibility tiers (docs/40 / data/os-tiers.json). The highest System
  * a Mac can boot is a function of its CPU/ROM generation, not the model; the tier
@@ -36,6 +43,8 @@ typedef struct {
     int   hasFPU;           /* hardware FPU present (gestaltFPUType != NoFPU) */
     long  ramKB;            /* physical machine RAM in KB (gestaltPhysicalRAMSize) */
     long  machineID;        /* gestaltMachineType (box/model ID); 0 if unknown */
+    int   maxScreenDepth;   /* deepest bpp the main screen supports (1 if B&W); the
+                             * per-title minDepth reachability test reads this      */
     Rect  screen;           /* full main-screen bounds (global coords)   */
     short mbarHeight;       /* menu-bar height                           */
 } Env;

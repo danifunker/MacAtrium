@@ -200,7 +200,7 @@ pub fn scan(rb: &RbCli, disks: &[(String, std::path::PathBuf)], out: &Path, rele
 /// `library.jsonl` (the latter is identity + descriptive metadata only).
 const REQ_FIELDS: &[&str] = &[
     "color", "mouse", "maxDepth", "minDepth", "minOS", "maxOS", "minMem", "minCPU",
-    "fpu", "arch",
+    "maxCPU", "fpu", "arch",
 ];
 
 const COMPAT_HEADER: &str = "\
@@ -219,6 +219,8 @@ const COMPAT_HEADER: &str = "\
 #           CPU tier (docs/40); the launcher flags a title needing more than this Mac
 #           (e.g. Marathon 2 needs \"68040\" — refused on a 68020 Mac LC). 68000/68020
 #           impose no CPU gate (the colour/minDepth axis covers the B&W 68000)
+#   maxCPU  highest CPU a title tolerates (same values) — the mirror of minCPU, for a
+#           title that BREAKS on a faster Mac (self-modifying code vs the 68040 cache)
 #   fpu     true = needs a hardware FPU (e.g. Marathon; a 68LC040 lacks one)
 #   arch    \"68K\" / \"PPC\" / \"BOTH\"
 ";

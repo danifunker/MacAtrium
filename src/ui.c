@@ -2,6 +2,7 @@
  * ui.c — see ui.h. Direct-to-window drawing; full redraw per change (MVP).
  */
 #include "ui.h"
+#include "compat.h"
 #include "art.h"
 #include "display.h"
 #include "sound.h"
@@ -749,11 +750,18 @@ static void draw_carousel_detail(Ui *u, const CarLayout *L)
         }
         ty = (short)(ty + 6);
 
-        /* description (a transient status line wins) */
-        if (u->status[0])
-            render_text(r, tx, ty, u->status, INK_NORMAL);
-        else if (cur->desc[0])
-            draw_wrapped(r, tx, ty, maxw, ROW_H, cur->desc, INK_NORMAL, 7);
+        /* description — or, when this Mac can't properly run the title, the compat
+         * flag (docs/40) drawn in the title ink so it reads as a warning. A transient
+         * status line (a just-now launch message) still wins over both. */
+        {
+            char warn[COMPAT_REASON_LEN];
+            if (u->status[0])
+                render_text(r, tx, ty, u->status, INK_NORMAL);
+            else if (u->env && compat_reason(cur, u->env, warn))
+                draw_wrapped(r, tx, ty, maxw, ROW_H, warn, INK_TITLE, 3);
+            else if (cur->desc[0])
+                draw_wrapped(r, tx, ty, maxw, ROW_H, cur->desc, INK_NORMAL, 7);
+        }
 
         /* tags: the navigational categories, along the panel's last line */
         if (cur->ncats > 0) {
