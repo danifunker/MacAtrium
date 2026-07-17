@@ -196,12 +196,13 @@ struct OutItem {
     /// Newest generation the title tolerates (it breaks on anything faster).
     #[serde(rename = "maxCPU", skip_serializing_if = "Option::is_none")]
     max_cpu: Option<&'static str>,
-    /// OS range as gestaltSystemVersion BCD (0x0710 = 7.1); the launcher flags a title
-    /// when the running System is outside [minOS, maxOS]. Omitted → that bound is open.
+    /// OS range as canonical dotted versions ("7.1", "9.2.2") — readable in a dump,
+    /// like the CPU bounds. The launcher parses them back to the gestaltSystemVersion
+    /// BCD it compares the running System against. Omitted → that bound is open.
     #[serde(rename = "minOS", skip_serializing_if = "Option::is_none")]
-    min_os: Option<i64>,
+    min_os: Option<String>,
     #[serde(rename = "maxOS", skip_serializing_if = "Option::is_none")]
-    max_os: Option<i64>,
+    max_os: Option<String>,
     /// true → the title needs a hardware FPU; omitted → no FPU requirement.
     #[serde(rename = "fpu", skip_serializing_if = "Option::is_none")]
     fpu: Option<bool>,
@@ -258,10 +259,28 @@ fn normalize_cpu(s: &str) -> Option<&'static str> {
         .map(|(canon, _)| *canon)
 }
 
+/// Render a gestaltSystemVersion BCD back to the canonical dotted form the catalog
+/// carries ("7.5", "9.2.2") — a trailing `.0` bugfix is dropped, matching env.c's
+/// `env_os_version`.
+fn os_bcd_to_dotted(v: i64) -> String {
+    let (maj, min, bug) = ((v >> 8) & 0xFF, (v >> 4) & 0x0F, v & 0x0F);
+    if bug != 0 { format!("{maj}.{min}.{bug}") } else { format!("{maj}.{min}") }
+}
+
+/// Normalize an authored OS version ("7.5.0", " 7.1 ") to the canonical dotted form
+/// the catalog carries ("7.5", "7.1"). Validated by round-tripping through the
+/// gestaltSystemVersion BCD the launcher compares against, so a version that cannot
+/// be represented is rejected HERE rather than silently mis-gating on-device.
+/// `None` on a malformed string.
+fn normalize_os(s: &str) -> Option<String> {
+    os_dotted_to_bcd(s).map(os_bcd_to_dotted)
+}
+
 /// Convert a dotted OS version ("7.5.5"/"7.1") to a gestaltSystemVersion BCD
-/// (0x0755/0x0710) — `major<<8 | minor<<4 | bug` — matching env.c's encoding, so the
-/// launcher compares a title's OS range against the running System directly. `None`
-/// on a malformed string or an out-of-nibble minor/bug.
+/// (0x0755/0x0710) — `major<<8 | minor<<4 | bug` — matching env.c's encoding, which
+/// caps out at 9.2.2, so minor/bug always fit a nibble. `None` on a malformed string
+/// or an out-of-nibble minor/bug. The launcher re-parses the dotted form with
+/// `os_bcd_from_dotted` (catalog.c); keep the two in sync.
 fn os_dotted_to_bcd(s: &str) -> Option<i64> {
     let mut parts = s.trim().split('.');
     let maj: i64 = parts.next()?.parse().ok()?;
@@ -496,9 +515,9 @@ fn build(src_text: &str) -> Result<(Vec<OutItem>, Report)> {
             // the SAME table and encoding — no tier arithmetic, no 0-means-unset.
             min_cpu: it.min_cpu.as_deref().and_then(normalize_cpu),
             max_cpu: it.max_cpu.as_deref().and_then(normalize_cpu),
-            // OS range → BCD for the launcher's running-System check.
-            min_os: it.min_os.as_deref().and_then(os_dotted_to_bcd),
-            max_os: it.max_os.as_deref().and_then(os_dotted_to_bcd),
+            // OS range → canonical dotted (validated via the BCD the launcher uses).
+            min_os: it.min_os.as_deref().and_then(normalize_os),
+            max_os: it.max_os.as_deref().and_then(normalize_os),
             fpu: it.fpu.filter(|&b| b),
             min_depth: it.min_depth,
             min_mem: it.min_mem,
@@ -1013,6 +1032,20 @@ mod tests {
         let it = item(r#"{"id":"x","name":"X","app":"a"}"#);
         assert_eq!(it.min_cpu.as_deref().and_then(normalize_cpu), None);
         assert_eq!(it.max_cpu.as_deref().and_then(normalize_cpu), None);
+    }
+
+    #[test]
+    fn normalize_os_emits_canonical_dotted() {
+        assert_eq!(normalize_os("7.1").as_deref(), Some("7.1"));
+        assert_eq!(normalize_os("6.0.5").as_deref(), Some("6.0.5"));
+        assert_eq!(normalize_os("9.2.2").as_deref(), Some("9.2.2")); // top of the envelope
+        assert_eq!(normalize_os("7.5.0").as_deref(), Some("7.5")); // trailing .0 dropped
+        assert_eq!(normalize_os(" 7.0 ").as_deref(), Some("7.0")); // trimmed
+        assert_eq!(normalize_os("nope"), None);
+        // Every canonical form must round-trip (catalog.rs emits it, catalog.c reparses it).
+        for v in ["6.0.4", "7.1", "7.5.5", "7.6.1", "8.1", "9.2.2"] {
+            assert_eq!(normalize_os(v).as_deref(), Some(v), "{v} must round-trip");
+        }
     }
 
     #[test]

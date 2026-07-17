@@ -668,6 +668,25 @@ static void test_compat(void)
     CHECK(compat_reason(&it, &e, out) == 0, "compat: M2 fine on a Quadra");
     CHECK(out[0] == '\0', "compat: empty reason when adequate");
 
+    /* The catalog carries CPU bounds + the OS range as readable strings; the parser
+     * turns them into the runtime forms (a generation index, a gestalt BCD). This is
+     * the seam where catalog.rs and catalog.c must agree — pin both spellings. */
+    {
+        const char *rec =
+            "{\"id\":\"m2\",\"name\":\"Marathon 2\",\"app\":\"a\",\"categories\":[\"Games\"],"
+            "\"minCPU\":\"68040\",\"maxCPU\":\"G4\",\"minOS\":\"7.1\",\"maxOS\":\"9.2.2\"}\n";
+        Catalog c;
+        int n = catalog_parse(rec, (long)strlen(rec), &c);
+        CHECK(n == 1, "catalog: compat record parses");
+        if (n == 1) {
+            CHECK(c.items[0].minCPU == CPU_68040, "catalog: minCPU name -> generation");
+            CHECK(c.items[0].maxCPU == CPU_PPC_G4, "catalog: maxCPU name -> generation");
+            CHECK(c.items[0].minOS == 0x0710, "catalog: minOS 7.1 -> BCD");
+            CHECK(c.items[0].maxOS == 0x0922, "catalog: maxOS 9.2.2 -> BCD");
+        }
+        free(c.items);
+    }
+
     /* The generation table resolves canonical names and orders by capability. */
     CHECK(cpu_gen_from_name("68040") == CPU_68040, "cpu: 68040 name resolves");
     CHECK(cpu_gen_from_name("g4") == CPU_PPC_G4, "cpu: name lookup is case-insensitive");

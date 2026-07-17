@@ -96,7 +96,9 @@ Three properties worth keeping:
 
 - **The catalog carries canonical *names*, not indices** (`"minCPU":"68040"`), so a
   catalog dump is readable and the two tables need only agree on the name list and
-  its order — never on index values.
+  its order — never on index values. `minOS`/`maxOS` follow the same rule: the catalog
+  carries the dotted version (`"7.1"`, `"9.2.2"`) and the launcher parses it into the
+  gestalt BCD it compares — readable on disk, cheap at runtime.
 - **The tool normalizes aliases** to canonical names (`"040"`, `"68LC040"` → `68040`;
   `"PPC"` → `601`, the PowerPC floor), so the dataset can be authored loosely and the
   launcher only ever parses one spelling.

@@ -55,10 +55,11 @@ typedef struct {
                                               * gEnv.cpuGen < this */
     int  maxCPU;                             /* newest CPU it tolerates (breaks on a
                                               * FASTER Mac); flags when gEnv.cpuGen > this */
-    long minOS;                              /* BCD System floor: the running System
-                                              * (gEnv.sysVers) must be >= this; 0 = none */
-    long maxOS;                              /* BCD System ceiling: running System must
-                                              * be <= this; a title too new breaks; 0 = none */
+    /* OS range, parsed from the catalog's canonical dotted form ("7.1") into the
+     * gestaltSystemVersion BCD gEnv.sysVers uses. 0 = that bound is open. */
+    long minOS;                              /* running System must be >= this */
+    long maxOS;                              /* running System must be <= this; a title
+                                              * too new for the System breaks */
     int  needsFPU;                           /* 1 = needs a hardware FPU (68LC040 lacks one) */
     int  minDepth;                           /* raise screen to >= this bpp before launch
                                               * (inverse of maxDepth); 0 = no floor */

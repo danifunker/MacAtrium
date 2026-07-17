@@ -12,6 +12,26 @@ static void copy_field(char *dst, int cap, const char *src)
     dst[cap - 1] = '\0';
 }
 
+/* Parse a canonical dotted OS version ("7.5.5") to the gestaltSystemVersion BCD
+ * (0x0755) the launcher compares the running System against; 0 = malformed / absent.
+ * The envelope tops out at 9.2.2, so minor/bug always fit a nibble. Mirrors
+ * os_dotted_to_bcd in tools/atrium-tool/src/catalog.rs (which emits this form). */
+static long os_bcd_from_dotted(const char *s)
+{
+    long maj = 0, min = 0, bug = 0;
+    int  part = 0;
+    if (!s || !s[0]) return 0;
+    for (; *s; s++) {
+        if (*s == '.') { if (++part > 2) return 0; continue; }
+        if (*s < '0' || *s > '9') return 0;
+        if      (part == 0) maj = maj * 10 + (*s - '0');
+        else if (part == 1) min = min * 10 + (*s - '0');
+        else                bug = bug * 10 + (*s - '0');
+    }
+    if (maj > 255 || min > 15 || bug > 15) return 0;
+    return (maj << 8) | (min << 4) | bug;
+}
+
 /* Map one parsed JSON object to an item. Returns 1 if it has the required
  * fields (id, name, app, categories[>=1]); 0 if it should be dropped. */
 static int item_from_object(const JsonObject *o, CatItem *it)
@@ -91,11 +111,12 @@ static int item_from_object(const JsonObject *o, CatItem *it)
     f = json_get(o, "maxCPU");
     if (f && f->type == JT_STR) it->maxCPU = cpu_gen_from_name(f->str);
 
-    f = json_get(o, "minOS");   /* BCD (converted from the dotted facet by catalog.rs) */
-    if (f && f->type == JT_NUM) it->minOS = (long)f->num;
+    /* OS range: canonical dotted ("7.1") -> the BCD compared against gEnv.sysVers. */
+    f = json_get(o, "minOS");
+    if (f && f->type == JT_STR) it->minOS = os_bcd_from_dotted(f->str);
 
     f = json_get(o, "maxOS");
-    if (f && f->type == JT_NUM) it->maxOS = (long)f->num;
+    if (f && f->type == JT_STR) it->maxOS = os_bcd_from_dotted(f->str);
 
     f = json_get(o, "fpu");
     if (f && f->type == JT_BOOL)      it->needsFPU = f->boolean;
