@@ -152,6 +152,24 @@ Macintosh Garden's `architecture`/`system` fields (in the scrape metadata)
 distinguish 68k-vs-PPC and the OS list but **not** the CPU minimum *within* 68k,
 so `minCPU`/`fpu` are hand-set.
 
+## Verified on-target
+
+Both halves were checked on Snow (Mac II ROM + Macintosh Display Card 8•24), screenshots in
+[docs/evidence](evidence/):
+
+- **[40-compat-flag-marathon2-macii.png](evidence/40-compat-flag-marathon2-macii.png)** — Marathon 2's
+  detail pane reads **"Needs a 68040."** on a 68020: the probe → catalog `minCPU` → `compat_reason` →
+  UI chain, end to end. It flags *only* the CPU, correctly: that Mac II has an FPU, 8 MB, and a 32-bit
+  screen, so `fpu`/`minMem`/`minDepth` are all satisfied.
+- **[40-status-hardware-macii.png](evidence/40-status-hardware-macii.png)** — the Status readout:
+  `Machine Macintosh II (Gestalt 6) / CPU 68020 / FPU yes / RAM 8 MB / Screen 640x480 32-bit (max
+  32-bit, Colour QD) / Boots System 6.0.4 - 7.5.5`. The last line verifies both the tier ceiling
+  (68020 → 7.5.5) and the model-floor clamp (the Mac II's table row says System 4.1, clamped up to the
+  6.0.4 envelope).
+
+A launcher-only change does **not** need an image rebuild — `atrium install-all-systems --image
+<disk> --launcher build/MacAtrium.bin` swaps the binary into every System Folder in seconds.
+
 ## Cross-references
 
 - **Hardware/OS map (human-facing):** [38-compatibility-matrix.md](38-compatibility-matrix.md)
