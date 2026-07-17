@@ -216,12 +216,12 @@ const COMPAT_HEADER: &str = "\
 #   minOS / maxOS   dotted OS range, e.g. \"6.0.8\"/\"7.5\" (build drops out-of-range)
 #   minMem  minimum machine RAM in MB; launch-time preflight warning (e.g. 8 = 8 MB).
 #           Whole MB — no classic title specs RAM finer than that
-#   minCPU  minimum CPU: \"68000\"/\"68020\"/\"68030\"/\"68040\"/\"PPC\". Mapped to a launcher
-#           CPU tier (docs/40); the launcher flags a title needing more than this Mac
-#           (e.g. Marathon 2 needs \"68040\" — refused on a 68020 Mac LC). 68000/68020
-#           impose no CPU gate (the colour/minDepth axis covers the B&W 68000)
-#   maxCPU  highest CPU a title tolerates (same values) — the mirror of minCPU, for a
-#           title that BREAKS on a faster Mac (self-modifying code vs the 68040 cache)
+#   minCPU  oldest CPU generation a title runs on; maxCPU = newest it tolerates (for a
+#           title that BREAKS on a faster Mac — self-modifying code vs the 68040 cache).
+#           Both are bounds on ONE ordered table (docs/40, src/cpu.h):
+#             68000  68020  68030  68040  601  603  604  G3  G4
+#           Aliases are normalized (\"040\"/\"68LC040\" -> 68040, \"PPC\" -> 601), so author
+#           loosely. e.g. Marathon 2 has minCPU \"68040\" -> flagged on a 68020 Mac LC
 #   fpu     true = needs a hardware FPU (e.g. Marathon; a 68LC040 lacks one)
 #   arch    \"68K\" / \"PPC\" / \"BOTH\"
 ";

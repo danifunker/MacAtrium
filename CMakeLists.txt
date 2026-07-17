@@ -36,6 +36,7 @@ add_application(MacAtrium
     src/macfs.c
     src/json.c
     src/catalog.c
+    src/cpu.c                # docs/40: the one CPU-generation table (pure)
     src/compat.c             # docs/40: per-title hardware compatibility check (pure)
     src/model.c
     src/render.c

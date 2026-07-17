@@ -8,6 +8,8 @@
 #ifndef MACATRIUM_CATALOG_H
 #define MACATRIUM_CATALOG_H
 
+#include "cpu.h"   /* CPU_* generations + CPU_GEN_NONE for the minCPU/maxCPU bounds */
+
 #define MAX_ITEMS       256
 /* Paged catalog (docs/21): the most items in one category PAGE. The generator
  * splits larger categories into sub-pages, so the launcher holds at most this
@@ -46,11 +48,13 @@ typedef struct {
                                               * 0 = no cap (launch at current depth) */
     /* Hardware requirements (docs/40): the launcher flags a title needing more than
      * this Mac (CPU tier / FPU / min depth / RAM) and confirms before launch. */
-    int  minCPU;                             /* min CPU tier (TIER_* in env.h:
-                                              * 1=68030, 2=68040, 3=PPC); 0 = no gate */
-    int  maxCPU;                             /* max CPU as (tolerated tier + 1): a title
-                                              * that breaks on a FASTER Mac fires when
-                                              * gEnv.tier >= this; 0 = no ceiling */
+    /* CPU bounds as generation indices into the ONE table (CPU_* in cpu.h), parsed
+     * from the catalog's canonical name ("68040"). Symmetric: both are a plain
+     * generation, CPU_GEN_NONE = that bound is open. */
+    int  minCPU;                             /* oldest CPU that runs it; flags when
+                                              * gEnv.cpuGen < this */
+    int  maxCPU;                             /* newest CPU it tolerates (breaks on a
+                                              * FASTER Mac); flags when gEnv.cpuGen > this */
     long minOS;                              /* BCD System floor: the running System
                                               * (gEnv.sysVers) must be >= this; 0 = none */
     long maxOS;                              /* BCD System ceiling: running System must

@@ -33,16 +33,13 @@ static char *cr_needs(char *p, int *n) { p = cr_str(p, (*n)++ ? " and " : "Needs
 
 int compat_reason(const CatItem *it, const Env *e, char *out)
 {
-    /* Required min CPU tier -> the name of the CPU it needs (TIER_* in env.h). */
-    static const char *kNeed[] = { "", "a 68030", "a 68040", "a PowerPC" };
-    /* A tolerated-max tier -> the CPU class it was made for (index by tier 0..4). */
-    static const char *kMade[] = { "a 68000/020", "a 68030", "a 68040", "a PowerPC", "a PowerPC" };
     char *p = out;
     int   n = 0;
 
-    if (it->minCPU > 0 && e->tier < it->minCPU) {           /* needs a faster CPU */
-        int t = it->minCPU > 3 ? 3 : it->minCPU;
-        p = cr_needs(p, &n); p = cr_str(p, kNeed[t]);
+    /* CPU floor: both bounds are plain generations in the one table (cpu.h), so the
+     * test is a single compare against the probed generation — no tier arithmetic. */
+    if (it->minCPU != CPU_GEN_NONE && e->cpuGen < it->minCPU) {
+        p = cr_needs(p, &n); p = cr_str(p, cpu_gen_label(it->minCPU));
     }
     if (it->needsFPU && !e->hasFPU) {                        /* needs a hardware FPU */
         p = cr_needs(p, &n); p = cr_str(p, "an FPU");
@@ -60,15 +57,12 @@ int compat_reason(const CatItem *it, const Env *e, char *out)
     }
     if (n > 0) *p++ = '.';
 
-    /* maxCPU: a title that breaks on a FASTER Mac (self-modifying code vs the 68040
-     * instruction cache; timing loops). Stored as (max tolerated tier + 1); 0 = no
-     * ceiling — so it fires when this Mac's tier is at or past the first broken one. */
-    if (it->maxCPU > 0 && e->tier >= it->maxCPU) {
-        int mt = it->maxCPU - 1;                             /* highest tolerated tier */
-        if (mt < 0) mt = 0; else if (mt > 4) mt = 4;
+    /* CPU ceiling: a title that breaks on a FASTER Mac (self-modifying code vs the
+     * 68040 instruction cache; timing loops). The exact mirror of the floor above. */
+    if (it->maxCPU != CPU_GEN_NONE && e->cpuGen > it->maxCPU) {
         if (n > 0) *p++ = ' ';
         p = cr_str(p, "May crash on this Mac (made for ");
-        p = cr_str(p, kMade[mt]);
+        p = cr_str(p, cpu_gen_label(it->maxCPU));
         p = cr_str(p, " or older).");
         n++;
     }

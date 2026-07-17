@@ -92,21 +92,41 @@ void env_probe(Env *e)
          * 68040 needs >= 7.1 and PowerPC >= 7.1.2 / 8.1 — so the chooser can grey a
          * System too OLD for this Mac, not only too new. Refined per-model below. */
         static const long kTierMinBcd[] = { 0x0604, 0x0604, 0x0710, 0x0712, 0x0810 };
+        /* CPU generation (cpu.h) -> OS tier. 68000 and 68020 collapse to one tier
+         * (both top out at 7.5.5) — that lumping is right for the OS chooser but
+         * wrong for per-title CPU gating, which is why the finer generation is kept
+         * in e->cpuGen and the tier is derived from it rather than probed directly. */
+        static const int kGenToTier[CPU_GEN_COUNT] = {
+            TIER_68K_EARLY,                                     /* CPU_GEN_NONE (unused) */
+            TIER_68K_EARLY, TIER_68K_EARLY,                     /* 68000, 68020 */
+            TIER_68030, TIER_68040,                             /* 68030, 68040 */
+            TIER_PPC_OLDWORLD, TIER_PPC_OLDWORLD, TIER_PPC_OLDWORLD,   /* 601, 603, 604 */
+            TIER_PPC_NEWWORLD, TIER_PPC_NEWWORLD                /* G3, G4 */
+        };
         long arch = 0, cpu = 0;
+        e->cpuGen = CPU_68000;                     /* conservative default */
         if (Gestalt(gestaltSysArchitecture, &arch) == noErr && arch == gestaltPowerPC) {
             Gestalt(gestaltNativeCPUtype, &cpu);   /* real PPC chip, even under emulation */
-            e->tier = (cpu == gestaltCPU750 || cpu >= gestaltCPUG4)
-                      ? TIER_PPC_NEWWORLD : TIER_PPC_OLDWORLD;
+            if      (cpu >= gestaltCPUG4)        e->cpuGen = CPU_PPC_G4;
+            else if (cpu == gestaltCPU750)       e->cpuGen = CPU_PPC_G3;
+            else if (cpu == gestaltCPU604 || cpu == gestaltCPU604e ||
+                     cpu == gestaltCPU604ev)     e->cpuGen = CPU_PPC_604;
+            else if (cpu == gestaltCPU603 || cpu == gestaltCPU603e ||
+                     cpu == gestaltCPU603ev)     e->cpuGen = CPU_PPC_603;
+            else                                 e->cpuGen = CPU_PPC_601;
         } else {                                   /* 68k: prefer 'cput', fall back to 'proc' */
-            int is030, is040;
-            if (Gestalt(gestaltNativeCPUtype, &cpu) == noErr) {   /* cput: 030=3, 040=4 */
-                is030 = (cpu == gestaltCPU68030); is040 = (cpu == gestaltCPU68040);
+            if (Gestalt(gestaltNativeCPUtype, &cpu) == noErr) {   /* cput: 020=2, 030=3, 040=4 */
+                e->cpuGen = (cpu == gestaltCPU68040) ? CPU_68040 :
+                            (cpu == gestaltCPU68030) ? CPU_68030 :
+                            (cpu == gestaltCPU68020) ? CPU_68020 : CPU_68000;
             } else {
-                Gestalt(gestaltProcessorType, &cpu);              /* proc: 030=4, 040=5 */
-                is030 = (cpu == gestalt68030);    is040 = (cpu == gestalt68040);
+                Gestalt(gestaltProcessorType, &cpu);              /* proc: 020=3, 030=4, 040=5 */
+                e->cpuGen = (cpu == gestalt68040) ? CPU_68040 :
+                            (cpu == gestalt68030) ? CPU_68030 :
+                            (cpu == gestalt68020) ? CPU_68020 : CPU_68000;
             }
-            e->tier = is040 ? TIER_68040 : is030 ? TIER_68030 : TIER_68K_EARLY;
         }
+        e->tier     = kGenToTier[e->cpuGen];
         e->maxOSbcd = kTierMaxBcd[e->tier];
         e->minOSbcd = kTierMinBcd[e->tier];
     }

@@ -15,9 +15,12 @@ typedef struct { short top, left, bottom, right; } Rect;
 #include <Quickdraw.h>
 #endif
 
+#include "cpu.h"   /* CPU_* generations — env_probe fills `cpuGen` from this table */
+
 /* CPU→OS compatibility tiers (docs/40 / data/os-tiers.json). The highest System
  * a Mac can boot is a function of its CPU/ROM generation, not the model; the tier
- * is detected in env_probe from the native CPU and carries the OS ceiling. */
+ * is DERIVED from the probed `cpuGen` (68000+68020 share a tier — same OS ceiling)
+ * and carries the OS range. Per-title CPU requirements use `cpuGen`, not this. */
 enum {
     TIER_68K_EARLY = 0,   /* 68000 / 68020 → max System 7.5.5 */
     TIER_68030,           /* 68030         → max System 7.6.1 */
@@ -35,7 +38,9 @@ typedef struct {
     int   canLaunchReturn;  /* gestaltLaunchCanReturn — resident launch  */
     int   hasShutdown;      /* Shutdown Manager available                */
     int   hasAppearanceMgr; /* Appearance Manager present (Platinum on 8+) */
-    int   tier;             /* CPU→OS tier (TIER_*); OS ceiling class    */
+    int   cpuGen;           /* CPU generation (CPU_* in cpu.h) — the table the
+                             * per-title minCPU/maxCPU facets also index    */
+    int   tier;             /* CPU→OS tier (TIER_*), derived from cpuGen  */
     long  maxOSbcd;         /* highest bootable System for this Mac (BCD) */
     long  minOSbcd;         /* lowest bootable System for this Mac (BCD): the CPU
                              * tier floor, refined up by the per-model table    */

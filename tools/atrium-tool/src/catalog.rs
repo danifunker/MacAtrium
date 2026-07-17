@@ -65,15 +65,14 @@ struct SourceItem {
     /// This facet has no metadata source — it lives in the curated overrides DB.
     #[serde(rename = "maxDepth", default)]
     max_depth: Option<i64>,
-    /// Minimum CPU generation this title needs, as a human facet string
-    /// ("68030"/"68040"/"PPC"); mapped to a launcher CPU tier on emit by
-    /// [`min_cpu_tier`]. "68000"/"68020" impose no gate (the colour/minDepth axis
-    /// covers the B&W 68000). The Marathon-2-on-a-Mac-LC guard (docs/40).
+    /// Oldest CPU generation this title runs on — any name or alias from the one
+    /// table ([`CPU_GENS`]): "68030", "68040", "040", "PPC", "G4"… Normalized to a
+    /// canonical name on emit. The Marathon-2-on-a-Mac-LC guard (docs/40).
     #[serde(rename = "minCPU", default)]
     min_cpu: Option<String>,
-    /// Highest CPU generation this title tolerates ("68020"/"68030"/"68040") — a
-    /// title that breaks on a FASTER Mac (self-modifying code vs the 68040 cache,
-    /// timing loops). Emitted as (tier+1); absent → no ceiling. The mirror of minCPU.
+    /// Newest CPU generation this title tolerates — the exact mirror of `minCPU`,
+    /// same table, for a title that breaks on a FASTER Mac (self-modifying code vs
+    /// the 68040 instruction cache, timing loops).
     #[serde(rename = "maxCPU", default)]
     max_cpu: Option<String>,
     /// OS range this title runs under (dotted, e.g. "7.1"/"7.5.5"); carried into the
@@ -188,15 +187,15 @@ struct OutItem {
     /// this title; omitted → no cap (launch at the current depth).
     #[serde(rename = "maxDepth", skip_serializing_if = "Option::is_none")]
     max_depth: Option<i64>,
-    /// Minimum CPU tier (TIER_* in src/env.h / row order in data/os-tiers.json:
-    /// 0=68000/020, 1=030, 2=040, 3=PPC) the launcher requires before launch;
-    /// omitted → no CPU gate. Only tiers ≥ 1 are emitted (see [`min_cpu_tier`]).
+    /// CPU bounds as canonical generation names from the one table ([`CPU_GENS`] /
+    /// src/cpu.h) — e.g. `"68040"`. Symmetric: each is a plain generation, and an
+    /// omitted field means that bound is open. The launcher maps the name back to
+    /// an index and compares it against the probed `gEnv.cpuGen`.
     #[serde(rename = "minCPU", skip_serializing_if = "Option::is_none")]
-    min_cpu: Option<i64>,
-    /// Max CPU as (tolerated tier + 1): the launcher flags a title when
-    /// `gEnv.tier >= this` (too fast); omitted → no CPU ceiling. See [`min_cpu_tier`].
+    min_cpu: Option<&'static str>,
+    /// Newest generation the title tolerates (it breaks on anything faster).
     #[serde(rename = "maxCPU", skip_serializing_if = "Option::is_none")]
-    max_cpu: Option<i64>,
+    max_cpu: Option<&'static str>,
     /// OS range as gestaltSystemVersion BCD (0x0710 = 7.1); the launcher flags a title
     /// when the running System is outside [minOS, maxOS]. Omitted → that bound is open.
     #[serde(rename = "minOS", skip_serializing_if = "Option::is_none")]
@@ -227,22 +226,36 @@ struct OutItem {
     cd_app: Option<String>,
 }
 
-/// Map a human `minCPU` facet ("68030"/"68040"/"PPC") to the launcher CPU tier
-/// index — `TIER_*` in [src/env.h](../../../src/env.h) / the row order in
-/// [data/os-tiers.json](../../../data/os-tiers.json). 0 = 68000/68020 imposes no
-/// gate (a B&W 68000 is caught by the colour/`minDepth` axis instead), so the
-/// caller drops a 0 rather than emit it. `None` = unknown/absent string.
-///
-/// **Keep the returned indices in sync** with the `TIER_*` enum ordering in
-/// `src/env.h`: the launcher compares this against its probed `gEnv.tier`.
-fn min_cpu_tier(s: &str) -> Option<i64> {
-    match s.trim().to_ascii_uppercase().as_str() {
-        "68000" | "68020" | "020" => Some(0),
-        "68030" | "030" => Some(1),
-        "68040" | "68LC040" | "LC040" | "040" => Some(2),
-        "PPC" | "POWERPC" | "601" | "603" | "604" | "G3" | "G4" => Some(3),
-        _ => None,
-    }
+/// THE CPU-generation table — mirrors `kGens` in [src/cpu.c](../../../src/cpu.c);
+/// **keep the two in sync**. Each row is `(canonical name, accepted aliases)`,
+/// ordered by capability. Both the `minCPU` and `maxCPU` facets normalize through
+/// this one table, and the launcher probes the same generations into the same
+/// order — so a single compare answers either bound, with no tier arithmetic.
+const CPU_GENS: &[(&str, &[&str])] = &[
+    ("68000", &["68000"]),
+    ("68020", &["68020", "020"]),
+    ("68030", &["68030", "030"]),
+    ("68040", &["68040", "040", "68lc040", "lc040"]), // LC040 = an 040 sans FPU (`fpu` facet)
+    ("601", &["601", "ppc", "powerpc", "ppc601"]),    // bare "PPC" = the PowerPC floor
+    ("603", &["603", "603e", "603ev"]),
+    ("604", &["604", "604e", "604ev"]),
+    ("G3", &["g3", "750"]),
+    ("G4", &["g4"]),
+];
+
+/// Normalize an authored CPU string ("040", "68LC040", "PPC") to its canonical
+/// table name ("68040", "68040", "601"). The catalog carries the canonical name;
+/// the launcher resolves it back to an index with `cpu_gen_from_name` (cpu.c).
+/// `None` for an unknown string, so the caller can warn rather than emit a bogus
+/// bound. Note 68000/68020 are real, emittable generations — unlike the old tier
+/// encoding, there is no "0 means no gate" special case: a `minCPU` of "68000"
+/// simply never fires, because every Mac clears it.
+fn normalize_cpu(s: &str) -> Option<&'static str> {
+    let t = s.trim().to_ascii_lowercase();
+    CPU_GENS
+        .iter()
+        .find(|(_, aliases)| aliases.contains(&t.as_str()))
+        .map(|(canon, _)| *canon)
 }
 
 /// Convert a dotted OS version ("7.5.5"/"7.1") to a gestaltSystemVersion BCD
@@ -479,11 +492,10 @@ fn build(src_text: &str) -> Result<(Vec<OutItem>, Report)> {
             icon: it.icon,
             source: it.source.map(|s| s.chars().take(ITEM_SOURCE_LEN).collect()),
             max_depth: it.max_depth,
-            // minCPU: human string → launcher CPU tier; drop tier 0 (no gate).
-            min_cpu: it.min_cpu.as_deref().and_then(min_cpu_tier).filter(|&t| t > 0),
-            // maxCPU: (tolerated tier + 1) so the launcher flags tier >= it. No `>0`
-            // filter — a 68000/020 ceiling (tier 0 → 1) is a real limit, unlike minCPU.
-            max_cpu: it.max_cpu.as_deref().and_then(min_cpu_tier).map(|t| t + 1),
+            // CPU bounds: normalize to the canonical generation name. Both bounds use
+            // the SAME table and encoding — no tier arithmetic, no 0-means-unset.
+            min_cpu: it.min_cpu.as_deref().and_then(normalize_cpu),
+            max_cpu: it.max_cpu.as_deref().and_then(normalize_cpu),
             // OS range → BCD for the launcher's running-System check.
             min_os: it.min_os.as_deref().and_then(os_dotted_to_bcd),
             max_os: it.max_os.as_deref().and_then(os_dotted_to_bcd),
@@ -960,45 +972,47 @@ mod tests {
     }
 
     #[test]
-    fn min_cpu_tier_maps_to_launcher_tiers() {
-        // 68000/68020 impose no CPU gate (tier 0); the caller drops these.
-        assert_eq!(min_cpu_tier("68000"), Some(0));
-        assert_eq!(min_cpu_tier("68020"), Some(0));
-        // Real gates: 030 → 1, 040 (incl. LC040) → 2, PowerPC → 3.
-        assert_eq!(min_cpu_tier("68030"), Some(1));
-        assert_eq!(min_cpu_tier("68040"), Some(2));
-        assert_eq!(min_cpu_tier("68LC040"), Some(2));
-        assert_eq!(min_cpu_tier("PPC"), Some(3));
-        assert_eq!(min_cpu_tier(" PowerPC "), Some(3)); // trim + case-insensitive
-        // Unknown/absent → no tier (no gate emitted).
-        assert_eq!(min_cpu_tier("pentium"), None);
-        assert_eq!(min_cpu_tier(""), None);
+    fn cpu_gens_table_is_ordered_and_unique() {
+        // The ordering IS the comparison, and cpu.c indexes the same rows — so a
+        // duplicate/míssing canonical name would silently mis-gate a title.
+        let canon: Vec<&str> = CPU_GENS.iter().map(|(c, _)| *c).collect();
+        assert_eq!(canon, ["68000", "68020", "68030", "68040", "601", "603", "604", "G3", "G4"]);
+        // Every canonical name must normalize to itself (round-trip through the table).
+        for c in &canon {
+            assert_eq!(normalize_cpu(c), Some(*c), "canonical {c} must round-trip");
+        }
     }
 
     #[test]
-    fn min_cpu_facet_emits_only_real_gates() {
-        // Marathon 2 needs a 68040 → tier 2 lands in the catalog.
-        let it = item(r#"{"id":"m2","name":"Marathon 2","app":"Apps/M2/M2","minCPU":"68040"}"#);
-        assert_eq!(it.min_cpu.as_deref().and_then(min_cpu_tier).filter(|&t| t > 0), Some(2));
-        // A 68020 requirement is not a gate (tier 0 dropped → None).
+    fn normalize_cpu_folds_aliases_to_canonical_names() {
+        assert_eq!(normalize_cpu("68040"), Some("68040"));
+        assert_eq!(normalize_cpu("040"), Some("68040"));
+        assert_eq!(normalize_cpu("68LC040"), Some("68040")); // LC040 is an 040 sans FPU
+        assert_eq!(normalize_cpu(" PowerPC "), Some("601")); // trim; bare PPC = PPC floor
+        assert_eq!(normalize_cpu("ppc"), Some("601"));
+        assert_eq!(normalize_cpu("750"), Some("G3"));
+        assert_eq!(normalize_cpu("g4"), Some("G4"));
+        assert_eq!(normalize_cpu("pentium"), None);
+        assert_eq!(normalize_cpu(""), None);
+    }
+
+    #[test]
+    fn cpu_bounds_are_symmetric_and_normalized() {
+        // Marathon 2 needs a 68040 → the canonical name lands in the catalog.
+        let it = item(r#"{"id":"m2","name":"Marathon 2","app":"Apps/M2/M2","minCPU":"040"}"#);
+        assert_eq!(it.min_cpu.as_deref().and_then(normalize_cpu), Some("68040"));
+        // 68000/68020 are REAL generations now — emitted, not dropped. (A 68000 floor
+        // simply never fires, since every Mac clears it.)
         let it = item(r#"{"id":"x","name":"X","app":"a","minCPU":"68020"}"#);
-        assert_eq!(it.min_cpu.as_deref().and_then(min_cpu_tier).filter(|&t| t > 0), None);
-        // Absent minCPU → None.
+        assert_eq!(it.min_cpu.as_deref().and_then(normalize_cpu), Some("68020"));
+        // min and max normalize identically — same table, same encoding.
+        let it = item(r#"{"id":"x","name":"X","app":"a","minCPU":"68030","maxCPU":"68030"}"#);
+        assert_eq!(it.min_cpu.as_deref().and_then(normalize_cpu), Some("68030"));
+        assert_eq!(it.max_cpu.as_deref().and_then(normalize_cpu), Some("68030"));
+        // Absent → open bound.
         let it = item(r#"{"id":"x","name":"X","app":"a"}"#);
-        assert_eq!(it.min_cpu.as_deref().and_then(min_cpu_tier).filter(|&t| t > 0), None);
-    }
-
-    #[test]
-    fn max_cpu_facet_emits_tolerated_tier_plus_one() {
-        // Breaks above a 68030 → tolerated tier 1, emitted as 2 (launcher flags tier >= 2).
-        let it = item(r#"{"id":"x","name":"X","app":"a","maxCPU":"68030"}"#);
-        assert_eq!(it.max_cpu.as_deref().and_then(min_cpu_tier).map(|t| t + 1), Some(2));
-        // A 68020 ceiling is a REAL limit (tier 0 → 1), unlike minCPU where 0 = no gate.
-        let it = item(r#"{"id":"x","name":"X","app":"a","maxCPU":"68020"}"#);
-        assert_eq!(it.max_cpu.as_deref().and_then(min_cpu_tier).map(|t| t + 1), Some(1));
-        // Absent → None.
-        let it = item(r#"{"id":"x","name":"X","app":"a"}"#);
-        assert_eq!(it.max_cpu.as_deref().and_then(min_cpu_tier).map(|t| t + 1), None);
+        assert_eq!(it.min_cpu.as_deref().and_then(normalize_cpu), None);
+        assert_eq!(it.max_cpu.as_deref().and_then(normalize_cpu), None);
     }
 
     #[test]

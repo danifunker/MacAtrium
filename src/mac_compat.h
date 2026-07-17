@@ -42,21 +42,55 @@
 #define gestaltProcessorType 'proc'
 #endif
 /* gestaltProcessorType ('proc') responses */
+#ifndef gestalt68000
+#define gestalt68000 1
+#endif
+#ifndef gestalt68020
+#define gestalt68020 3
+#endif
 #ifndef gestalt68030
 #define gestalt68030 4
 #endif
 #ifndef gestalt68040
 #define gestalt68040 5
 #endif
-/* gestaltNativeCPUtype ('cput') responses (68k = small ints; PPC = 0x01xx) */
+/* gestaltNativeCPUtype ('cput') responses (68k = small ints; PPC = 0x01xx).
+ * The full set: env.c resolves a CPU_* generation (cpu.h) from these. */
+#ifndef gestaltCPU68000
+#define gestaltCPU68000 0
+#endif
+#ifndef gestaltCPU68020
+#define gestaltCPU68020 2
+#endif
 #ifndef gestaltCPU68030
 #define gestaltCPU68030 3
 #endif
 #ifndef gestaltCPU68040
 #define gestaltCPU68040 4
 #endif
+#ifndef gestaltCPU601
+#define gestaltCPU601 0x101
+#endif
+#ifndef gestaltCPU603
+#define gestaltCPU603 0x103
+#endif
+#ifndef gestaltCPU604
+#define gestaltCPU604 0x104
+#endif
+#ifndef gestaltCPU603e
+#define gestaltCPU603e 0x106
+#endif
+#ifndef gestaltCPU603ev
+#define gestaltCPU603ev 0x107
+#endif
 #ifndef gestaltCPU750
 #define gestaltCPU750 0x108     /* PowerPC G3 */
+#endif
+#ifndef gestaltCPU604e
+#define gestaltCPU604e 0x109
+#endif
+#ifndef gestaltCPU604ev
+#define gestaltCPU604ev 0x10A
 #endif
 #ifndef gestaltCPUG4
 #define gestaltCPUG4 0x10C      /* PowerPC G4 (and later sort >= this) */

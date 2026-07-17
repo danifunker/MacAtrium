@@ -18,7 +18,7 @@ static int item_from_object(const JsonObject *o, CatItem *it)
 {
     const JsonField *f;
 
-    memset(it, 0, sizeof *it);
+    memset(it, 0, sizeof *it);   /* CPU_GEN_NONE is 0, so both CPU bounds start open */
 
     f = json_get(o, "id");
     if (!f || f->type != JT_STR || f->str[0] == '\0') return 0;
@@ -82,11 +82,14 @@ static int item_from_object(const JsonObject *o, CatItem *it)
     /* Hardware requirements (docs/40): min CPU tier / FPU / min depth / min RAM.
      * The launcher flags a title needing more than this Mac and confirms before
      * launch; minDepth also drives a depth RAISE (inverse of maxDepth's cap). */
+    /* CPU bounds: canonical generation names ("68040") -> an index into the one
+     * table (cpu.h). Absent stays CPU_GEN_NONE (set above, since 0 is a real
+     * generation — 68000 — and so cannot double as "unset"). */
     f = json_get(o, "minCPU");
-    if (f && f->type == JT_NUM) it->minCPU = (int)f->num;
+    if (f && f->type == JT_STR) it->minCPU = cpu_gen_from_name(f->str);
 
     f = json_get(o, "maxCPU");
-    if (f && f->type == JT_NUM) it->maxCPU = (int)f->num;
+    if (f && f->type == JT_STR) it->maxCPU = cpu_gen_from_name(f->str);
 
     f = json_get(o, "minOS");   /* BCD (converted from the dotted facet by catalog.rs) */
     if (f && f->type == JT_NUM) it->minOS = (long)f->num;

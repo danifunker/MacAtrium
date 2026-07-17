@@ -66,20 +66,47 @@ Mac** — the "don't run Marathon 2 on a Mac LC" guard. Requirements are per-tit
 
 | Facet | Meaning | Probe compared against | Runtime behaviour |
 |---|---|---|---|
-| `minCPU` | min CPU: `"68030"`/`"68040"`/`"PPC"` | `gEnv.tier` | flag if the tier is lower |
+| `minCPU` | oldest CPU generation it runs on (`"68040"`) | `gEnv.cpuGen` | flag if this Mac is older |
+| `maxCPU` | newest generation it tolerates (breaks on faster) | `gEnv.cpuGen` | flag if this Mac is newer |
 | `fpu` | needs a hardware FPU | `gEnv.hasFPU` (`gestaltFPUType`) | flag if absent (catches a 68LC040) |
 | `minDepth` | min screen bpp (e.g. 8 = 256 colours) | `gEnv.pixelSize` / the display | **raise** the screen to it, or flag if unreachable |
 | `maxDepth` | max screen bpp tolerated | current depth | **lower** the screen to it (existing) |
 | `minMem` | min machine RAM in whole **MB** (e.g. `8`) | `gEnv.ramKB` (`gestaltPhysicalRAMSize`) | flag if the Mac has less |
 
-### 2a. `minCPU` → tier mapping
+### 2a. The CPU-generation table
 
-`minCPU` is authored as a human string and mapped to a launcher tier int by
-`min_cpu_tier` in [`catalog.rs`](../tools/atrium-tool/src/catalog.rs), matching the
-`TIER_*` ordering: `68000`/`68020` → 0 (**no gate** — a B&W 68000 is caught by the
-colour/`minDepth` axis instead), `68030` → 1, `68040`/`68LC040` → 2, `PPC` → 3. The
-catalog carries the int; the launcher compares `gEnv.tier < it->minCPU`. Because
-the tiers are monotonic in capability, one comparison covers the whole axis.
+`minCPU` and `maxCPU` are **two bounds on one ordered table** — every Mac CPU
+generation, 68000 → G4 — defined in [`src/cpu.h`](../src/cpu.h)/[`cpu.c`](../src/cpu.c)
+and mirrored as `CPU_GENS` in [`catalog.rs`](../tools/atrium-tool/src/catalog.rs):
+
+| | | | | | | | | |
+|---|---|---|---|---|---|---|---|---|
+| `68000` | `68020` | `68030` | `68040` | `601` | `603` | `604` | `G3` | `G4` |
+
+**The order is the comparison.** `env_probe` resolves the host into the same table
+(`gEnv.cpuGen`), so each bound is a single compare — `cpuGen < minCPU` (too old) or
+`cpuGen > maxCPU` (too new) — with no arithmetic and no special cases:
+
+```c
+if (it->minCPU != CPU_GEN_NONE && e->cpuGen < it->minCPU)  /* "Needs a 68040." */
+if (it->maxCPU != CPU_GEN_NONE && e->cpuGen > it->maxCPU)  /* "…made for a 68030 or older." */
+```
+
+Three properties worth keeping:
+
+- **The catalog carries canonical *names*, not indices** (`"minCPU":"68040"`), so a
+  catalog dump is readable and the two tables need only agree on the name list and
+  its order — never on index values.
+- **The tool normalizes aliases** to canonical names (`"040"`, `"68LC040"` → `68040`;
+  `"PPC"` → `601`, the PowerPC floor), so the dataset can be authored loosely and the
+  launcher only ever parses one spelling.
+- **`CPU_GEN_NONE` is 0**, so a zero-initialised `CatItem` means "no CPU bound" — the
+  same absent-by-default rule as every other facet. Real generations start at 1.
+
+This is deliberately *not* the `TIER_*` table (§1): tiers lump 68000+68020 together
+because they share an OS ceiling, which is right for the chooser and wrong here. The
+probe resolves the fine generation and **derives** the tier from it, so there is still
+a single CPU probe.
 
 ### 2b. The gate itself
 

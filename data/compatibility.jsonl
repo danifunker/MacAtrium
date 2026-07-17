@@ -10,9 +10,12 @@
 #   minOS / maxOS   dotted OS range, e.g. "6.0.8"/"7.5" (build drops out-of-range)
 #   minMem  minimum machine RAM in MB; launch-time preflight warning (e.g. 8 = 8 MB).
 #           Whole MB — no classic title specs RAM finer than that
-#   minCPU  minimum CPU: "68000"/"68020"/"68030"/"68040"/"PPC" (docs/40). The launcher
-#           flags a title needing more than this Mac (Marathon 2 needs "68040" — refused
-#           on a 68020 Mac LC). 68000/68020 impose no CPU gate
+#   minCPU  oldest CPU generation a title runs on; maxCPU = newest it tolerates (for a
+#           title that BREAKS on a faster Mac). Both are bounds on ONE ordered table
+#           (docs/40, src/cpu.h):
+#             68000  68020  68030  68040  601  603  604  G3  G4
+#           Aliases normalized ("040"/"68LC040" -> 68040, "PPC" -> 601), so author
+#           loosely. e.g. Marathon 2 minCPU "68040" -> flagged on a 68020 Mac LC
 #   fpu     true = needs a hardware FPU (Marathon; a 68LC040 lacks one)
 #   arch    "68K" / "PPC" / "BOTH"
 {"id":"1000-miles-1-0","color":false}
