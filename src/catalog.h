@@ -44,6 +44,15 @@ typedef struct {
     char hotkey;                             /* launch hotkey char, 0 if none */
     int  maxDepth;                           /* cap screen to this bpp before launch;
                                               * 0 = no cap (launch at current depth) */
+    /* Hardware requirements (docs/40): the launcher flags a title needing more than
+     * this Mac (CPU tier / FPU / min depth / RAM) and confirms before launch. */
+    int  minCPU;                             /* min CPU tier (TIER_* in env.h:
+                                              * 1=68030, 2=68040, 3=PPC); 0 = no gate */
+    int  needsFPU;                           /* 1 = needs a hardware FPU (68LC040 lacks one) */
+    int  minDepth;                           /* raise screen to >= this bpp before launch
+                                              * (inverse of maxDepth); 0 = no floor */
+    long minMem;                             /* min machine RAM (KB) for a preflight
+                                              * warning; 0 = none */
     /* CD-based titles (docs/45): the disc image is auto-inserted via the BlueSCSI
      * Toolbox before launch. All "" / 0 when this is not a CD title. */
     char cdImage[ITEM_CDIMG_LEN];            /* host SD image filename, "" if none */

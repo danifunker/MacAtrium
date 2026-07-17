@@ -82,6 +82,16 @@ short display_depth_at_most(short cap)
     return best;
 }
 
+short display_depth_at_least(short floor)
+{
+    short list[NCAND];
+    int   n = display_depths(list, NCAND), i;
+    short best = 0;   /* smallest supported depth >= floor; 0 = floor unreachable */
+    for (i = 0; i < n; i++)
+        if (list[i] >= floor && (best == 0 || list[i] < best)) best = list[i];
+    return best;
+}
+
 /* cscGetMode (Status csCode 2): read the depth-mode id the card is CURRENTLY
  * running (VDPageInfo.csMode, a word). That id is, by definition, a mode the card
  * can display and boot — unlike the assumed 128..133 family, which isn't guaranteed

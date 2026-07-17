@@ -30,6 +30,12 @@ typedef struct {
     int   hasAppearanceMgr; /* Appearance Manager present (Platinum on 8+) */
     int   tier;             /* CPU→OS tier (TIER_*); OS ceiling class    */
     long  maxOSbcd;         /* highest bootable System for this Mac (BCD) */
+    long  minOSbcd;         /* lowest bootable System for this Mac (BCD): the CPU
+                             * tier floor, refined up by the per-model table    */
+    /* Hardware facets for the per-title compatibility gate (docs/40). */
+    int   hasFPU;           /* hardware FPU present (gestaltFPUType != NoFPU) */
+    long  ramKB;            /* physical machine RAM in KB (gestaltPhysicalRAMSize) */
+    long  machineID;        /* gestaltMachineType (box/model ID); 0 if unknown */
     Rect  screen;           /* full main-screen bounds (global coords)   */
     short mbarHeight;       /* menu-bar height                           */
 } Env;

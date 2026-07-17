@@ -4,10 +4,15 @@
 # hand-editable; hand-verified entries WIN over the seeded ones.
 #   color   true=Color / false=B&W (a facet + colour-detect result)
 #   mouse   true=Mouse Required
-#   maxDepth deepest screen bpp a title tolerates (1/4/8/16/32); launcher caps to it
+#   maxDepth deepest screen bpp a title tolerates (1/4/8/16/32); launcher caps DOWN to it
+#   minDepth shallowest screen bpp a title needs; launcher raises UP to it, or flags
+#           the Mac (e.g. a B&W screen can't reach it) — the "needs a colour card" axis
 #   minOS / maxOS   dotted OS range, e.g. "6.0.8"/"7.5" (build drops out-of-range)
-#   minMem  minimum RAM in KB (optional; for hardware targeting / preflight)
-#   minCPU  minimum CPU, e.g. "68000"/"68020"/"68030" (optional)
+#   minMem  minimum machine RAM in KB; launch-time preflight warning (e.g. 8192 = 8 MB)
+#   minCPU  minimum CPU: "68000"/"68020"/"68030"/"68040"/"PPC" (docs/40). The launcher
+#           flags a title needing more than this Mac (Marathon 2 needs "68040" — refused
+#           on a 68020 Mac LC). 68000/68020 impose no CPU gate
+#   fpu     true = needs a hardware FPU (Marathon; a 68LC040 lacks one)
 #   arch    "68K" / "PPC" / "BOTH"
 {"id":"1000-miles-1-0","color":false}
 {"id":"1990-ford-simulator-ii","color":false}
@@ -690,8 +695,8 @@
 {"id": "lode-runner-the-legend-returns", "maxDepth": 8}
 {"id": "mac-bzone", "maxDepth": 8}
 {"id": "maelstrom", "maxDepth": 8}
-{"id": "marathon", "maxDepth": 8}
-{"id": "marathon-2-durandal", "maxDepth": 8}
+{"id": "marathon", "maxDepth": 8, "minDepth": 8, "fpu": true, "minMem": 4096}
+{"id": "marathon-2-durandal", "maxDepth": 8, "minDepth": 8, "minCPU": "68040", "fpu": true, "minMem": 8192}
 {"id": "might-and-magic-ii-gates-to-another-world", "maxDepth": 8}
 {"id": "might-and-magic-iii-isles-of-terra", "maxDepth": 8}
 {"id": "monkey-island-2-lechuck-s-revenge", "maxDepth": 8}

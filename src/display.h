@@ -24,6 +24,11 @@ OSErr display_set_depth(short depth);
 /* Largest supported depth ≤ cap (for a per-game max-depth cap). 0 if none. */
 short display_depth_at_most(short cap);
 
+/* Smallest supported depth ≥ floor (for a per-game min-depth requirement — the
+ * launcher raises the screen up to it before launch). 0 if the floor is
+ * unreachable (no Color QD, or the device tops out below `floor`). */
+short display_depth_at_least(short floor);
+
 /* Persist `depth` as the *boot* depth in the video card's slot PRAM — the same
  * mechanism the Monitors control panel uses (the video driver's
  * `cscSetDefaultMode` control call). On the next restart the card's PrimaryInit

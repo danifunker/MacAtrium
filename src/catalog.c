@@ -79,6 +79,22 @@ static int item_from_object(const JsonObject *o, CatItem *it)
     f = json_get(o, "maxDepth");
     if (f && f->type == JT_NUM) it->maxDepth = (int)f->num;
 
+    /* Hardware requirements (docs/40): min CPU tier / FPU / min depth / min RAM.
+     * The launcher flags a title needing more than this Mac and confirms before
+     * launch; minDepth also drives a depth RAISE (inverse of maxDepth's cap). */
+    f = json_get(o, "minCPU");
+    if (f && f->type == JT_NUM) it->minCPU = (int)f->num;
+
+    f = json_get(o, "fpu");
+    if (f && f->type == JT_BOOL)      it->needsFPU = f->boolean;
+    else if (f && f->type == JT_NUM)  it->needsFPU = (f->num != 0);
+
+    f = json_get(o, "minDepth");
+    if (f && f->type == JT_NUM) it->minDepth = (int)f->num;
+
+    f = json_get(o, "minMem");
+    if (f && f->type == JT_NUM) it->minMem = (long)f->num;
+
     /* CD-based titles (docs/45). cdRequired defaults to 1 for a CD title (the disc
      * is usually essential); an explicit cdRequired overrides. */
     f = json_get(o, "cdImage");

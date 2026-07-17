@@ -62,6 +62,26 @@
 #define gestaltCPUG4 0x10C      /* PowerPC G4 (and later sort >= this) */
 #endif
 
+/* Gestalt hardware-facet selectors + responses (GestaltEqu.h) for the per-title
+ * compatibility gate in env.c (docs/40): FPU presence, physical RAM, and the
+ * machine (box) ID that refines the per-model OS floor. Guarded; values from
+ * Apple's Gestalt.h. */
+#ifndef gestaltFPUType
+#define gestaltFPUType 'fpu '
+#endif
+#ifndef gestaltNoFPU
+#define gestaltNoFPU 0          /* gestaltFPUType response: no hardware FPU */
+#endif
+#ifndef gestaltPhysicalRAMSize
+#define gestaltPhysicalRAMSize 'ram '
+#endif
+#ifndef gestaltLogicalRAMSize
+#define gestaltLogicalRAMSize 'lram'
+#endif
+#ifndef gestaltMachineType
+#define gestaltMachineType 'mach'
+#endif
+
 /* Appearance Manager (Appearance.h) — built into Mac OS 8+, an optional extension
  * on 7.x. Gates the true-Platinum sys8 look (docs/36 Phase 3). */
 #ifndef gestaltAppearanceAttr

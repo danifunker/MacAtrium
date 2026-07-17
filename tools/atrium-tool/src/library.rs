@@ -199,7 +199,8 @@ pub fn scan(rb: &RbCli, disks: &[(String, std::path::PathBuf)], out: &Path, rele
 /// Per-title requirement/facet fields — these live in `compatibility.jsonl`, not
 /// `library.jsonl` (the latter is identity + descriptive metadata only).
 const REQ_FIELDS: &[&str] = &[
-    "color", "mouse", "maxDepth", "minOS", "maxOS", "minMem", "minCPU", "arch",
+    "color", "mouse", "maxDepth", "minDepth", "minOS", "maxOS", "minMem", "minCPU",
+    "fpu", "arch",
 ];
 
 const COMPAT_HEADER: &str = "\
@@ -209,10 +210,16 @@ const COMPAT_HEADER: &str = "\
 # hand-editable; hand-verified entries WIN over the seeded ones.
 #   color   true=Color / false=B&W (a facet + colour-detect result)
 #   mouse   true=Mouse Required
-#   maxDepth deepest screen bpp a title tolerates (1/4/8/16/32); launcher caps to it
+#   maxDepth deepest screen bpp a title tolerates (1/4/8/16/32); launcher caps DOWN to it
+#   minDepth shallowest screen bpp a title needs; launcher raises UP to it, or flags
+#           the Mac (e.g. a B&W screen can't reach it) — the \"needs a colour card\" axis
 #   minOS / maxOS   dotted OS range, e.g. \"6.0.8\"/\"7.5\" (build drops out-of-range)
-#   minMem  minimum RAM in KB (optional; for hardware targeting / preflight)
-#   minCPU  minimum CPU, e.g. \"68000\"/\"68020\"/\"68030\" (optional)
+#   minMem  minimum machine RAM in KB; launch-time preflight warning (e.g. 8192 = 8 MB)
+#   minCPU  minimum CPU: \"68000\"/\"68020\"/\"68030\"/\"68040\"/\"PPC\". Mapped to a launcher
+#           CPU tier (docs/40); the launcher flags a title needing more than this Mac
+#           (e.g. Marathon 2 needs \"68040\" — refused on a 68020 Mac LC). 68000/68020
+#           impose no CPU gate (the colour/minDepth axis covers the B&W 68000)
+#   fpu     true = needs a hardware FPU (e.g. Marathon; a 68LC040 lacks one)
 #   arch    \"68K\" / \"PPC\" / \"BOTH\"
 ";
 

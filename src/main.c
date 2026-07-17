@@ -702,6 +702,143 @@ static int cd_insert_for_launch(const CatItem *it, short *cdVref)
     }
 }
 
+/* ---- Per-title hardware compatibility preflight (docs/40) ---------------- */
+
+static char *cr_append(char *p, const char *s) { while (*s) *p++ = *s++; return p; }
+
+static char *cr_uint(char *p, long v)
+{
+    char t[12]; int k = 0;
+    if (v <= 0) { *p++ = '0'; return p; }
+    while (v > 0 && k < 11) { t[k++] = (char)('0' + (int)(v % 10)); v /= 10; }
+    while (k > 0) *p++ = t[--k];
+    return p;
+}
+
+/* Fill `out` (>= 128 bytes) with a short human reason THIS Mac falls short of the
+ * item's declared hardware needs (docs/40): a higher CPU tier, a hardware FPU, an
+ * unreachable min colour depth, or more RAM. Returns 1 when under-spec (out is a
+ * "Needs …" sentence), 0 when the Mac is adequate (out[0] = '\0'). A min depth the
+ * screen CAN reach is not flagged here — do_launch raises the depth instead. */
+static int compat_reason(const CatItem *it, char *out)
+{
+    static const char *kNeedTier[] = { "", "a 68030", "a 68040", "a PowerPC" };
+    char *p = out;
+    int   n = 0;
+
+    if (it->minCPU > 0 && gEnv.tier < it->minCPU) {           /* CPU generation */
+        int t = it->minCPU > 3 ? 3 : it->minCPU;
+        p = cr_append(p, n++ ? " and " : "Needs ");
+        p = cr_append(p, kNeedTier[t]);
+    }
+    if (it->needsFPU && !gEnv.hasFPU) {                        /* hardware FPU */
+        p = cr_append(p, n++ ? " and " : "Needs ");
+        p = cr_append(p, "an FPU");
+    }
+    if (it->minDepth > 0 && display_depth_at_least((short)it->minDepth) == 0) {
+        p = cr_append(p, n++ ? " and " : "Needs ");           /* colour depth unreachable */
+        p = cr_append(p, gEnv.hasColorQD ? "a deeper colour display" : "a colour display");
+    }
+    if (it->minMem > 0 && gEnv.ramKB > 0 && gEnv.ramKB < it->minMem) {   /* RAM */
+        p = cr_append(p, n++ ? " and " : "Needs ");
+        p = cr_uint(p, it->minMem / 1024);
+        p = cr_append(p, " MB of memory");
+    }
+    if (n > 0) *p++ = '.';
+    *p = '\0';
+    return n > 0;
+}
+
+/* Draw a two-button confirm: up to three message lines + the default-button ring. */
+static void modal_confirm_draw(WindowPtr dlg, const char *l1, const char *l2,
+                               const char *l3, ControlHandle defBtn)
+{
+    Rect r;
+    SetPort(dlg);
+    EraseRect(&dlg->portRect);
+    TextFont(0); TextSize(12);
+    TextFace(bold);
+    if (l1 && l1[0]) { MoveTo(20, 28); DrawText((Ptr)l1, 0, (short)strlen(l1)); }
+    TextFace(normal);
+    if (l2 && l2[0]) { MoveTo(20, 50); DrawText((Ptr)l2, 0, (short)strlen(l2)); }
+    if (l3 && l3[0]) { MoveTo(20, 70); DrawText((Ptr)l3, 0, (short)strlen(l3)); }
+    DrawControls(dlg);
+    if (defBtn) {
+        r = (**defBtn).contrlRect; InsetRect(&r, -4, -4);
+        PenSize(3, 3); FrameRoundRect(&r, 16, 16); PenSize(1, 1);
+    }
+}
+
+/* A modal two-button confirm. Returns 1 if the Proceed button is chosen, 0 for
+ * Cancel. Cancel is the DEFAULT (ring + Return/Esc/Cmd-.) — the safe choice for a
+ * "this may crash" prompt; Proceed must be clicked deliberately. */
+static int modal_confirm(const char *l1, const char *l2, const char *l3,
+                         ConstStr255Param proceedLabel, ConstStr255Param cancelLabel)
+{
+    WindowPtr     dlg;
+    Rect          bounds, r, sb = qd.screenBits.bounds;
+    ControlHandle proceed, cancel;
+    int           running = 1, result = 0;
+    const short   CW = 384, CHh = 132;
+    short         L = (short)(sb.left + ((sb.right - sb.left) - CW) / 2);
+    short         T = (short)(sb.top  + ((sb.bottom - sb.top) - CHh) / 2);
+
+    InitCursor();
+    if (T < (short)(sb.top + 44)) T = (short)(sb.top + 44);
+    SetRect(&bounds, L, T, (short)(L + CW), (short)(T + CHh));
+    dlg = NewWindow(0L, &bounds, "\p", true, movableDBoxProc, (WindowPtr)-1L, false, 0L);
+    if (!dlg) { SysBeep(2); return 0; }        /* can't ask → don't launch */
+    SetPort(dlg);
+
+    /* Cancel on the right (default); Proceed to its left. */
+    SetRect(&r, (short)(CW - 20 - 90), (short)(CHh - 32), (short)(CW - 20), (short)(CHh - 12));
+    cancel  = NewControl(dlg, &r, cancelLabel, true, 0, 0, 0, pushButProc, 0L);
+    SetRect(&r, (short)(CW - 20 - 90 - 12 - 130), (short)(CHh - 32),
+                (short)(CW - 20 - 90 - 12), (short)(CHh - 12));
+    proceed = NewControl(dlg, &r, proceedLabel, true, 0, 0, 0, pushButProc, 0L);
+
+    modal_confirm_draw(dlg, l1, l2, l3, cancel);
+    ValidRect(&dlg->portRect);
+    FlushEvents(keyDownMask | autoKeyMask, 0);
+    SysBeep(1);
+
+    while (running) {
+        EventRecord evt;
+        if (!next_event(&evt)) continue;
+        switch (evt.what) {
+            case updateEvt: {
+                WindowPtr w = (WindowPtr)evt.message;
+                if (w == dlg) { BeginUpdate(w); modal_confirm_draw(dlg, l1, l2, l3, cancel); EndUpdate(w); }
+                else { BeginUpdate(w); SetPort(w); ui_draw(&gUi); EndUpdate(w); SetPort(dlg); }
+                break;
+            }
+            case mouseDown: {
+                WindowPtr w; short part = FindWindow(evt.where, &w);
+                if (part == inDrag && w == dlg) { DragWindow(w, evt.where, &sb); SetPort(dlg); }
+                else if (part == inContent && w == dlg) {
+                    Point pt = evt.where; ControlHandle ctl; short cp;
+                    SetPort(dlg); GlobalToLocal(&pt);
+                    cp = FindControl(pt, dlg, &ctl);
+                    if (cp && ctl && TrackControl(ctl, pt, (ControlActionUPP)0)) {
+                        result = (ctl == proceed); running = 0;
+                    }
+                } else if (w != dlg) { SysBeep(1); }   /* modal: block clicks elsewhere */
+                break;
+            }
+            case keyDown:
+            case autoKey: {
+                char c = (char)(evt.message & charCodeMask);
+                if ((evt.modifiers & cmdKey) && c == '.')     { result = 0; running = 0; }
+                else if (c == kCharReturn || c == kCharEnter) { result = 0; running = 0; }  /* default: Cancel */
+                else if (c == kCharEscape)                    { result = 0; running = 0; }
+                break;
+            }
+        }
+    }
+    DisposeWindow(dlg);
+    return result;
+}
+
 static void do_launch(void)
 {
     const CatItem *it   = ui_current_item(&gUi);
@@ -716,6 +853,22 @@ static void do_launch(void)
     int          returns;
 
     if (!app) return;
+
+    /* Hardware compatibility preflight (docs/40): if this title needs more than
+     * this Mac (a higher CPU tier, an FPU, more RAM, or a colour depth the screen
+     * can't reach), flag it and let the user cancel BEFORE we insert a disc, change
+     * the depth, or launch. Cancel is the default — a "may crash" prompt shouldn't
+     * bomb an LC just because someone held Return. */
+    {
+        char reason[128];
+        if (compat_reason(it, reason) &&
+            !modal_confirm(name, reason, "It may not run on this Mac. Launch anyway?",
+                           "\pLaunch anyway", "\pCancel")) {
+            SetPort(gWin);
+            ui_draw(&gUi);
+            return;
+        }
+    }
 
     /* CD-based title (docs/45): insert the disc BEFORE capping the depth / launching.
      * Run-from-CD titles then launch off the mounted CD; app-on-HD titles just need
@@ -745,31 +898,34 @@ static void do_launch(void)
         InitCursor();
     }
 
-    /* Per-game launch depth (catalog `maxDepth`, in the overrides DB) is a CAP:
-     * it only ever LOWERS the screen, for titles that bomb above a certain depth
-     * (Dark Castle needs 1-bit, maxDepth 1). We NEVER auto-raise — a game whose cap
-     * is at or above the current depth runs at the current depth, untouched (so
-     * Prince of Persia, maxDepth 8, just runs at whatever colour depth the screen
-     * is on; it is not forced anywhere). Raising the depth for a game that wants
-     * more is the user's call (prompt/Settings), not automatic. maxDepth 0 = no
-     * cap. On a returning launch we restore below; on the bare appliance the
-     * relaunched MacAtrium comes up at its own default depth. */
+    /* Per-game launch depth from the catalog facets (docs/40):
+     *  - maxDepth is a CAP — it only ever LOWERS the screen, for titles that bomb
+     *    above a depth (Dark Castle needs 1-bit, maxDepth 1). A title whose cap is
+     *    at or above the current depth runs untouched (Prince of Persia, maxDepth 8,
+     *    just runs at whatever colour depth the screen is on).
+     *  - minDepth is a FLOOR — it RAISES the screen up to a depth a title needs (a
+     *    256-colour title on a 16-colour screen). A floor the screen physically
+     *    can't reach (a B&W Mac) was already flagged by the compat preflight above.
+     * Only a title's own declared facet moves the depth; we never guess. Either way
+     * the change is LIVE only (restored when the game quits — osEvt resume / below),
+     * never the boot default in slot PRAM (Settings-only). 0 = no change. On the
+     * bare appliance the relaunched MacAtrium comes up at its own default depth. */
     {
         int   maxd = ui_current_maxdepth(&gUi);
+        int   mind = it->minDepth;
         short cur  = display_current_depth();
-        if (maxd > 0 && gEnv.hasColorQD && cur > (short)maxd) {
-            short target = display_depth_at_most((short)maxd);   /* highest ≤ cap */
-            if (target > 0 && target < cur && display_set_depth(target) == noErr) {
-                savedDepth = cur;                      /* restore this on the app's quit */
-                /* LIVE depth only — a per-game cap is temporary and must NOT touch the
-                 * boot default in slot PRAM (that's Settings-only). We put the live
-                 * depth back when the game quits (osEvt resume / below). */
-                /* Re-fit our backend to the new depth, but DON'T repaint: the game is
-                 * about to take over the screen, so a "setting up the display" redraw
-                 * here is just an extra flash on top of the depth switch itself. (We
-                 * restore + repaint cleanly when the game quits — osEvt resume.) */
-                render_reset_for_depth(&gRender, &gEnv, target);
-            }
+        short target = 0;
+        if (maxd > 0 && gEnv.hasColorQD && cur > (short)maxd)
+            target = display_depth_at_most((short)maxd);    /* cap DOWN to the ceiling */
+        else if (mind > 0 && gEnv.hasColorQD && cur < (short)mind)
+            target = display_depth_at_least((short)mind);   /* raise UP to the floor */
+        if (target > 0 && target != cur && display_set_depth(target) == noErr) {
+            savedDepth = cur;                      /* restore this on the app's quit */
+            /* Re-fit our backend to the new depth, but DON'T repaint: the game is
+             * about to take over the screen, so a "setting up the display" redraw
+             * here is just an extra flash on top of the depth switch itself. (We
+             * restore + repaint cleanly when the game quits — osEvt resume.) */
+            render_reset_for_depth(&gRender, &gEnv, target);
         }
     }
 
@@ -1329,10 +1485,11 @@ static void osc_label(const SysFolder *s, Str255 out)
  * failed tier probe are always allowed, so we never falsely grey a folder. */
 static int osc_bootable(const SysFolder *s)
 {
+    long floor = gEnv.minOSbcd > 0 ? gEnv.minOSbcd : 0x0604;   /* tier+model OS floor */
     if (s->blessed) return 1;                 /* the running System obviously boots */
     if (s->version <= 0) return 1;            /* version unreadable: don't disable  */
     if (gEnv.maxOSbcd <= 0) return 1;         /* tier probe failed: don't disable   */
-    return (s->version >= 0x0604 && s->version <= gEnv.maxOSbcd);
+    return (s->version >= floor && s->version <= gEnv.maxOSbcd);
 }
 
 /* One-line status for the focused item: why a folder is greyed (too new for this
@@ -1343,10 +1500,17 @@ static void osc_status_text(int i, const SysFolder *sys, int nsys, char *out)
     out[0] = '\0';
     if (i < 0 || i >= nsys) return;                       /* Cancel / out of range */
     if (!osc_bootable(&sys[i])) {
+        long floor = gEnv.minOSbcd > 0 ? gEnv.minOSbcd : 0x0604;
         char v[12];
-        env_os_version(gEnv.maxOSbcd, v);
-        strcpy(out, "Won't boot on this Mac - max System ");
-        strcat(out, v);
+        if (sys[i].version < floor) {                     /* too OLD for this Mac */
+            env_os_version(floor, v);
+            strcpy(out, "Won't boot on this Mac - needs System ");
+            strcat(out, v);
+        } else {                                          /* too NEW for this Mac */
+            env_os_version(gEnv.maxOSbcd, v);
+            strcpy(out, "Won't boot on this Mac - max System ");
+            strcat(out, v);
+        }
     } else if (!sys[i].blessed && !sys[i].macatriumReady) {
         strcpy(out, "MacAtrium not installed - boots to Finder");
     }

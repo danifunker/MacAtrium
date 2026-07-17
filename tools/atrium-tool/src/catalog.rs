@@ -65,6 +65,22 @@ struct SourceItem {
     /// This facet has no metadata source — it lives in the curated overrides DB.
     #[serde(rename = "maxDepth", default)]
     max_depth: Option<i64>,
+    /// Minimum CPU generation this title needs, as a human facet string
+    /// ("68030"/"68040"/"PPC"); mapped to a launcher CPU tier on emit by
+    /// [`min_cpu_tier`]. "68000"/"68020" impose no gate (the colour/minDepth axis
+    /// covers the B&W 68000). The Marathon-2-on-a-Mac-LC guard (docs/40).
+    #[serde(rename = "minCPU", default)]
+    min_cpu: Option<String>,
+    /// true → this title needs a hardware FPU (e.g. Marathon; a 68LC040 lacks one).
+    #[serde(default)]
+    fpu: Option<bool>,
+    /// Minimum screen depth (bpp) this title needs; the launcher raises the screen
+    /// to it before launch when possible, else flags the Mac as too limited.
+    #[serde(rename = "minDepth", default)]
+    min_depth: Option<i64>,
+    /// Minimum machine RAM (KB) this title needs; a launch-time preflight warning.
+    #[serde(rename = "minMem", default)]
+    min_mem: Option<i64>,
     /// true → "Mouse Required", false → "No Mouse", absent → no mouse facet.
     #[serde(default)]
     mouse: Option<bool>,
@@ -158,6 +174,20 @@ struct OutItem {
     /// this title; omitted → no cap (launch at the current depth).
     #[serde(rename = "maxDepth", skip_serializing_if = "Option::is_none")]
     max_depth: Option<i64>,
+    /// Minimum CPU tier (TIER_* in src/env.h / row order in data/os-tiers.json:
+    /// 0=68000/020, 1=030, 2=040, 3=PPC) the launcher requires before launch;
+    /// omitted → no CPU gate. Only tiers ≥ 1 are emitted (see [`min_cpu_tier`]).
+    #[serde(rename = "minCPU", skip_serializing_if = "Option::is_none")]
+    min_cpu: Option<i64>,
+    /// true → the title needs a hardware FPU; omitted → no FPU requirement.
+    #[serde(rename = "fpu", skip_serializing_if = "Option::is_none")]
+    fpu: Option<bool>,
+    /// Minimum screen depth (bpp) the launcher raises to before launch; omitted → none.
+    #[serde(rename = "minDepth", skip_serializing_if = "Option::is_none")]
+    min_depth: Option<i64>,
+    /// Minimum machine RAM (KB) for a launch-time preflight warning; omitted → none.
+    #[serde(rename = "minMem", skip_serializing_if = "Option::is_none")]
+    min_mem: Option<i64>,
     /// CD-based title (docs/45): host CD image filename, auto-inserted via the
     /// BlueSCSI Toolbox before launch; omitted → not a CD title.
     #[serde(rename = "cdImage", skip_serializing_if = "Option::is_none")]
@@ -171,6 +201,24 @@ struct OutItem {
     /// Run-from-CD app path relative to the CD volume root; omitted → app-on-HD.
     #[serde(rename = "cdApp", skip_serializing_if = "Option::is_none")]
     cd_app: Option<String>,
+}
+
+/// Map a human `minCPU` facet ("68030"/"68040"/"PPC") to the launcher CPU tier
+/// index — `TIER_*` in [src/env.h](../../../src/env.h) / the row order in
+/// [data/os-tiers.json](../../../data/os-tiers.json). 0 = 68000/68020 imposes no
+/// gate (a B&W 68000 is caught by the colour/`minDepth` axis instead), so the
+/// caller drops a 0 rather than emit it. `None` = unknown/absent string.
+///
+/// **Keep the returned indices in sync** with the `TIER_*` enum ordering in
+/// `src/env.h`: the launcher compares this against its probed `gEnv.tier`.
+fn min_cpu_tier(s: &str) -> Option<i64> {
+    match s.trim().to_ascii_uppercase().as_str() {
+        "68000" | "68020" | "020" => Some(0),
+        "68030" | "030" => Some(1),
+        "68040" | "68LC040" | "LC040" | "040" => Some(2),
+        "PPC" | "POWERPC" | "601" | "603" | "604" | "G3" | "G4" => Some(3),
+        _ => None,
+    }
 }
 
 /// Top-level category for a `kind` value.
@@ -392,6 +440,11 @@ fn build(src_text: &str) -> Result<(Vec<OutItem>, Report)> {
             icon: it.icon,
             source: it.source.map(|s| s.chars().take(ITEM_SOURCE_LEN).collect()),
             max_depth: it.max_depth,
+            // minCPU: human string → launcher CPU tier; drop tier 0 (no gate).
+            min_cpu: it.min_cpu.as_deref().and_then(min_cpu_tier).filter(|&t| t > 0),
+            fpu: it.fpu.filter(|&b| b),
+            min_depth: it.min_depth,
+            min_mem: it.min_mem,
             cd_image: it.cd_image,
             cd_required: it.cd_required,
             cd_volume: it.cd_volume,
@@ -859,6 +912,35 @@ mod tests {
         assert_eq!(decade_bucket(1990), "1990s");
         assert_eq!(decade_bucket(1996), "1990s");
         assert_eq!(decade_bucket(1984), "1980s");
+    }
+
+    #[test]
+    fn min_cpu_tier_maps_to_launcher_tiers() {
+        // 68000/68020 impose no CPU gate (tier 0); the caller drops these.
+        assert_eq!(min_cpu_tier("68000"), Some(0));
+        assert_eq!(min_cpu_tier("68020"), Some(0));
+        // Real gates: 030 → 1, 040 (incl. LC040) → 2, PowerPC → 3.
+        assert_eq!(min_cpu_tier("68030"), Some(1));
+        assert_eq!(min_cpu_tier("68040"), Some(2));
+        assert_eq!(min_cpu_tier("68LC040"), Some(2));
+        assert_eq!(min_cpu_tier("PPC"), Some(3));
+        assert_eq!(min_cpu_tier(" PowerPC "), Some(3)); // trim + case-insensitive
+        // Unknown/absent → no tier (no gate emitted).
+        assert_eq!(min_cpu_tier("pentium"), None);
+        assert_eq!(min_cpu_tier(""), None);
+    }
+
+    #[test]
+    fn min_cpu_facet_emits_only_real_gates() {
+        // Marathon 2 needs a 68040 → tier 2 lands in the catalog.
+        let it = item(r#"{"id":"m2","name":"Marathon 2","app":"Apps/M2/M2","minCPU":"68040"}"#);
+        assert_eq!(it.min_cpu.as_deref().and_then(min_cpu_tier).filter(|&t| t > 0), Some(2));
+        // A 68020 requirement is not a gate (tier 0 dropped → None).
+        let it = item(r#"{"id":"x","name":"X","app":"a","minCPU":"68020"}"#);
+        assert_eq!(it.min_cpu.as_deref().and_then(min_cpu_tier).filter(|&t| t > 0), None);
+        // Absent minCPU → None.
+        let it = item(r#"{"id":"x","name":"X","app":"a"}"#);
+        assert_eq!(it.min_cpu.as_deref().and_then(min_cpu_tier).filter(|&t| t > 0), None);
     }
 
     fn item(json: &str) -> SourceItem {
