@@ -1778,10 +1778,23 @@ static void st_draw(WindowPtr dlg)
     st_line(ST_LM, y, line); y = (short)(y + 16);
 
     {
+        const MacModel *m = model_by_id(gEnv.machineID);
         char v[12];
+        /* Show the MACHINE's true range — a Mac II boots back to System 4.1, and the
+         * model table carries that. gEnv.minOSbcd is the same floor already clamped to
+         * MacAtrium's 6.0.4 envelope (the Gestalt Manager floor env_probe needs), which
+         * is OUR limit, not the hardware's; printing it unqualified reads like a
+         * hardware fact. So print the real floor and name ours only when it is higher.
+         * The ceiling needs no such care: the tier max IS the CPU's hardware ceiling. */
+        long floor = (m && m->minOSbcd) ? (long)m->minOSbcd : gEnv.minOSbcd;
         strcpy(line, "Boots System ");
-        env_os_version(gEnv.minOSbcd, v); strcat(line, v); strcat(line, " - ");
+        env_os_version(floor, v);         strcat(line, v); strcat(line, " - ");
         env_os_version(gEnv.maxOSbcd, v); strcat(line, v);
+        if (floor < gEnv.minOSbcd) {                   /* we gate higher than the metal */
+            strcat(line, "  (MacAtrium ");
+            env_os_version(gEnv.minOSbcd, v); strcat(line, v);
+            strcat(line, "+)");
+        }
         st_line(ST_LM, y, line); y = (short)(y + 22);
     }
 

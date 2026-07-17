@@ -162,13 +162,28 @@ Both halves were checked on Snow (Mac II ROM + Macintosh Display Card 8•24), s
   UI chain, end to end. It flags *only* the CPU, correctly: that Mac II has an FPU, 8 MB, and a 32-bit
   screen, so `fpu`/`minMem`/`minDepth` are all satisfied.
 - **[40-status-hardware-macii.png](evidence/40-status-hardware-macii.png)** — the Status readout:
-  `Machine Macintosh II (Gestalt 6) / CPU 68020 / FPU yes / RAM 8 MB / Screen 640x480 32-bit (max
-  32-bit, Colour QD) / Boots System 6.0.4 - 7.5.5`. The last line verifies both the tier ceiling
-  (68020 → 7.5.5) and the model-floor clamp (the Mac II's table row says System 4.1, clamped up to the
-  6.0.4 envelope).
+  `Machine Macintosh II (Gestalt 6) / CPU 68020 / FPU yes / RAM 8 MB / Screen 640x480 8-bit (max
+  32-bit, Colour QD) / Boots System 4.1 - 7.5.5 (MacAtrium 6.0.4+)`.
 
-A launcher-only change does **not** need an image rebuild — `atrium install-all-systems --image
-<disk> --launcher build/MacAtrium.bin` swaps the binary into every System Folder in seconds.
+The "Boots" line reports the **machine's** range, not ours: a Mac II really does boot back to System
+4.1, and `models.jsonl` carries that. `gEnv.minOSbcd` is the same floor clamped to MacAtrium's 6.0.4
+envelope — printing *that* unqualified would read like a hardware limit when it is our own, so the
+readout shows the true floor and names ours in parentheses only when it sits higher. The ceiling needs
+no such care: the tier max IS the CPU's hardware ceiling (68020 → 7.5.5).
+
+### Re-running it
+
+A launcher-only change does **not** need an image rebuild (~4 min). Build, then:
+
+```sh
+atrium size --launcher build/MacAtrium.bin --pref 1024 --min 768   # match the config's app_mem_kb
+atrium install-all-systems --image <disk>.hda --launcher build/MacAtrium.bin
+```
+
+**The `size` step is not optional.** `install-all-systems` writes the binary verbatim, while an
+`atrium image` build patches the `'SIZE'` (-1) partition from `app_mem_kb` — so a bare swap silently
+reverts the launcher to its built-in 2048/1024 default, inflating the art budget and changing which
+art tiers ArtCaps enables (measured: partition 1040K → 2064K, tiers `on/off/off` → `on/on/off`).
 
 ## Cross-references
 
