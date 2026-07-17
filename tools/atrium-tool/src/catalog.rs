@@ -76,6 +76,14 @@ struct SourceItem {
     /// timing loops). Emitted as (tier+1); absent → no ceiling. The mirror of minCPU.
     #[serde(rename = "maxCPU", default)]
     max_cpu: Option<String>,
+    /// OS range this title runs under (dotted, e.g. "7.1"/"7.5.5"); carried into the
+    /// catalog as BCD so the launcher can flag a title when the RUNNING System is
+    /// outside it (the user booted a different System via the chooser). Build-time
+    /// selection (`os_in_range`) already drops out-of-range titles for the default OS.
+    #[serde(rename = "minOS", default)]
+    min_os: Option<String>,
+    #[serde(rename = "maxOS", default)]
+    max_os: Option<String>,
     /// true → this title needs a hardware FPU (e.g. Marathon; a 68LC040 lacks one).
     #[serde(default)]
     fpu: Option<bool>,
@@ -188,6 +196,12 @@ struct OutItem {
     /// `gEnv.tier >= this` (too fast); omitted → no CPU ceiling. See [`min_cpu_tier`].
     #[serde(rename = "maxCPU", skip_serializing_if = "Option::is_none")]
     max_cpu: Option<i64>,
+    /// OS range as gestaltSystemVersion BCD (0x0710 = 7.1); the launcher flags a title
+    /// when the running System is outside [minOS, maxOS]. Omitted → that bound is open.
+    #[serde(rename = "minOS", skip_serializing_if = "Option::is_none")]
+    min_os: Option<i64>,
+    #[serde(rename = "maxOS", skip_serializing_if = "Option::is_none")]
+    max_os: Option<i64>,
     /// true → the title needs a hardware FPU; omitted → no FPU requirement.
     #[serde(rename = "fpu", skip_serializing_if = "Option::is_none")]
     fpu: Option<bool>,
@@ -228,6 +242,21 @@ fn min_cpu_tier(s: &str) -> Option<i64> {
         "PPC" | "POWERPC" | "601" | "603" | "604" | "G3" | "G4" => Some(3),
         _ => None,
     }
+}
+
+/// Convert a dotted OS version ("7.5.5"/"7.1") to a gestaltSystemVersion BCD
+/// (0x0755/0x0710) — `major<<8 | minor<<4 | bug` — matching env.c's encoding, so the
+/// launcher compares a title's OS range against the running System directly. `None`
+/// on a malformed string or an out-of-nibble minor/bug.
+fn os_dotted_to_bcd(s: &str) -> Option<i64> {
+    let mut parts = s.trim().split('.');
+    let maj: i64 = parts.next()?.parse().ok()?;
+    let min: i64 = parts.next().map_or(Some(0), |x| x.parse().ok())?;
+    let bug: i64 = parts.next().map_or(Some(0), |x| x.parse().ok())?;
+    if maj < 0 || !(0..=15).contains(&min) || !(0..=15).contains(&bug) {
+        return None;
+    }
+    Some((maj << 8) | (min << 4) | bug)
 }
 
 /// Top-level category for a `kind` value.
@@ -454,6 +483,9 @@ fn build(src_text: &str) -> Result<(Vec<OutItem>, Report)> {
             // maxCPU: (tolerated tier + 1) so the launcher flags tier >= it. No `>0`
             // filter — a 68000/020 ceiling (tier 0 → 1) is a real limit, unlike minCPU.
             max_cpu: it.max_cpu.as_deref().and_then(min_cpu_tier).map(|t| t + 1),
+            // OS range → BCD for the launcher's running-System check.
+            min_os: it.min_os.as_deref().and_then(os_dotted_to_bcd),
+            max_os: it.max_os.as_deref().and_then(os_dotted_to_bcd),
             fpu: it.fpu.filter(|&b| b),
             min_depth: it.min_depth,
             min_mem: it.min_mem,
@@ -966,6 +998,18 @@ mod tests {
         // Absent → None.
         let it = item(r#"{"id":"x","name":"X","app":"a"}"#);
         assert_eq!(it.max_cpu.as_deref().and_then(min_cpu_tier).map(|t| t + 1), None);
+    }
+
+    #[test]
+    fn os_dotted_to_bcd_matches_gestalt() {
+        assert_eq!(os_dotted_to_bcd("7.1"), Some(0x0710));
+        assert_eq!(os_dotted_to_bcd("7.5"), Some(0x0750));
+        assert_eq!(os_dotted_to_bcd("7.5.5"), Some(0x0755));
+        assert_eq!(os_dotted_to_bcd("6.0.8"), Some(0x0608));
+        assert_eq!(os_dotted_to_bcd("7.6.1"), Some(0x0761));
+        assert_eq!(os_dotted_to_bcd(" 8.1 "), Some(0x0810)); // trims
+        assert_eq!(os_dotted_to_bcd("nope"), None);
+        assert_eq!(os_dotted_to_bcd("7.x"), None);
     }
 
     fn item(json: &str) -> SourceItem {

@@ -1052,6 +1052,14 @@ static void draw_info(Ui *u)
         y = (short)(y + ROW_H);
     }
     y = (short)(y + 8);
+    /* compatibility flag (docs/40): warn — never block — that this Mac may not run it. */
+    {
+        char warn[COMPAT_REASON_LEN];
+        if (u->env && compat_reason(it, u->env, warn)) {
+            y = draw_wrapped(r, x, y, textR, ROW_H, warn, INK_TITLE, 3);
+            y = (short)(y + 6);
+        }
+    }
     if (it->desc[0]) {
         y = draw_wrapped(r, x, y, textR, ROW_H, it->desc, INK_NORMAL, 10);
     }

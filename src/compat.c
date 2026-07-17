@@ -16,6 +16,18 @@ static char *cr_uint(char *p, long v)
     return p;
 }
 
+/* Append a gestaltSystemVersion BCD (e.g. 0x0755) as "7.5.5" (a trailing .0 dropped). */
+static char *cr_osver(char *p, int v)
+{
+    int maj = (v >> 8) & 0xFF, mnr = (v >> 4) & 0x0F, bug = v & 0x0F;
+    if (maj >= 10) *p++ = (char)('0' + maj / 10);
+    *p++ = (char)('0' + maj % 10);
+    *p++ = '.';
+    *p++ = (char)('0' + mnr);
+    if (bug) { *p++ = '.'; *p++ = (char)('0' + bug); }
+    return p;
+}
+
 /* "Needs " for the first clause, " and " to join later ones. */
 static char *cr_needs(char *p, int *n) { p = cr_str(p, (*n)++ ? " and " : "Needs "); return p; }
 
@@ -42,6 +54,9 @@ int compat_reason(const CatItem *it, const Env *e, char *out)
     if (it->minMem > 0 && e->ramKB > 0 && e->ramKB < it->minMem) {   /* needs more RAM */
         p = cr_needs(p, &n); p = cr_uint(p, it->minMem / 1024); p = cr_str(p, " MB of memory");
     }
+    if (it->minOS > 0 && e->sysVers > 0 && e->sysVers < it->minOS) {  /* needs a newer System */
+        p = cr_needs(p, &n); p = cr_str(p, "System "); p = cr_osver(p, it->minOS);
+    }
     if (n > 0) *p++ = '.';
 
     /* maxCPU: a title that breaks on a FASTER Mac (self-modifying code vs the 68040
@@ -54,6 +69,17 @@ int compat_reason(const CatItem *it, const Env *e, char *out)
         p = cr_str(p, "May crash on this Mac (made for ");
         p = cr_str(p, kMade[mt]);
         p = cr_str(p, " or older).");
+        n++;
+    }
+
+    /* maxOS: a title that breaks on a NEWER System than it was written for (traps
+     * removed or changed). Fires when the running System is past the title's ceiling
+     * — e.g. the user booted 7.6 via the chooser for a title made for 7.1. */
+    if (it->maxOS > 0 && e->sysVers > 0 && e->sysVers > it->maxOS) {
+        if (n > 0) *p++ = ' ';
+        p = cr_str(p, "May not run on this System (made for System ");
+        p = cr_osver(p, it->maxOS);
+        p = cr_str(p, " or earlier).");
         n++;
     }
 

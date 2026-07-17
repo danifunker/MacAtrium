@@ -678,6 +678,20 @@ static void test_compat(void)
     CHECK(strstr(out, "crash") != 0, "compat: maxCPU warns of a crash");
     e.tier = 1;
     CHECK(compat_reason(&it, &e, out) == 0, "compat: too-fast title fine on a 68030");
+
+    /* OS range: a title made for System 7.1 only (minOS = maxOS = 0x0710). The check
+     * is against the RUNNING System (sysVers): too old → needs a newer System; too
+     * new → may not run; in range → fine. */
+    memset(&it, 0, sizeof it); it.minOS = 0x0710; it.maxOS = 0x0710;
+    memset(&e, 0, sizeof e); e.tier = 2; e.hasColorQD = 1; e.maxScreenDepth = 8; e.ramKB = 8192;
+    e.sysVers = 0x0608;   /* booted System 6.0.8 — too old */
+    CHECK(compat_reason(&it, &e, out) == 1, "compat: title needs a newer System");
+    CHECK(strstr(out, "System 7.1") != 0, "compat: names the needed System");
+    e.sysVers = 0x0761;   /* booted System 7.6.1 — too new */
+    CHECK(compat_reason(&it, &e, out) == 1, "compat: title too new for this System");
+    CHECK(strstr(out, "not run") != 0, "compat: maxOS warns it may not run");
+    e.sysVers = 0x0710;   /* booted System 7.1 — in range */
+    CHECK(compat_reason(&it, &e, out) == 0, "compat: in-range System is fine");
 }
 
 int main(void)

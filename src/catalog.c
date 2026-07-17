@@ -88,6 +88,12 @@ static int item_from_object(const JsonObject *o, CatItem *it)
     f = json_get(o, "maxCPU");
     if (f && f->type == JT_NUM) it->maxCPU = (int)f->num;
 
+    f = json_get(o, "minOS");   /* BCD (converted from the dotted facet by catalog.rs) */
+    if (f && f->type == JT_NUM) it->minOS = (long)f->num;
+
+    f = json_get(o, "maxOS");
+    if (f && f->type == JT_NUM) it->maxOS = (long)f->num;
+
     f = json_get(o, "fpu");
     if (f && f->type == JT_BOOL)      it->needsFPU = f->boolean;
     else if (f && f->type == JT_NUM)  it->needsFPU = (f->num != 0);

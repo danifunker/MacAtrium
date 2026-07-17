@@ -51,6 +51,10 @@ typedef struct {
     int  maxCPU;                             /* max CPU as (tolerated tier + 1): a title
                                               * that breaks on a FASTER Mac fires when
                                               * gEnv.tier >= this; 0 = no ceiling */
+    long minOS;                              /* BCD System floor: the running System
+                                              * (gEnv.sysVers) must be >= this; 0 = none */
+    long maxOS;                              /* BCD System ceiling: running System must
+                                              * be <= this; a title too new breaks; 0 = none */
     int  needsFPU;                           /* 1 = needs a hardware FPU (68LC040 lacks one) */
     int  minDepth;                           /* raise screen to >= this bpp before launch
                                               * (inverse of maxDepth); 0 = no floor */
