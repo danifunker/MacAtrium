@@ -37,6 +37,7 @@ add_application(MacAtrium
     src/json.c
     src/catalog.c
     src/cpu.c                # docs/40: the one CPU-generation table (pure)
+    src/models.c             # docs/40: gestaltMachineType -> model name + min System (pure)
     src/compat.c             # docs/40: per-title hardware compatibility check (pure)
     src/model.c
     src/render.c

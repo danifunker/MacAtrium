@@ -4,29 +4,10 @@
 #include "env.h"
 #include "mac_compat.h"
 #include "display.h"
+#include "models.h"   /* gestaltMachineType -> model name + true minimum System */
 
 #include <Gestalt.h>
 #include <LowMem.h>
-
-/* Per-MODEL OS-floor refinement (docs/40). Some 68020/68030 Macs need a System
- * NEWER than their CPU tier's floor — a Color Classic / LC III / Mac IIvx boots
- * 7.1, not 6.0.x — so the tier floor alone under-greys the chooser for them.
- * Every machine (by gestaltMachineType) whose minimum System exceeds its tier
- * floor is listed here; env_probe raises minOSbcd to it. Baked from
- * data/models.jsonl (68K models with minSystem >= 7.1, collapsed per gestaltID to
- * the most permissive floor — board-family IDs are shared). The 68040 rows are
- * redundant with the tier floor (also 7.1) but harmless. Regenerate when
- * models.jsonl changes; New-World Macs report a generic id and stay on the tier. */
-typedef struct { short id; short bcd; } ModelMinOS;
-static const ModelMinOS kModelMinOS[] = {
-    {  27, 0x0710 }, {  29, 0x0710 }, {  30, 0x0710 }, {  32, 0x0710 }, {  33, 0x0710 },
-    {  34, 0x0710 }, {  35, 0x0710 }, {  36, 0x0710 }, {  38, 0x0710 }, {  44, 0x0710 },
-    {  45, 0x0710 }, {  48, 0x0710 }, {  49, 0x0710 }, {  50, 0x0710 }, {  52, 0x0710 },
-    {  53, 0x0710 }, {  56, 0x0710 }, {  60, 0x0710 }, {  62, 0x0710 }, {  71, 0x0710 },
-    {  72, 0x0711 }, {  77, 0x0710 }, {  78, 0x0710 }, {  80, 0x0710 }, {  83, 0x0710 },
-    {  84, 0x0710 }, {  85, 0x0711 }, {  89, 0x0710 }, {  92, 0x0710 }, {  94, 0x0710 },
-    {  98, 0x0710 }, {  99, 0x0710 }, { 102, 0x0710 }, { 103, 0x0710 }, { 115, 0x0711 },
-};
 
 void env_probe(Env *e)
 {
@@ -144,16 +125,14 @@ void env_probe(Env *e)
     e->machineID = 0;
     (void)Gestalt(gestaltMachineType, &e->machineID);
 
-    /* Refine the OS floor for models that need a System newer than their tier's
-     * floor (a 68030 Color Classic needs 7.1, not 6.0.x). Shared board IDs were
-     * collapsed to the most permissive floor, so this never over-greys. */
-    if (e->machineID > 0) {
-        unsigned i;
-        for (i = 0; i < sizeof kModelMinOS / sizeof kModelMinOS[0]; i++)
-            if (kModelMinOS[i].id == e->machineID) {
-                if ((long)kModelMinOS[i].bcd > e->minOSbcd) e->minOSbcd = kModelMinOS[i].bcd;
-                break;
-            }
+    /* Refine the OS floor for models that need a System newer than their CPU tier's
+     * floor (a 68030 Color Classic needs 7.1, not 6.0.x). The model table's floor is
+     * the machine's TRUE minimum, which can also sit below the 6.0.4 envelope (a Plus
+     * reports System 3.2) — so take the max, never lowering the tier floor. Shared
+     * board ids carry the most permissive floor, so this never over-greys. */
+    {
+        const MacModel *m = model_by_id(e->machineID);
+        if (m && (long)m->minOSbcd > e->minOSbcd) e->minOSbcd = m->minOSbcd;
     }
 }
 

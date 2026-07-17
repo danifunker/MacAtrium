@@ -19,6 +19,7 @@
 #include "macfs.h"
 #include "catalog.h"
 #include "compat.h"
+#include "models.h"      /* gestaltMachineType -> model name (MacAtrium Status) */
 #include "model.h"
 #include "render.h"
 #include "ui.h"
@@ -1716,6 +1717,11 @@ static void st_appendK(char *dst, long bytes)
  * the Status window height CH. */
 #define ST_MEM_SECTION 84
 
+/* Vertical space st_draw's "Hardware" section adds: a bold header + four readout
+ * lines (machine / CPU-FPU-RAM / screen / OS envelope), less the 20px reclaimed by
+ * the standalone "Screen:" line it absorbs. Folded into the Status window height. */
+#define ST_HW_SECTION 66
+
 /* Categories + titles contributed by the disk at volume-table index `vol`. */
 static void st_disk_counts(int vol, int *ncat, long *ntitle)
 {
@@ -1741,10 +1747,43 @@ static void st_draw(WindowPtr dlg)
     st_line(ST_LM, y, line); y = (short)(y + 16);
 
     strcpy(line, "Build "); strcat(line, MACATRIUM_VERSION);
+    st_line(ST_LM, y, line); y = (short)(y + 20);
+
+    /* Hardware (docs/40): every probe env_probe makes, shown raw, so a wrong
+     * detection is visible rather than silently mis-gating a title. The CPU
+     * generation + FPU are the two axes the per-title minCPU/maxCPU/fpu facets
+     * compare against; "Boots" is the OS envelope the System-Folder chooser greys
+     * by (the CPU tier's range, refined by this model's true floor). */
+    TextFace(bold); st_line(ST_LM, y, "Hardware"); TextFace(normal); y = (short)(y + 16);
+
+    {
+        const MacModel *m = model_by_id(gEnv.machineID);
+        strcpy(line, "Machine ");     strcat(line, m ? m->name : "unknown");
+        strcat(line, "  (Gestalt ");  append_long(line, gEnv.machineID);
+        strcat(line, ")");
+        st_line(ST_LM, y, line); y = (short)(y + 16);
+    }
+
+    strcpy(line, "CPU ");     strcat(line, cpu_gen_name(gEnv.cpuGen));
+    strcat(line, "   FPU ");  strcat(line, gEnv.hasFPU ? "yes" : "no");
+    strcat(line, "   RAM ");  append_long(line, gEnv.ramKB / 1024); strcat(line, " MB");
     st_line(ST_LM, y, line); y = (short)(y + 16);
 
-    strcpy(line, "Screen: "); append_long(line, display_current_depth()); strcat(line, "-bit");
-    st_line(ST_LM, y, line); y = (short)(y + 20);
+    strcpy(line, "Screen ");
+    append_long(line, gEnv.screen.right - gEnv.screen.left); strcat(line, "x");
+    append_long(line, gEnv.screen.bottom - gEnv.screen.top);
+    strcat(line, "  ");       append_long(line, display_current_depth()); strcat(line, "-bit");
+    strcat(line, " (max ");   append_long(line, gEnv.maxScreenDepth);     strcat(line, "-bit");
+    strcat(line, gEnv.hasColorQD ? ", Colour QD)" : ", no Colour QD)");
+    st_line(ST_LM, y, line); y = (short)(y + 16);
+
+    {
+        char v[12];
+        strcpy(line, "Boots System ");
+        env_os_version(gEnv.minOSbcd, v); strcat(line, v); strcat(line, " - ");
+        env_os_version(gEnv.maxOSbcd, v); strcat(line, v);
+        st_line(ST_LM, y, line); y = (short)(y + 22);
+    }
 
     /* docs/44 P1: the runtime art-capability set — granted partition, the art
      * budget we carve from it, and which of the 1/8/24-bit tiers this machine can
@@ -1804,7 +1843,7 @@ static void run_status_dialog(void)
     ControlHandle done;
     int           nrows = gVols.n > 0 ? gVols.n : 1;
 
-    CH = (short)(120 + ST_MEM_SECTION + nrows * 32 + 44);
+    CH = (short)(120 + ST_HW_SECTION + ST_MEM_SECTION + nrows * 32 + 44);
     {
         short L = (short)(sb.left + ((sb.right - sb.left) - ST_CW) / 2);
         short T = (short)(sb.top  + ((sb.bottom - sb.top) - CH) / 2);
