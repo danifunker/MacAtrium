@@ -70,7 +70,7 @@ Mac** — the "don't run Marathon 2 on a Mac LC" guard. Requirements are per-tit
 | `fpu` | needs a hardware FPU | `gEnv.hasFPU` (`gestaltFPUType`) | flag if absent (catches a 68LC040) |
 | `minDepth` | min screen bpp (e.g. 8 = 256 colours) | `gEnv.pixelSize` / the display | **raise** the screen to it, or flag if unreachable |
 | `maxDepth` | max screen bpp tolerated | current depth | **lower** the screen to it (existing) |
-| `minMem` | min machine RAM (KB) | `gEnv.ramKB` (`gestaltPhysicalRAMSize`) | flag if the Mac has less |
+| `minMem` | min machine RAM in whole **MB** (e.g. `8`) | `gEnv.ramKB` (`gestaltPhysicalRAMSize`) | flag if the Mac has less |
 
 ### 2a. `minCPU` → tier mapping
 

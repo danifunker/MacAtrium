@@ -58,7 +58,7 @@ typedef struct {
     int  needsFPU;                           /* 1 = needs a hardware FPU (68LC040 lacks one) */
     int  minDepth;                           /* raise screen to >= this bpp before launch
                                               * (inverse of maxDepth); 0 = no floor */
-    long minMem;                             /* min machine RAM (KB) for a preflight
+    long minMem;                             /* min machine RAM in MB for a preflight
                                               * warning; 0 = none */
     /* CD-based titles (docs/45): the disc image is auto-inserted via the BlueSCSI
      * Toolbox before launch. All "" / 0 when this is not a CD title. */

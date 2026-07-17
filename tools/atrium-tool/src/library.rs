@@ -214,7 +214,8 @@ const COMPAT_HEADER: &str = "\
 #   minDepth shallowest screen bpp a title needs; launcher raises UP to it, or flags
 #           the Mac (e.g. a B&W screen can't reach it) — the \"needs a colour card\" axis
 #   minOS / maxOS   dotted OS range, e.g. \"6.0.8\"/\"7.5\" (build drops out-of-range)
-#   minMem  minimum machine RAM in KB; launch-time preflight warning (e.g. 8192 = 8 MB)
+#   minMem  minimum machine RAM in MB; launch-time preflight warning (e.g. 8 = 8 MB).
+#           Whole MB — no classic title specs RAM finer than that
 #   minCPU  minimum CPU: \"68000\"/\"68020\"/\"68030\"/\"68040\"/\"PPC\". Mapped to a launcher
 #           CPU tier (docs/40); the launcher flags a title needing more than this Mac
 #           (e.g. Marathon 2 needs \"68040\" — refused on a 68020 Mac LC). 68000/68020

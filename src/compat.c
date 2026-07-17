@@ -51,8 +51,9 @@ int compat_reason(const CatItem *it, const Env *e, char *out)
         p = cr_needs(p, &n);
         p = cr_str(p, e->hasColorQD ? "a deeper colour display" : "a colour display");
     }
-    if (it->minMem > 0 && e->ramKB > 0 && e->ramKB < it->minMem) {   /* needs more RAM */
-        p = cr_needs(p, &n); p = cr_uint(p, it->minMem / 1024); p = cr_str(p, " MB of memory");
+    /* RAM: the facet is whole MB (no classic title specs finer); the probe is KB. */
+    if (it->minMem > 0 && e->ramKB > 0 && e->ramKB < it->minMem * 1024L) {
+        p = cr_needs(p, &n); p = cr_uint(p, it->minMem); p = cr_str(p, " MB of memory");
     }
     if (it->minOS > 0 && e->sysVers > 0 && e->sysVers < it->minOS) {  /* needs a newer System */
         p = cr_needs(p, &n); p = cr_str(p, "System "); p = cr_osver(p, it->minOS);

@@ -91,7 +91,8 @@ struct SourceItem {
     /// to it before launch when possible, else flags the Mac as too limited.
     #[serde(rename = "minDepth", default)]
     min_depth: Option<i64>,
-    /// Minimum machine RAM (KB) this title needs; a launch-time preflight warning.
+    /// Minimum machine RAM in whole MB this title needs; a launch-time preflight
+    /// warning (no classic title specs RAM finer than a megabyte).
     #[serde(rename = "minMem", default)]
     min_mem: Option<i64>,
     /// true → "Mouse Required", false → "No Mouse", absent → no mouse facet.
@@ -208,7 +209,7 @@ struct OutItem {
     /// Minimum screen depth (bpp) the launcher raises to before launch; omitted → none.
     #[serde(rename = "minDepth", skip_serializing_if = "Option::is_none")]
     min_depth: Option<i64>,
-    /// Minimum machine RAM (KB) for a launch-time preflight warning; omitted → none.
+    /// Minimum machine RAM in MB for a launch-time preflight warning; omitted → none.
     #[serde(rename = "minMem", skip_serializing_if = "Option::is_none")]
     min_mem: Option<i64>,
     /// CD-based title (docs/45): host CD image filename, auto-inserted via the

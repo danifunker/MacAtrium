@@ -649,7 +649,7 @@ static void test_compat(void)
     memset(&e, 0, sizeof e);
     e.tier = 0; e.hasFPU = 0; e.ramKB = 4096; e.maxScreenDepth = 8; e.hasColorQD = 1;
     memset(&it, 0, sizeof it);
-    it.minCPU = 2; it.needsFPU = 1; it.minMem = 8192; it.minDepth = 8; it.maxDepth = 8;
+    it.minCPU = 2; it.needsFPU = 1; it.minMem = 8; it.minDepth = 8; it.maxDepth = 8;  /* minMem = MB */
     CHECK(compat_reason(&it, &e, out) == 1, "compat: M2 under-spec on an LC");
     CHECK(strstr(out, "68040") != 0, "compat: names the 68040");
     CHECK(strstr(out, "FPU") != 0, "compat: names the FPU");

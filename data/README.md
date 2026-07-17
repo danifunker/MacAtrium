@@ -13,7 +13,7 @@ Three JSONL files feed the build (`# …` / `// …` and blank lines are comment
   over the auto-seeded ones. Fields: `color` (Color/B&W), `mouse` (Mouse Required),
   `maxDepth` (deepest screen bpp a title tolerates; launcher caps to it),
   `minOS`/`maxOS` (dotted range — out-of-range titles are dropped per target),
-  `minMem` (KB), `minCPU`, `arch` (68K/PPC/BOTH).
+  `minMem` (MB), `minCPU`, `arch` (68K/PPC/BOTH).
 - **`catalog.jsonl`** — a tiny hand-authored *output-format* sample from the MVP era.
   The real on-Mac catalog is **generated**, not authored.
 
