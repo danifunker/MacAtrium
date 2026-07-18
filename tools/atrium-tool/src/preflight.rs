@@ -41,10 +41,14 @@ fn file_len(p: &Path) -> u64 {
 /// size. Within ~95% is the goal — enough to catch "won't fit".
 pub fn estimate(cfg: &BuildConfig, app_fork_bytes: u64, n_items: u64) -> Estimate {
     let base_bytes = cfg.system.as_ref().map(|p| file_len(p)).unwrap_or(0);
-    // Each baked art item: ~1 raw (1-bit, ~10 KB) + ~1 colour PICT (~40 KB) per
-    // depth variant, plus an app icon (~4 KB). Use a flat ~60 KB/item × depths.
+    // Baked art per item per depth variant: a box-art PICT + a screenshot PICT + an
+    // icon. Calibrated to a MEASURED build — 95 items × 3 depths (1/8/24) baked 60 MB
+    // of art, i.e. ~210 KB/item/variant — so a flat 200 KB/item × depths. (The old
+    // 60 KB undershot ~3.5× and nearly ate the auto-size margin.) Auto-sizing biases
+    // toward over-growing since right_size trims excess but a harvest can't fit into
+    // an undersized volume — so estimate generously.
     let depth_variants = cfg.art_depths.len().max(1) as u64;
-    let art_bytes = n_items.saturating_mul(60_000).saturating_mul(depth_variants);
+    let art_bytes = n_items.saturating_mul(200_000).saturating_mul(depth_variants);
     let overhead_bytes = 512 * 1024; // catalog + dir entries + slack
     let target_bytes = cfg
         .disk_size_mb
@@ -59,13 +63,34 @@ pub fn estimate(cfg: &BuildConfig, app_fork_bytes: u64, n_items: u64) -> Estimat
     }
 }
 
-/// Grow the output image to `disk_size_mb` (capped at the HFS 2 GB ceiling) by
-/// cloning it into a fresh, larger APM disk via `rb-cli expand`. No-op when unset
-/// or when the base already meets/exceeds the target (HFS can't shrink here).
-/// Run right after the base copy, before harvest, so apps land in the bigger
+/// The size (MB) to grow the working image to when `disk_size_mb` is unset (auto):
+/// the **measured** projection — base used (`fs_used`) + app forks (`du`) + the art
+/// estimate + overhead — plus the free margin `right_size` will keep and ~12% slack
+/// for HFS allocation rounding on the destination (whose block size differs from the
+/// donor `du` measured). So one grow lands near the final size and `right_size_image`
+/// only trims, instead of ballooning to a fixed 2 GB and reclaiming it. Capped at the
+/// HFS 2 GB ceiling, floored so a tiny selection still gets a sane volume.
+pub fn auto_target_mb(cfg: &BuildConfig, base_used: u64, app_bytes: u64, n_items: u64) -> u64 {
+    let est = estimate(cfg, app_bytes, n_items);
+    let mb = 1024 * 1024;
+    let content = base_used + app_bytes + est.art_bytes + est.overhead_bytes;
+    let pct = cfg.free_space_pct.min(90);
+    let with_free = content + content.saturating_mul(pct) / (100 - pct).max(1);
+    let padded = with_free + with_free / 8; // ~12% destination allocation-rounding slack
+    let target_mb = (padded + mb - 1) / mb;
+    target_mb
+        .min(MAX_DISK_MB)
+        .max(base_used / mb + cfg.free_space_min_mb + 16)
+}
+
+/// Grow the output image to `disk_size_mb` — or, when that's unset, to `auto_mb`
+/// (the measured projection from [`auto_target_mb`]) — capped at the HFS 2 GB
+/// ceiling, by cloning into a fresh larger APM disk via `rb-cli expand`. No-op when
+/// both are unset or the base already meets/exceeds the target (HFS can't shrink
+/// here). Run right after the base copy, before harvest, so apps land in the bigger
 /// volume.
-pub fn apply_disk_size(rb: &RbCli, cfg: &BuildConfig) -> Result<()> {
-    let Some(mb) = cfg.disk_size_mb else { return Ok(()) };
+pub fn apply_disk_size(rb: &RbCli, cfg: &BuildConfig, auto_mb: Option<u64>) -> Result<()> {
+    let Some(mb) = cfg.disk_size_mb.or(auto_mb) else { return Ok(()) };
     let mb = mb.min(MAX_DISK_MB);
     let want = mb * 1024 * 1024;
     let have = file_len(&cfg.out);

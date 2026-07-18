@@ -943,8 +943,9 @@ pub fn run(cfg: &BuildConfig) -> Result<()> {
         .with_context(|| format!("copying base image {} -> {}", system.display(), cfg.out.display()))?;
 
     // 1b. preflight: project disk usage before doing the expensive work, and warn
-    // if it won't fit the target (~95% estimate; not a hard gate).
-    {
+    // if it won't fit the target (~95% estimate; not a hard gate). Also yields the
+    // auto-size target when `disk_size_mb` is unset (grow to the measured projection).
+    let auto_mb: Option<u64> = {
         // App footprint is MEASURED up front now: rb-cli `du` sums both forks of each
         // selected donor folder before the copy — a classic app keeps its code in the
         // resource fork over a 0-byte data fork, so `ls` would undercount. Base is the
@@ -995,10 +996,18 @@ pub fn run(cfg: &BuildConfig) -> Result<()> {
                 mb(est.target_bytes)
             );
         }
-    }
+        // Auto-size: with no explicit `disk_size_mb`, grow the working disk to this
+        // measured projection (+ margin) rather than a fixed ceiling, so the grow
+        // lands near the final size and right_size only trims — no 2 GB transient.
+        if cfg.disk_size_mb.is_none() {
+            Some(crate::preflight::auto_target_mb(cfg, base_used, app_bytes, n_items))
+        } else {
+            None
+        }
+    };
 
     // 1c. grow the image to the requested size (disk-size controller).
-    crate::preflight::apply_disk_size(&rb, cfg)?;
+    crate::preflight::apply_disk_size(&rb, cfg, auto_mb)?;
     // Baseline volume usage after the grow (OS + launcher only) — the zero point
     // the harvest/art footprints are measured against.
     let used_after_grow = rb.fs_used(&cfg.out).unwrap_or(0);
@@ -1314,7 +1323,7 @@ pub fn add_to_disk(cfg: &BuildConfig) -> Result<()> {
     eprintln!("[add] adding {} title(s) to {}", ids.len(), cfg.out.display());
 
     // Grow the disk first if asked (only grows), so the new apps have room.
-    crate::preflight::apply_disk_size(&rb, cfg)?;
+    crate::preflight::apply_disk_size(&rb, cfg, None)?; // `add` grows to the explicit size only
 
     // Harvest the selected titles' apps into the disk + append harvested stubs to
     // the delta (selection plan + any explicit harvest sources).

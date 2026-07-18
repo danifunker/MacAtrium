@@ -229,7 +229,10 @@ pub struct BuildConfig {
     #[serde(default)]
     pub dataset: Option<PathBuf>,
     /// Final image size in MB; the image is grown/kept to fit. Capped at
-    /// `MAX_DISK_MB` (2 GB). None = leave the base image's size as-is.
+    /// `MAX_DISK_MB` (2 GB). **None = auto-size** to the measured preflight
+    /// projection (base `fs_used` + app forks via `du` + art estimate + margin), so
+    /// the working disk grows near its final size instead of ballooning to a fixed
+    /// ceiling and being reclaimed by `right_size`.
     #[serde(default)]
     pub disk_size_mb: Option<u64>,
     /// Which dataset apps to include. None falls back to the `harvest` block.
