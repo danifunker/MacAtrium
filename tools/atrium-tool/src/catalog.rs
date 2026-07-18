@@ -259,6 +259,15 @@ fn normalize_cpu(s: &str) -> Option<&'static str> {
         .map(|(canon, _)| *canon)
 }
 
+/// Index of a CPU generation in the ordered [`CPU_GENS`] table (0 = 68000 … 8 = G4),
+/// resolving aliases; `None` for an unknown string. The ordering **is** the
+/// capability comparison — shared with variant selection ([`crate::variants`]), so
+/// both sides rank CPUs by the one table.
+pub(crate) fn cpu_gen_index(s: &str) -> Option<usize> {
+    let t = s.trim().to_ascii_lowercase();
+    CPU_GENS.iter().position(|(_, aliases)| aliases.contains(&t.as_str()))
+}
+
 /// Render a gestaltSystemVersion BCD back to the canonical dotted form the catalog
 /// carries ("7.5", "9.2.2") — a trailing `.0` bugfix is dropped, matching env.c's
 /// `env_os_version`.

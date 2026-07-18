@@ -28,3 +28,4 @@ pub mod size_rsrc;
 pub mod snd;
 pub mod targets;
 pub mod templates;
+pub mod variants;
