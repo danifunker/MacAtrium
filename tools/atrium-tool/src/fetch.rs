@@ -168,6 +168,7 @@ fn match_dataset(src: &Path, archive: &Path) -> Result<Vec<i64>> {
 pub fn run(
     archive: &Path,
     nids: &[i64],
+    file: Option<&str>,
     src: Option<&Path>,
     downloads: Option<&Path>,
     into: Option<&Path>,
@@ -212,8 +213,35 @@ pub fn run(
             }
         };
         let title = rec.get("title").and_then(Value::as_str).unwrap_or("?").to_string();
-        let Some((filename, kclass)) = pick_file(&rec) else {
-            eprintln!("  skip [{nid}] {title}: no rb-cli-extractable download (zip/iso/sitx only)");
+        // `--file` overrides the auto-pick: fetch that exact filename (e.g. the full
+        // SimCity 2000 v1.2 game rather than the `.sea.hqx` updater that pick_file's
+        // "first archive wins" heuristic grabs). The name must be one the record lists.
+        let picked = match file {
+            Some(want) => {
+                let listed = rec
+                    .get("files")
+                    .and_then(Value::as_array)
+                    .is_some_and(|fs| {
+                        fs.iter().any(|f| f.get("filename").and_then(Value::as_str) == Some(want))
+                    });
+                if !listed {
+                    eprintln!("  skip [{nid}] {title}: --file {want} not listed for this title");
+                    skipped += 1;
+                    continue;
+                }
+                classify(want).map(|k| (want.to_string(), k))
+            }
+            None => pick_file(&rec),
+        };
+        let Some((filename, kclass)) = picked else {
+            eprintln!(
+                "  skip [{nid}] {title}: {}",
+                if file.is_some() {
+                    "requested --file is a format rb-cli can't extract (zip/iso/sitx)"
+                } else {
+                    "no rb-cli-extractable download (zip/iso/sitx only)"
+                }
+            );
             skipped += 1;
             continue;
         };

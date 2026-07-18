@@ -129,6 +129,11 @@ enum Cmd {
         /// MG node id(s) to fetch (repeatable).
         #[arg(long = "nid")]
         nids: Vec<i64>,
+        /// Fetch this EXACT filename instead of the auto-pick (which grabs the first
+        /// archive — e.g. the `.sea.hqx` updater over the full game). Must be a file
+        /// the title lists. Use with a single `--nid` to steer to a specific edition.
+        #[arg(long)]
+        file: Option<String>,
         /// Or: fetch for every dataset record that matches an MG title.
         #[arg(long)]
         src: Option<PathBuf>,
@@ -595,11 +600,11 @@ fn main() -> Result<()> {
             eprintln!("mg: data store {}", archive.display());
             mg::run(&src, &archive, &out, overwrite, art_dir.as_deref())?;
         }
-        Cmd::Fetch { archive, nids, src, downloads, into, apps_root, append_to, rb_cli, curl, stage } => {
+        Cmd::Fetch { archive, nids, file, src, downloads, into, apps_root, append_to, rb_cli, curl, stage } => {
             let archive = mg::resolve_archive(archive);
             eprintln!("fetch: data store {}", archive.display());
             fetch::run(
-                &archive, &nids, src.as_deref(), downloads.as_deref(), into.as_deref(),
+                &archive, &nids, file.as_deref(), src.as_deref(), downloads.as_deref(), into.as_deref(),
                 &apps_root, append_to.as_deref(), &rb_cli, &curl, stage.as_deref(),
             )?;
         }

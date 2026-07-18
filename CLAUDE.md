@@ -18,6 +18,38 @@ conventions, and the expensive-to-learn invariants:
   Copy installed folders **verbatim with `rb-cli cp`** instead.
 - **Never `git stash` for before/after image builds** — a stashed source + an
   un-rebuilt binary costs hours; use a separate output path or a worktree.
+- **To add a title (incl. from Macintosh Garden), use the built-in `atrium`
+  pipeline — never hand-download / `curl`.** The flow is **`fetch` → `add`**, see
+  below. Raw `curl` of MG file URLs 403s; `atrium fetch` uses the mirror over
+  native `ureq` with the right headers.
+
+## Adding a title to an existing image (`fetch` → `add`)
+
+`atrium image` is a from-scratch build; to grow an **already-built** disk use these
+two verbs and don't rebuild:
+
+1. **Load the data** — `atrium fetch` pulls a title from the MG static mirror,
+   rb-cli-extracts it, and injects it into a reservoir image + a dataset stub:
+   ```sh
+   atrium fetch --nid <MG_nid> [--file <exact-name.hqx>] \
+     --mg-archive <archive> --into <donor.hfv> --append-to data/curated.jsonl
+   ```
+   - `--file` steers past the auto-picker, which takes the **first archive** — so a
+     `.sea.hqx` *updater* wins over a plain-`.hqx` *full game* (the SimCity 2000
+     case: bare `fetch --nid 15475` grabs the 1.2 **updater**, not the game).
+   - **Installer-disk titles** (SC2000 v1.2 ships Disk Copy images whose Disk 1 is an
+     *installer*) extract to an installer, **not** a runnable app → run it in the
+     emulator and capture the installed app as a `.mar`, then import that. A title
+     that extracts straight to an `APPL` skips this.
+
+2. **Add to the disk** — `atrium add --config <cfg>` harvests the new selection into
+   the existing `.hda` **in place**: art baked, catalog records merged with the
+   disk's current catalog, no base copy or launcher reinstall (image.rs `add_to_disk`).
+   `cfg.out` = the existing disk, `cfg.selection` = the new ids, `base_os`/`art_depths`
+   matching the disk's Target.
+
+Author the title's `data/compatibility.jsonl` facets and its `group` / collection
+membership **before** the `add`, so the regenerated catalog carries them.
 
 ## Operating in this environment (Windows 11 → WSL/Ubuntu)
 
