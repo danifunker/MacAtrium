@@ -270,6 +270,37 @@ impl RbCli {
         bail!("fs_used: could not read `Used` from `show fs-info {img}`");
     }
 
+    /// Recursive both-fork (data + resource) size in bytes of each of `paths`
+    /// inside `image`, summed. Uses `du --json` so a classic app's **resource fork**
+    /// is counted — unlike [`ls`](Self::ls), which sees only the (often 0-byte) data
+    /// fork, wildly undercounting an app folder. One call measures many paths, so a
+    /// whole donor's app folders go in a single invocation. A missing path
+    /// contributes 0 (it simply isn't harvested). Lets the build size the volume
+    /// from real numbers instead of growing to a working ceiling and shrinking back.
+    pub fn du(&self, image: &Path, paths: &[String]) -> Result<u64> {
+        if paths.is_empty() {
+            return Ok(0);
+        }
+        let img = image.to_string_lossy().into_owned();
+        let mut args: Vec<&str> = vec!["du", "--json", &img];
+        args.extend(paths.iter().map(String::as_str));
+        let out = self.run(&args)?;
+        let v: serde_json::Value = serde_json::from_str(&out)
+            .with_context(|| format!("parsing `du --json` for {}", image.display()))?;
+        let mut total = 0u64;
+        if let Some(arr) = v.pointer("/result/paths").and_then(serde_json::Value::as_array) {
+            for p in arr {
+                if p.get("found").and_then(serde_json::Value::as_bool) == Some(true) {
+                    total += p
+                        .get("apparent_bytes")
+                        .and_then(serde_json::Value::as_u64)
+                        .unwrap_or(0);
+                }
+            }
+        }
+        Ok(total)
+    }
+
     /// True if `path` (a file or directory) exists inside the image. Implemented
     /// by listing the parent and checking for the leaf, so it works for the
     /// space/`ƒ`-containing names our app paths carry. Any rb-cli error (missing

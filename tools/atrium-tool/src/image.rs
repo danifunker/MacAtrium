@@ -945,30 +945,56 @@ pub fn run(cfg: &BuildConfig) -> Result<()> {
     // 1b. preflight: project disk usage before doing the expensive work, and warn
     // if it won't fit the target (~95% estimate; not a hard gate).
     {
-        let n_items: u64 = match &effective_sel {
-            Some(sel) => crate::selection::resolve(&work, sel, cfg.base_os.as_deref())
-                .map(|(ids, _)| ids.len() as u64)
-                .unwrap_or(0),
-            None => cfg.harvest.iter().map(|h| h.apps.len() as u64).sum(),
-        };
-        let est = crate::preflight::estimate(cfg, 0, n_items);
+        // App footprint is MEASURED up front now: rb-cli `du` sums both forks of each
+        // selected donor folder before the copy — a classic app keeps its code in the
+        // resource fork over a 0-byte data fork, so `ls` would undercount. Base is the
+        // system image's real used space (`fs_used`), not its nominal file size. Only
+        // art stays an estimate (it's baked later — nothing to measure yet).
+        let mut app_bytes = 0u64;
+        let mut n_items: u64 = 0;
+        if let Some(sel) = &effective_sel {
+            let donors = crate::donors::Registry::load_default();
+            if let Ok((plan, reservoir, _unresolved, _curated)) = crate::selection::harvest_plan(
+                &work,
+                sel,
+                cfg.base_os.as_deref(),
+                &donors,
+                settings.macpack_dir.as_deref(),
+            ) {
+                for (image, apps) in plan.iter().chain(reservoir.iter()) {
+                    n_items += apps.len() as u64;
+                    app_bytes += rb.du(image, apps).unwrap_or(0);
+                }
+            }
+        } else {
+            n_items = cfg.harvest.iter().map(|h| h.apps.len() as u64).sum();
+        }
+        let base_used = rb
+            .fs_used(system)
+            .unwrap_or_else(|_| std::fs::metadata(system).map(|m| m.len()).unwrap_or(0));
+        let est = crate::preflight::estimate(cfg, app_bytes, n_items);
         let mb = |b: u64| b / (1024 * 1024);
+        let projected = base_used + app_bytes + est.art_bytes + est.overhead_bytes;
         let tgt = if est.target_bytes > 0 {
             format!(", target {} MB", mb(est.target_bytes))
         } else {
             String::new()
         };
-        // Apps live in the resource fork, which rb-cli can't size up front, so the
-        // app footprint isn't projected here — it's MEASURED live during harvest
-        // (the `[footprint]` lines below) as a volume used-space delta. Only base +
-        // art (covers/screenshots/icons) are estimable ahead of time.
         eprintln!(
-            "[preflight] base {} MB + covers/art ~{} MB est for {} item(s){} (apps measured live during harvest)",
-            mb(est.base_bytes),
+            "[preflight] base {} MB + apps {} MB + covers/art ~{} MB = ~{} MB{}",
+            mb(base_used),
+            mb(app_bytes),
             mb(est.art_bytes),
-            n_items,
+            mb(projected),
             tgt
         );
+        if est.target_bytes > 0 && projected > est.target_bytes {
+            eprintln!(
+                "[preflight] WARNING: projected ~{} MB exceeds the {} MB target",
+                mb(projected),
+                mb(est.target_bytes)
+            );
+        }
     }
 
     // 1c. grow the image to the requested size (disk-size controller).
