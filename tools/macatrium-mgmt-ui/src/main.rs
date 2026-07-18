@@ -809,6 +809,7 @@ impl App {
             match fetch::run(
                 PathBuf::from(&archive).as_path(),
                 &[],
+                None, // no global --file override: per-title picks ride in the dataset (mg.files)
                 Some(tmp.as_path()),
                 downloads.as_deref(),
                 None, // cache only — no injection

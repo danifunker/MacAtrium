@@ -7,7 +7,8 @@ Three JSONL files feed the build (`# …` / `// …` and blank lines are comment
   `harvest_src`). **Don't hand-edit it** — it's regenerated from the MacPack (see
   below). Put hand changes in `curated.jsonl` instead.
 - **`curated.jsonl`** — the hand-maintained **overlay**: add-on / non-MacPack titles
-  (full records) + corrections. Merged over the scrape, **curation wins**.
+  (full records) + corrections, plus the Macintosh Garden **sourcing** fields
+  (`harvest_src`, `mg`). Merged over the scrape, **curation wins**.
 - **`compatibility.jsonl`** — per-title **requirements/facets**, keyed by `id`,
   merged over the library at build time (overlay wins). Hand-verified entries win
   over the auto-seeded ones. Fields: `color` (Color/B&W), `mouse` (Mouse Required),
@@ -35,6 +36,27 @@ single exclusive bucket — and `year` from `/Games/<year>`; `genre` is a multi-
 (non-exclusive) tag list seeded from the Applications/Utilities category folder.
 `harvest_src` records the donor by its **original filename** (`boot.vhd`,
 `Supplement.vhd`) + path, so a build resolves it against the configured MacPack folder.
+
+### `mg` — the Macintosh Garden download pick
+
+A per-title **sourcing** hint for [`atrium fetch`](../tools/atrium-tool/README.md).
+It's *where the software comes from*, not a requirement, so it lives in the overlay
+(`curated.jsonl`) next to `harvest_src` — never in `compatibility.jsonl` (facets) nor
+in the scraped `info.json` (which regenerates):
+
+```json
+"mg": { "nid": 15475, "files": ["SimCity 2000 1.2.hqx"] }
+```
+
+- **`nid`** — the Macintosh Garden node id. When set it **wins over name-matching**, so
+  `fetch` resolves the right node even when the title's name doesn't match the MG index
+  (or matches the wrong one).
+- **`files`** — the exact download(s) to pull, a **list** (a few titles ship several
+  disks), fetched in order. Omit it (or `[]`) to let `fetch` **auto-pick** — which
+  deprioritises updaters/demos/readmes and prefers the newest full version, so an
+  explicit list is only needed when auto still guesses wrong (the SimCity 2000 v1.2
+  `.sea.hqx` *updater* beating the plain-`.hqx` full game). `atrium fetch --file <name>`
+  is the one-shot CLI equivalent.
 
 ## Source → on-Mac catalog
 
