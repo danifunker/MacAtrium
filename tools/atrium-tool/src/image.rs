@@ -364,7 +364,10 @@ fn filter_present_apps(rb: &RbCli, image: &Path, src: &Path, dst: &Path) -> Resu
 use crate::config::fs_id;
 
 fn find_art(dir: &Path, id: &str) -> Option<PathBuf> {
-    for ext in ["png", "jpg", "jpeg", "PNG", "JPG"] {
+    // GIF is included because many Macintosh Garden screenshots are GIFs; the
+    // `image` crate decodes it (the `gif` feature), but it must be found here too
+    // or the title silently falls back to its 1-bit app icon.
+    for ext in ["png", "jpg", "jpeg", "gif", "PNG", "JPG", "GIF"] {
         let p = dir.join(format!("{id}.{ext}"));
         if p.exists() {
             return Some(p);
