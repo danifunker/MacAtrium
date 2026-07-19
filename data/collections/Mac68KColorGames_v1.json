@@ -1,6 +1,6 @@
 {
   "name": "Mac68KColorGames_v1",
-  "label": "95 colour-capable 68K games sourced from Macintosh Garden (Mac LC / II class)",
+  "label": "96 colour-capable 68K games sourced from Macintosh Garden (Mac LC / II class)",
   "ids": [
     "amazon-trail",
     "apeiron",
@@ -66,6 +66,7 @@
     "shufflepuck-caf",
     "sid-meier-s-pirates",
     "simcity",
+    "simcity-2000",
     "simearth",
     "simlife",
     "solarian-ii",
