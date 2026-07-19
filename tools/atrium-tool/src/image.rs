@@ -658,6 +658,7 @@ fn bake_art(cfg: &BuildConfig, rb: &RbCli, stage: &Path, work: &Path) -> Result<
 
         let mut fields = String::new();
         let mut has_box = false;
+        let mut has_shot = false;
         if let Some(src) = &box_src {
             if let Some(rel) = bake_variants(rb, cfg, stage, images_rel, &fid, src, &depths, multi)? {
                 fields.push_str(&format!(",\"image\":{rel:?}"));
@@ -669,16 +670,21 @@ fn bake_art(cfg: &BuildConfig, rb: &RbCli, stage: &Path, work: &Path) -> Result<
             if let Some(rel) = bake_variants(rb, cfg, stage, images_rel, &shot_vol, src, &depths, multi)? {
                 fields.push_str(&format!(",\"shot\":{rel:?}"));
                 n_shot += 1;
+                has_shot = true;
             }
         }
-        // App's own Finder icon (ICN#/icl8) for the list-row gutter — baked
-        // for every item with an app. When the item has no box art, reuse it
-        // as the big art-pane fallback (the old behaviour, now for all rows).
+        // App's own Finder icon (ICN#/icl8) for the list-row gutter — baked for
+        // every item with an app. Use it as the big-art `image` ONLY when there's
+        // neither box art nor a screenshot. An app without a colour `icl8` yields a
+        // 1-bit icon; if that populated `image` while a colour `shot` existed, it
+        // masked the screenshot in Box-Art mode (art_base shows `image` and only
+        // falls back to `shot` when `image` is empty — ui.c). Leaving `image` empty
+        // when a shot exists lets that fallback surface the colour screenshot.
         if let Some(app) = app.as_deref().filter(|a| !a.is_empty()) {
             if let Some(icon_rel) = bake_icon(rb, cfg, stage, images_rel, &fid, app)? {
                 fields.push_str(&format!(",\"icon\":{icon_rel:?}"));
                 n_icon += 1;
-                if !has_box {
+                if !has_box && !has_shot {
                     fields.push_str(&format!(",\"image\":{icon_rel:?}"));
                 }
             }

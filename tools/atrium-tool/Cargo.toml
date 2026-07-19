@@ -14,8 +14,10 @@ serde = { version = "1", features = ["derive"] }
 # preserve_order keeps dataset field order stable when `enrich` rewrites it.
 serde_json = { version = "1", features = ["preserve_order"] }
 anyhow = "1"
-# Input decoding only (PNG + JPEG); pure Rust, trimmed feature set.
-image = { version = "0.25", default-features = false, features = ["png", "jpeg"] }
+# Input decoding only (PNG + JPEG + GIF); pure Rust, trimmed feature set. GIF is
+# needed because many Macintosh Garden screenshots are GIFs — without it they fail
+# to decode and the title silently falls back to its 1-bit app icon.
+image = { version = "0.25", default-features = false, features = ["png", "jpeg", "gif"] }
 # Streaming XML for the (~500 MB) LaunchBox Metadata.xml — SAX-style, low memory.
 quick-xml = "0.40"
 # Native-Rust HTTP (rustls) for downloads — replaces shelling out to `curl`, so
