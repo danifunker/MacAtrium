@@ -518,7 +518,7 @@
 {"id":"sierra-patch","color":false}
 {"id":"silicon-volleyball-2-0","color":true}
 {"id": "simcity", "color": true, "mouse": true, "maxDepth": 8}
-{"id":"simcity-2000","color":true,"mouse":true,"minDepth":8,"minOS":"7.0","minMem":4,"arch":"BOTH"}
+{"id":"simcity-2000","color":true,"mouse":true,"minDepth":8,"maxDepth":8,"minOS":"7.0","minMem":4,"arch":"BOTH"}
 {"id":"simcity-1-1","color":true}
 {"id":"simcity-1-11","color":true}
 {"id":"simcity-1-4","color":true}
