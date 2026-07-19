@@ -806,7 +806,8 @@ static void do_launch(void)
     OSErr        lerr  = noErr;
     LaunchResult lr;
     char         msg[96];
-    short        savedDepth = 0;      /* >0 → restore this depth after launch */
+    short        savedDepth = 0;      /* >0 → the launcher CAPPED the depth (drives HideWindow + the failed-launch restore) */
+    short        preLaunchDepth = 0;  /* the depth before launch; restored when ANY game quits, even one that changed depth itself */
     short        cdVref = 0;          /* run-from-CD: the mounted CD volume     */
     int          runFromCd = 0;
     int          returns;
@@ -874,6 +875,9 @@ static void do_launch(void)
         int   mind = it->minDepth;
         short cur  = display_current_depth();
         short target = 0;
+        /* Remember the depth we're leaving so it's restored when the game quits —
+         * whether WE cap/floor it below, or the game changes it itself at runtime. */
+        if (gEnv.hasColorQD) preLaunchDepth = cur;
         if (maxd > 0 && gEnv.hasColorQD && cur > (short)maxd)
             target = display_depth_at_most((short)maxd);    /* cap DOWN to the ceiling */
         else if (mind > 0 && gEnv.hasColorQD && cur < (short)mind)
@@ -901,7 +905,7 @@ static void do_launch(void)
      * to when the game quits and we're reactivated (osEvt resume) and just yield:
      * a suspend event follows and the osEvt handler hides our window behind the game. */
     if (returns && lr == LAUNCH_OK) {
-        gPendingDepthRestore = savedDepth;   /* 0 if we didn't cap the depth */
+        gPendingDepthRestore = preLaunchDepth;   /* restore our pre-launch depth on quit, whether WE capped or the game changed its own */
         ui_set_status(&gUi, "");
         /* If we capped the depth just above, display_set_depth invalidated our window
          * and queued an updateEvt. Servicing it would full-repaint the browse — the
@@ -2495,11 +2499,15 @@ int main(void)
                             SelectWindow(gWin);
                             show_menu_bar();      /* honor the hide-menu-bar setting */
                             SetPort(gWin);
-                            /* A depth-capped game just quit: put our LIVE depth back now
-                             * that we're front again (ui_draw re-fits the backend). Never
-                             * the boot default — slot PRAM is Settings-only. */
+                            /* A game just quit: put our pre-launch depth back now that
+                             * we're front again (ui_draw re-fits the backend). Only switch
+                             * if it actually differs — the game may have changed the depth
+                             * itself (e.g. SimCity 2000's "switch to 256 colours") or left
+                             * it alone; either way we return to OUR depth. Never the boot
+                             * default — slot PRAM is Settings-only. */
                             if (gPendingDepthRestore > 0) {
-                                (void)display_set_depth(gPendingDepthRestore);
+                                if (display_current_depth() != gPendingDepthRestore)
+                                    (void)display_set_depth(gPendingDepthRestore);
                                 gPendingDepthRestore = 0;
                             }
                             ui_draw(&gUi);
