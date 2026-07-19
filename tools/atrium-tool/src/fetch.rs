@@ -64,6 +64,23 @@ fn load_record(archive: &Path, nid: i64) -> Result<(&'static str, Value)> {
     bail!("no info.json for nid {nid} under {}", archive.display())
 }
 
+/// List a title's Macintosh Garden download filenames (`files[].filename` from its
+/// `info.json`) — for a UI to offer as an explicit `mg.files` pick. Empty when the
+/// title has no cached `info.json` under `archive`.
+pub fn list_downloads(archive: &Path, nid: i64) -> Vec<String> {
+    let Ok((_, rec)) = load_record(archive, nid) else {
+        return Vec::new();
+    };
+    rec.get("files")
+        .and_then(Value::as_array)
+        .map(|a| {
+            a.iter()
+                .filter_map(|f| f.get("filename").and_then(Value::as_str).map(String::from))
+                .collect()
+        })
+        .unwrap_or_default()
+}
+
 /// Filenames that are *not* the title's main software — patches/updaters, demos,
 /// docs/readmes, manuals, samples. The auto-picker deprioritises these so an
 /// updater doesn't win over the full game (the SimCity 2000 v1.2 case, where the
@@ -689,5 +706,48 @@ mod tests {
         // No mg + no name match → None.
         let miss = serde_json::json!({ "id": "z", "name": "Totally Unknown Xyzzy" });
         assert_eq!(record_target(&miss, &idx), None);
+    }
+
+    #[test]
+    fn list_downloads_reads_info_json_filenames() {
+        let dir = std::env::temp_dir().join(format!("atrium-fetch-ld-{}", std::process::id()));
+        let g = dir.join("games").join("999");
+        std::fs::create_dir_all(&g).unwrap();
+        std::fs::write(
+            g.join("info.json"),
+            r#"{"title":"X","files":[{"filename":"A.sit"},{"filename":"B.hqx"},{"no":"filename"}]}"#,
+        )
+        .unwrap();
+        assert_eq!(list_downloads(&dir, 999), vec!["A.sit".to_string(), "B.hqx".to_string()]);
+        assert!(list_downloads(&dir, 12345).is_empty()); // no info.json → empty
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn pinned_mg_overlay_round_trips_to_record_target() {
+        // The GUI pin (pin_mg_download) writes mg.{nid,files} to the curated overlay
+        // via merge::set; fetch's record_target must read that exact pin back. This
+        // exercises the real write path (same fn the GUI calls) end to end.
+        let dir = std::env::temp_dir().join(format!("atrium-fetch-pin-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let overlay = dir.join("curated.jsonl");
+        std::fs::write(&overlay, "").unwrap();
+
+        let mut mg = serde_json::Map::new();
+        mg.insert("nid".into(), Value::from(15475));
+        mg.insert("files".into(), Value::from(vec!["SimCity 2000 1.2.hqx".to_string()]));
+        let mut fields = serde_json::Map::new();
+        fields.insert("mg".into(), Value::Object(mg));
+        crate::merge::set(&overlay, "simcity-2000", &fields).unwrap();
+
+        let text = std::fs::read_to_string(&overlay).unwrap();
+        let line = text.lines().find(|l| !l.trim().is_empty()).unwrap();
+        let rec: Value = serde_json::from_str(line).unwrap();
+        assert_eq!(rec.get("id").and_then(Value::as_str), Some("simcity-2000"));
+        assert_eq!(
+            record_target(&rec, &HashMap::new()),
+            Some((15475, vec!["SimCity 2000 1.2.hqx".to_string()]))
+        );
+        let _ = std::fs::remove_dir_all(&dir);
     }
 }

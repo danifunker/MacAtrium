@@ -58,17 +58,23 @@ named selection → named target → thin recipe.
 
 ## Outstanding feature work
 
-**A — MG file-pick (durable, data-driven).** `atrium fetch --file` (CLI override)
-is DONE (`d5324f8`). Remaining, per D3:
-1. `mg: {nid, files}` in the per-title overlay.
-2. `fetch` honors it: `match_dataset` ([fetch.rs](../tools/atrium-tool/src/fetch.rs):128)
-   returns only `Vec<nid>` today → change to `(nid, files)` pairs so `run()` passes
-   the picks to `pick_file`; also make the **default** `pick_file` smarter
-   (deprioritise updater/demo/readme, prefer newest full version) so "auto" is rarely
-   wrong.
-3. GUI dropdown (mgmt-ui `mg` tab, `run_mg_download` ~769): read `files[]` from the
-   info.json, "Auto" default + explicit select, write `mg.files` into the curated
-   stub it already creates.
+**A — MG file-pick (durable, data-driven). DONE** (branch `mg-file-pick`).
+1. ✅ `mg: {nid, files}` per-title overlay field (curated.jsonl), documented in
+   [data/README.md](../data/README.md). A passthrough field — `merge.rs` (Value-based)
+   preserves it; no struct changes.
+2. ✅ `fetch` honors it: `match_dataset`
+   ([fetch.rs](../tools/atrium-tool/src/fetch.rs)) returns `(nid, files)` pairs, an
+   explicit `mg.nid` wins over name-matching, and the default `pick_file(rec, allowed)`
+   deprioritises updaters/demos/readmes + prefers newest version + archive — so the
+   SC2000 `.sea.hqx` *updater* no longer beats the full game even at the default level.
+   `run()` loops the picks (multi-disk-ready); its public signature is unchanged.
+3. ✅ GUI: the **Database** tab detail gained a **Download** panel — a file dropdown
+   (Auto + the title's `info.json` `files[]`), **Pin to curated overlay** (writes
+   `mg.{nid,files}` via `merge::set` to the curated path set in Settings) and
+   **Download now** (fetches the pick by nid). Landed here rather than in
+   `run_mg_download` (which is cache-only and creates no curated stub — the doc's
+   original citation had drifted). Also fixed the stale mgmt-ui `fetch::run` call site
+   that had failed to compile since `d5324f8`.
 
 **B — variant-group resolver + system-class targets.** Resolver CORE is built +
 unit-tested (`47df1b2`). Remaining: a `group:"<key>"` field relates editions of one

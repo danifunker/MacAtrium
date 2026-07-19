@@ -141,6 +141,11 @@ struct App {
     db_search: String,
     db_selected: Option<usize>, // index into `db` of the detail-panel title
     db_shot: usize,             // which screenshot of the selected title is shown
+    // MG download file-pick (Database detail): the selected title's download
+    // options + the chosen file ("" = Auto), pinned into `curated` as mg.files.
+    db_files: Vec<String>,      // the selected title's info.json downloads
+    db_files_for: Option<i64>,  // the nid db_files was loaded for (refresh on change)
+    db_file_pick: String,       // "" = Auto (smart pick), else an explicit filename
     // ---- Collections editor (curate each collection's Recommended set) ----
     coll_names: Vec<String>,       // collection names = *.json stems in bundled_dir()
     coll_selected: Option<String>, // the picked collection (name/stem)
@@ -154,6 +159,7 @@ struct App {
     image_path: String, // selected .hda (Library: Load Existing MacAtrium Disk)
     dataset: String,    // blank = the library bundled in the tool
     overrides: String,  // blank = the compatibility overlay bundled in the tool
+    curated: String,    // data/curated.jsonl overlay for pinning mg.files (blank = disabled)
     status: String,
     // ---- build image config (mirrors atrium image's BuildConfig) ----
     base_system: String,
@@ -229,6 +235,11 @@ impl Default for App {
             .as_ref()
             .map(|p| p.display().to_string())
             .unwrap_or_else(|| mg::default_archive().display().to_string());
+        let curated = settings
+            .curated_overlay
+            .as_ref()
+            .map(|p| p.display().to_string())
+            .unwrap_or_default();
         Self {
             tab: Tab::Build,
             settings,
@@ -272,6 +283,9 @@ impl Default for App {
             db_search: String::new(),
             db_selected: None,
             db_shot: 0,
+            db_files: Vec::new(),
+            db_files_for: None,
+            db_file_pick: String::new(),
             coll_names: Vec::new(),
             coll_selected: None,
             coll_loaded: None,
@@ -283,6 +297,7 @@ impl Default for App {
             image_path: String::new(),
             dataset: String::new(),   // blank => bundled library
             overrides: String::new(), // blank => bundled compatibility overlay
+            curated,
             status: "Pick a Target and the titles to include, then Build.".into(),
             base_system: String::new(),
             base_os: String::new(),
@@ -1134,6 +1149,7 @@ impl App {
         s.macpack_dir = opt_path(&self.macpack_dir);
         s.cache_dir = opt_path(&self.cache_dir);
         s.mg_archive = opt_path(&self.mg_archive);
+        s.curated_overlay = opt_path(&self.curated);
         s.rb_cli = {
             let t = self.rb_cli.trim();
             (!t.is_empty()).then(|| t.to_string())
@@ -1963,6 +1979,23 @@ impl App {
         let shot = self.db_shot;
         let mut clicked: Option<usize> = None;
         let mut new_shot = shot;
+        // MG download picker: (re)load the selected title's downloads when the
+        // selection changes, then stage the pick + actions as locals — the detail
+        // renders inside the `self.db` borrow below, so persist/fetch run after it.
+        let sel_nid = sel.and_then(|i| self.db.as_ref().unwrap().get(i)).map(|e| e.nid);
+        if sel_nid != self.db_files_for {
+            self.db_files = sel_nid
+                .map(|nid| atrium::fetch::list_downloads(&archive, nid))
+                .unwrap_or_default();
+            self.db_files_for = sel_nid;
+            self.db_file_pick.clear();
+        }
+        let files = self.db_files.clone();
+        let mut pick = self.db_file_pick.clone();
+        let curated_set = !self.curated.trim().is_empty();
+        let archive_set = !self.mg_archive.trim().is_empty();
+        let mut pin_now = false;
+        let mut fetch_now = false;
         {
             let db = self.db.as_ref().unwrap();
             let row_h = ui.text_style_height(&egui::TextStyle::Body) + 6.0;
@@ -1990,7 +2023,13 @@ impl App {
                 });
                 ui.separator();
                 ui.vertical(|ui| match sel.and_then(|i| db.get(i)) {
-                    Some(e) => db_detail(ui, e, &archive, shot, &mut new_shot),
+                    Some(e) => {
+                        db_detail(ui, e, &archive, shot, &mut new_shot);
+                        download_picker(
+                            ui, &files, &mut pick, archive_set, curated_set,
+                            &mut fetch_now, &mut pin_now,
+                        );
+                    }
                     None => {
                         ui.add_space(8.0);
                         ui.label(egui::RichText::new("Select a title on the left to see its details and screenshots.").weak());
@@ -2001,8 +2040,90 @@ impl App {
         if let Some(c) = clicked {
             self.db_selected = Some(c);
             self.db_shot = 0;
+            self.db_file_pick.clear();
         } else {
             self.db_shot = new_shot;
+            self.db_file_pick = pick;
+            if let Some(nid) = self.db_files_for {
+                if fetch_now {
+                    let f = self.db_file_pick.clone();
+                    self.run_db_fetch(ctx, nid, f);
+                } else if pin_now {
+                    self.pin_mg_download(nid);
+                }
+            }
+        }
+    }
+
+    /// Fetch a single Database-tab title (by nid) into the cache with the chosen
+    /// file (blank = the smart auto-pick), reusing the `atrium fetch` pipeline. We
+    /// have the exact nid + file here, so no dataset name-matching is needed.
+    fn run_db_fetch(&mut self, ctx: &egui::Context, nid: i64, file: String) {
+        if self.mg_archive.trim().is_empty() {
+            self.status = "Set the MG-Archive (Settings) first.".into();
+            return;
+        }
+        let archive = self.mg_archive.clone();
+        let cache = self.cache_dir.clone();
+        let rb = self.rb_cli.clone();
+        let curl = self.curl.clone();
+        let file_opt = {
+            let f = file.trim().to_string();
+            (!f.is_empty()).then_some(f)
+        };
+        self.spawn_job(ctx, &format!("Downloading nid {nid} from Macintosh Garden"), move || {
+            let downloads = opt_path(&cache);
+            match fetch::run(
+                PathBuf::from(&archive).as_path(),
+                &[nid],
+                file_opt.as_deref(),
+                None, // no dataset src — a single explicit nid
+                downloads.as_deref(),
+                None, // cache only — no injection
+                "/MacAtrium/Apps",
+                None,
+                &rb,
+                &curl,
+                None,
+            ) {
+                Ok(()) => Done { status: format!("Downloaded nid {nid} into the cache."), dataset: None, reload: false },
+                Err(e) => Done { status: format!("MG download failed: {e}"), dataset: None, reload: false },
+            }
+        });
+    }
+
+    /// Pin the current Database-tab file pick into the curated overlay as
+    /// `mg.{nid,files}` for the selected title (keyed by its slug id). Auto (empty
+    /// pick) pins just the durable nid; an explicit file adds `files:[<name>]`.
+    fn pin_mg_download(&mut self, nid: i64) {
+        let curated = self.curated.trim().to_string();
+        if curated.is_empty() {
+            self.status = "Set a Curated overlay (Settings) to pin a download.".into();
+            return;
+        }
+        let Some(title) = self
+            .db
+            .as_ref()
+            .and_then(|db| db.iter().find(|e| e.nid == nid))
+            .map(|e| e.title.clone())
+        else {
+            return;
+        };
+        let id = atrium::harvest::slugify(&title);
+        let mut mg: Map<String, Value> = Map::new();
+        mg.insert("nid".into(), Value::from(nid));
+        let pick = self.db_file_pick.trim().to_string();
+        let picked_label = if pick.is_empty() {
+            "Auto (nid only)".to_string()
+        } else {
+            mg.insert("files".into(), Value::from(vec![pick.clone()]));
+            pick.clone()
+        };
+        let mut fields: Map<String, Value> = Map::new();
+        fields.insert("mg".into(), Value::Object(mg));
+        match merge::set(std::path::Path::new(&curated), &id, &fields) {
+            Ok(()) => self.status = format!("Pinned \"{title}\" [{id}] download: {picked_label} -> {curated}"),
+            Err(e) => self.status = format!("Pin failed: {e}"),
         }
     }
 
@@ -2048,6 +2169,8 @@ impl App {
             path_row(ui, "MacPack folder:", &mut self.macpack_dir, Pick::Folder);
             path_row(ui, "MG-Archive:", &mut self.mg_archive, Pick::Folder);
             path_row(ui, "cache dir:", &mut self.cache_dir, Pick::Folder);
+            path_row(ui, "Curated overlay:", &mut self.curated, Pick::File);
+            ui.label(egui::RichText::new("data/curated.jsonl — where the Database tab pins per-title MG download picks (mg.files).").small().weak());
             ui.horizontal(|ui| {
                 ui.label("rb-cli:");
                 ui.add(egui::TextEdit::singleline(&mut self.rb_cli).desired_width(300.0));
@@ -2275,6 +2398,69 @@ fn db_detail(ui: &mut egui::Ui, e: &atrium::mgdb::Entry, archive: &Path, shot: u
         });
         let uri = format!("file://{}", shots[idx].display());
         ui.add(egui::Image::from_uri(uri).max_width(420.0).max_height(300.0));
+    }
+}
+
+/// The MG download picker under a Database-tab detail: choose which file `atrium
+/// fetch` should pull for this title ("Auto" = the smart default), then either
+/// fetch it now (into the cache) or pin it into the curated overlay as `mg.files`.
+/// `fetch`/`pin` are set true on the respective button click (applied by the
+/// caller, which has `&mut self`, once the `self.db` borrow ends).
+fn download_picker(
+    ui: &mut egui::Ui,
+    files: &[String],
+    pick: &mut String,
+    archive_set: bool,
+    curated_set: bool,
+    fetch: &mut bool,
+    pin: &mut bool,
+) {
+    ui.add_space(8.0);
+    ui.separator();
+    ui.strong("Download");
+    if files.is_empty() {
+        ui.label(
+            egui::RichText::new("No download list for this title (its info.json isn't in the MG-Archive).")
+                .small()
+                .weak(),
+        );
+        return;
+    }
+    ui.horizontal(|ui| {
+        ui.label("File:");
+        let current = if pick.is_empty() { "Auto (smart pick)".to_string() } else { pick.clone() };
+        egui::ComboBox::from_id_salt("mg_file_pick")
+            .selected_text(current)
+            .width(280.0)
+            .show_ui(ui, |ui| {
+                ui.selectable_value(pick, String::new(), "Auto (smart pick)");
+                for f in files {
+                    ui.selectable_value(pick, f.clone(), f.as_str());
+                }
+            });
+    });
+    ui.horizontal(|ui| {
+        if ui
+            .add_enabled(archive_set, egui::Button::new("Download now"))
+            .on_hover_text("Fetch this file into the cache now (atrium fetch --nid).")
+            .clicked()
+        {
+            *fetch = true;
+        }
+        if ui
+            .add_enabled(curated_set, egui::Button::new("Pin to curated overlay"))
+            .on_hover_text("Write mg.{nid,files} into curated.jsonl so a later fetch pulls this exact download.")
+            .clicked()
+        {
+            *pin = true;
+        }
+    });
+    if !curated_set {
+        ui.label(
+            egui::RichText::new("Set a Curated overlay (Settings) to enable pinning.")
+                .small()
+                .weak(),
+        );
     }
 }
 

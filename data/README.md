@@ -58,6 +58,10 @@ in the scraped `info.json` (which regenerates):
   `.sea.hqx` *updater* beating the plain-`.hqx` full game). `atrium fetch --file <name>`
   is the one-shot CLI equivalent.
 
+The mgmt-ui **Database** tab writes these: select a title, and in its **Download**
+panel pick a file (or leave "Auto"); **Pin to curated overlay** upserts `mg` into the
+overlay set in Settings, and **Download now** fetches the pick straight into the cache.
+
 ## Source → on-Mac catalog
 
 `atrium catalog` compiles `library.jsonl` (+ the merged `compatibility.jsonl`) into the

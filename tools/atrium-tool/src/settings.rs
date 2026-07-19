@@ -25,6 +25,10 @@ pub struct Settings {
     /// Download / work cache dir.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub cache_dir: Option<PathBuf>,
+    /// Curated overlay (`data/curated.jsonl`) the GUI pins per-title Macintosh
+    /// Garden download picks (`mg.files`) into. Blank/None disables pinning.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub curated_overlay: Option<PathBuf>,
     /// User-defined build [Targets](crate::targets), keyed by display name. These
     /// overlay the bundled defaults (a user target wins on a name collision) — see
     /// [`targets::Registry::load_default`](crate::targets::Registry::load_default).
