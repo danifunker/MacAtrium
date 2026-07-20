@@ -870,9 +870,26 @@ fn add_recommended_to_cats(cats: &Path, ids: &[String]) -> Result<()> {
     Ok(())
 }
 
+/// Every System Folder on `image`: a root-level directory holding a `System` file.
+/// The GUI's bless picker reads this from the base/template disk, and the finalize
+/// validates its bless target against it so a typo can't leave a disk booting the
+/// wrong OS.
+pub fn system_folders(rb: &RbCli, image: &Path) -> Vec<String> {
+    let Ok(roots) = rb.ls(image, "/") else {
+        return Vec::new();
+    };
+    roots
+        .iter()
+        .filter(|e| e.is_dir)
+        .map(|e| e.name.clone())
+        .filter(|n| rb.exists(image, &format!("/{n}/System")))
+        .collect()
+}
+
 /// Boot the freshly-built image in Snow (7.5.5) so the Finder rebuilds the volume's
-/// Desktop DB, then drive MacAtrium's Shut Down for a clean unmount and re-bless 7.1
-/// (the ship default). Key/cycle marks are validated for the ≤2 GB HFS volume — the
+/// Desktop DB, then drive MacAtrium's Shut Down for a clean unmount and re-bless the
+/// configured [`BuildConfig::final_bless`] (default `System Folder 7.1`). Key/cycle
+/// marks are validated for the ≤2 GB HFS volume — the
 /// 2 GB cap bounds the Desktop-rebuild time, so they're stable. Fail-soft: any hiccup
 /// warns and continues (a finalize step must never abort an otherwise-good build).
 fn rebuild_desktop_via_snow(rb: &RbCli, cfg: &BuildConfig, stage: &Path) -> Result<()> {
@@ -925,9 +942,27 @@ fn rebuild_desktop_via_snow(rb: &RbCli, cfg: &BuildConfig, stage: &Path) -> Resu
         }
     }
     let _ = rb.rm(&cfg.out, "/MacAtrium/MacAtrium Prefs");
-    // Restore the ship default boot.
-    if let Err(e) = rb.bless_set(&cfg.out, "/System Folder 7.1") {
-        eprintln!("[desktop] WARNING: could not restore the 7.1 bless ({e:#}) — the image may boot 7.5.5!");
+    // Restore the boot bless: the configured folder (default 7.1), validated against
+    // what's actually on the volume — otherwise a typo (or a base disk without that
+    // OS) would silently leave the disk booting the 7.5.5 rebuild System.
+    let want = cfg.final_bless_folder();
+    let present = system_folders(rb, &cfg.out);
+    let target = if present.iter().any(|f| *f == want) {
+        want
+    } else {
+        eprintln!(
+            "[desktop] WARNING: final_bless {:?} is not on the volume (have: {}) — using {:?}",
+            want,
+            present.join(", "),
+            crate::config::DEFAULT_FINAL_BLESS
+        );
+        crate::config::DEFAULT_FINAL_BLESS.to_string()
+    };
+    match rb.bless_set(&cfg.out, &format!("/{target}")) {
+        Ok(()) => eprintln!("[desktop]   blessed {target}"),
+        Err(e) => {
+            eprintln!("[desktop] WARNING: could not bless {target} ({e:#}) — the image may boot 7.5.5!")
+        }
     }
     // Read-only clean check (never --repair: a clean Shut Down should leave it clean).
     match rb.fsck(&cfg.out) {
@@ -1777,6 +1812,17 @@ pub fn replace_on_disk(
 mod tests {
     use super::{art_files_of, dep_installs_on, is_system6_folder_name, launcher_peak_kb, title_folder_of};
     use serde_json::Value;
+
+    #[test]
+    fn final_bless_defaults_to_the_ship_folder_and_normalises() {
+        use crate::config::{BuildConfig, DEFAULT_FINAL_BLESS};
+        let mut c = BuildConfig::default();
+        assert_eq!(c.final_bless_folder(), DEFAULT_FINAL_BLESS); // unset -> ship default
+        c.final_bless = Some("  /System Folder 6.0.8 ".into()); // trimmed, slash stripped
+        assert_eq!(c.final_bless_folder(), "System Folder 6.0.8");
+        c.final_bless = Some("   ".into()); // blank is not a choice
+        assert_eq!(c.final_bless_folder(), DEFAULT_FINAL_BLESS);
+    }
 
     #[test]
     fn launcher_peak_tracks_the_deepest_depth_not_the_library_size() {

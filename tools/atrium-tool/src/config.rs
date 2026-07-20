@@ -321,10 +321,18 @@ pub struct BuildConfig {
     #[serde(default)]
     pub shutdown_sound: Option<PathBuf>,
     /// After the build, boot 7.5.5 in Snow so the Finder rebuilds the volume's
-    /// Desktop database, then cleanly shut down and re-bless 7.1. Default on;
-    /// a no-op unless `snow_harness`/`snow_rom`/`snow_mdc_rom` are all set.
+    /// Desktop database, then cleanly shut down and re-bless [`Self::final_bless`].
+    /// Default on; a no-op unless `snow_harness`/`snow_rom`/`snow_mdc_rom` are all set.
     #[serde(default = "d_rebuild_desktop")]
     pub rebuild_desktop: bool,
+    /// The System Folder the finished image should BOOT — the bless restored after
+    /// the Desktop rebuild. `None` = the ship default [`DEFAULT_FINAL_BLESS`]. Set it
+    /// to ship a different OS (e.g. `"System Folder 6.0.8"` for a Mac Plus/SE B&W
+    /// build, which would otherwise silently boot 7.1). Validated against the folders
+    /// actually on the volume — an unknown name warns and falls back to the default,
+    /// so a typo can never leave the disk booting the 7.5.5 rebuild System.
+    #[serde(default)]
+    pub final_bless: Option<String>,
     /// Path to the Snow harness binary (`macatrium_harness`) — machine-local, like
     /// `rb_cli`. Required for `rebuild_desktop`; absent ⇒ the rebuild is skipped.
     #[serde(default)]
@@ -382,6 +390,9 @@ pub struct BuildConfig {
 /// per-item `images/<id>.rsrc` unless a config sets `"art_forks": false`.
 pub fn d_art_forks() -> bool { true }
 pub fn d_rebuild_desktop() -> bool { true }
+/// The System Folder a finished image boots unless [`BuildConfig::final_bless`]
+/// picks another — the ship default.
+pub const DEFAULT_FINAL_BLESS: &str = "System Folder 7.1";
 pub fn d_right_size() -> bool { true }
 pub fn d_free_space_pct() -> u64 { 10 }
 pub fn d_free_space_min_mb() -> u64 { 30 }
@@ -514,6 +525,18 @@ impl BuildConfig {
             return (n, n);
         }
         DEFAULT_ART_BOUND
+    }
+
+    /// The System Folder the finished image should boot: [`Self::final_bless`] or the
+    /// [`DEFAULT_FINAL_BLESS`] ship default. Bare folder name, no leading slash.
+    pub fn final_bless_folder(&self) -> String {
+        self.final_bless
+            .as_deref()
+            .map(str::trim)
+            .filter(|s| !s.is_empty())
+            .unwrap_or(DEFAULT_FINAL_BLESS)
+            .trim_start_matches('/')
+            .to_string()
     }
 
     /// Whether this build wants colour artwork — true when `art_depths` requests
@@ -764,6 +787,7 @@ impl Default for BuildConfig {
             startup_sound: None,
             shutdown_sound: None,
             rebuild_desktop: d_rebuild_desktop(),
+            final_bless: None,
             snow_harness: None,
             snow_rom: None,
             snow_mdc_rom: None,

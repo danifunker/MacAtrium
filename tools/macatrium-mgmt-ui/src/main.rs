@@ -165,6 +165,12 @@ struct App {
     base_system: String,
     base_os: String,        // template key ("" = custom .hda)
     templates: Vec<String>, // OS keys from the template registry (combo)
+    // Final bless: which System Folder the built disk BOOTS. "" = the ship default
+    // (System Folder 7.1). The choices are read off the base disk, so a 6.0.8 B&W
+    // build can actually ship blessed 6.0.8 instead of silently booting 7.1.
+    final_bless: String,
+    bless_folders: Vec<String>, // System Folders found on `base_system`
+    bless_scanned: String,      // the base_system path bless_folders was read from
     disk_size_mb: String,
     sel_mode: u8, // 0 harvest-list, 1 All, 2 Manual list, 3 By category
     sel_text: String,
@@ -302,6 +308,9 @@ impl Default for App {
             base_system: String::new(),
             base_os: String::new(),
             templates: templates::Registry::load_default().keys(),
+            final_bless: String::new(),
+            bless_folders: Vec::new(),
+            bless_scanned: String::new(),
             disk_size_mb: String::new(),
             sel_mode: 2, // Pick titles
             sel_text: String::new(),
@@ -919,6 +928,12 @@ impl App {
         BuildConfig {
             system,
             base_os,
+            // "" = the ship default (System Folder 7.1); the picker offers whatever
+            // System Folders the base disk actually carries.
+            final_bless: {
+                let t = self.final_bless.trim();
+                (!t.is_empty()).then(|| t.to_string())
+            },
             disk_size_mb: self.disk_size_mb.trim().parse::<u64>().ok(),
             selection,
             out: PathBuf::from(self.out_image.trim()),
@@ -958,6 +973,7 @@ impl App {
         let s = |o: &Option<PathBuf>| o.as_ref().map(|p| p.display().to_string()).unwrap_or_default();
         self.base_system = c.system.as_ref().map(|p| p.display().to_string()).unwrap_or_default();
         self.base_os = c.base_os.clone().unwrap_or_default();
+        self.final_bless = c.final_bless.clone().unwrap_or_default();
         self.out_image = c.out.display().to_string();
         self.launcher = s(&c.launcher);
         self.dataset = s(&c.dataset);
@@ -1372,6 +1388,47 @@ impl App {
                                 ui.selectable_value(&mut self.base_os, k.clone(), k.as_str());
                             }
                         });
+                });
+                // Which System Folder the finished disk BOOTS. The choices are read off
+                // the base .hda (cached per path), so a 6.0.8 B&W build can actually ship
+                // blessed 6.0.8 instead of silently booting the 7.1 ship default.
+                {
+                    let base = self.base_system.trim().to_string();
+                    if !base.is_empty() && base != self.bless_scanned {
+                        let rb = RbCli::new(self.rb_cli.trim());
+                        let found = image::system_folders(&rb, Path::new(&base));
+                        self.bless_folders = found;
+                        self.bless_scanned = base;
+                    }
+                }
+                ui.horizontal(|ui| {
+                    ui.label("boots:");
+                    let cur = if self.final_bless.trim().is_empty() {
+                        "(default: System Folder 7.1)".to_string()
+                    } else {
+                        self.final_bless.clone()
+                    };
+                    let folders = self.bless_folders.clone();
+                    egui::ComboBox::from_id_salt("final_bless")
+                        .selected_text(cur)
+                        .width(260.0)
+                        .show_ui(ui, |ui| {
+                            ui.selectable_value(
+                                &mut self.final_bless,
+                                String::new(),
+                                "(default: System Folder 7.1)",
+                            );
+                            for f in &folders {
+                                ui.selectable_value(&mut self.final_bless, f.clone(), f.as_str());
+                            }
+                        });
+                    if folders.is_empty() {
+                        ui.label(
+                            egui::RichText::new("pick a base .hda to list its System Folders")
+                                .small()
+                                .weak(),
+                        );
+                    }
                 });
                 if self.base_os.trim().is_empty() {
                     path_row(ui, "base system .hda:", &mut self.base_system, Pick::File);
