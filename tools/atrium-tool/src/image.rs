@@ -1423,12 +1423,24 @@ pub fn add_to_disk(cfg: &BuildConfig) -> Result<()> {
             None => { index.insert(id, merged.len()); merged.push(rec); added += 1; }
         }
     }
-    anyhow::ensure!(
-        merged.len() <= catalog::MAX_ITEMS,
-        "merged catalog has {} items, over the device max {} — remove some titles or build a fresh disk",
-        merged.len(),
-        catalog::MAX_ITEMS
-    );
+    // MAX_ITEMS bounds the LEGACY single-file catalog only. The launcher prefers the
+    // paged tree (metadata/index.jsonl, docs/21), which `run_paged` deliberately grows
+    // past 256 by splitting each category into <= MAX_CAT_ITEMS pages — and only ONE
+    // page is ever resident, so RAM does not scale with the title count. Over the cap
+    // we therefore warn rather than refuse: the paged catalog stays complete, and only
+    // a legacy-mode fallback (a launcher finding no index.jsonl) would truncate.
+    if merged.len() > catalog::MAX_ITEMS {
+        eprintln!(
+            "[add] note: {} items is over the {}-item LEGACY single-file catalog cap. The paged \
+             catalog the launcher actually reads is complete; only a legacy fallback would \
+             truncate to the first {}. Launcher RAM is unaffected — a resident page holds at \
+             most {} items.",
+            merged.len(),
+            catalog::MAX_ITEMS,
+            catalog::MAX_ITEMS,
+            catalog::MAX_CAT_ITEMS
+        );
+    }
 
     // Render the union (MacRoman, CR) and inject it (backs up the old catalog).
     let bytes = catalog::render_values(&merged, false, false)?;

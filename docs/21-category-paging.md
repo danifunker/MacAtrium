@@ -40,26 +40,35 @@ of the whole catalog into RAM.
 ## 1. Why — the cap is RAM, not disk
 
 The on-device catalog is capped at **256 items** (`src/catalog.h`
-`#define MAX_ITEMS 256`). That number is the width of fixed index arrays in the
-launcher's *navigation model*, plus the size of the item records:
+`#define MAX_ITEMS 256`) — but that ceiling binds the **legacy single-file**
+catalog only. It comes from the width of fixed index arrays in the launcher's
+*navigation model*, plus the size of the item records:
 
-- **`gModel` is a static global** (`main.c:56 static Model gModel`). `model.h`:
-  `ModelCat cats[65]`, each `int idx[MAX_ITEMS]` → **65 × 256 × 4 B ≈ 69 KB,
-  allocated always**, whatever the disk holds. `MAX_ITEMS` is the hard ceiling: a
-  category physically can't reference more than 256 items.
+- **`gModel` is a static global** (`main.c` `static Model gModel`). `model.h`:
+  `ModelCat cats[MODEL_MAX_CATS]` with `#define MODEL_MAX_CATS 128`, each holding
+  an `int idx[MAX_ITEMS]` → **128 × 256 × 4 B = 128 KB of index arrays (≈138 KB
+  for the whole `cats[]`), allocated always**, whatever the disk holds. In
+  **paged** mode `idx[]` only ever indexes the CURRENT page, so at most
+  `MAX_CAT_ITEMS` (128) entries are live — the array is sized for legacy mode.
 - **`CatItem` is fat** — all fixed-size char buffers (no dynamic strings on 68k).
-  The header notes `CatItem[256] ≈ 390 KB`, i.e. **~1.5 KB/title**. These are
-  heap-allocated to the exact line count (`main.c:210`), so small disks are cheap,
-  but a full 256 is ~390 KB.
+  The current struct is **≈1.74 KB/title**, so a resident page (`MAX_CAT_ITEMS`
+  = 128) is **≈228 KB**, and a legacy 256-item catalog ≈445 KB. These are
+  heap-allocated to the exact line count, so small disks are cheap.
 
-A full 256-title catalog in RAM ≈ 390 KB items + 69 KB model + the text buffer ≈
-**~450–650 KB of structures**, before UI/art. That fits a **colour** build's
-1024/768 KB partition (the off-screen GWorld lives in temp memory) — 256 was
-sized for *that*. It does **not** fit a **Mac Plus/SE** 512/384 KB partition, so
-the Plus realistically tops out ~100–150 titles. **256 is the colour ceiling;
-the B&W ceiling is lower still.** The whole 1,489-title library can never sit in
-a 4 MB Mac's RAM in any form — the only way to "browse everything" on a Plus is
-to not hold everything at once. Hence paging.
+**In paged mode the resident cost does not scale with the library.** Whether the
+collection holds 96, 509 or 1,500 titles, the launcher keeps ~138 KB of model plus
+ONE page (≤ ~228 KB) — only the current category page is loaded. What a bigger
+collection costs is **disk** (apps + baked art) and category *pages* (bounded by
+`MODEL_MAX_CATS`), **not** RAM. So there is no total-title cap in paged mode; the
+generator (`catalog::run_paged`) deliberately exceeds `MAX_ITEMS` across pages.
+
+A full *legacy* 256-title catalog in RAM ≈ 445 KB items + 138 KB model + the text
+buffer ≈ **~600–800 KB of structures**, before UI/art. That is why the single-file
+form was sized for a **colour** build's 1024/768 KB partition and does **not** fit
+a **Mac Plus/SE** 512/384 KB partition. Paging removes that ceiling: the Plus holds
+one ≤128-item page regardless of library size. The dominant remaining RAM term is
+then **art depth**, not title count — a 384×384 cover is ~18 KB at 1-bit, ~147 KB
+at 8-bit, ~440 KB at 24-bit (hence the 3 MB partition a 24-bit build wants).
 
 ## 2. Design — page by category
 
