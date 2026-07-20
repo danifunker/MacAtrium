@@ -349,6 +349,43 @@ enum Cmd {
         config: PathBuf,
     },
 
+    /// Remove titles from an already-built MacAtrium disk, in place: delete each
+    /// title's app folder and baked art, then re-render the catalog without them.
+    /// The inverse of `add` — no base copy, no launcher reinstall, no rebuild.
+    Remove {
+        /// The same JSON config as `image`/`add`, where `out` is the existing disk.
+        #[arg(long)]
+        config: PathBuf,
+        /// The disk to modify — overrides the config's `out`. Needed when the build
+        /// config auto-names its output (so `out` isn't set in the file).
+        #[arg(long = "image")]
+        disk: Option<PathBuf>,
+        /// Title id to remove; repeat for several (`--id simcity --id glider`).
+        #[arg(long = "id", required = true)]
+        ids: Vec<String>,
+        /// Print exactly what would be deleted and exit, changing nothing.
+        #[arg(long)]
+        dry_run: bool,
+    },
+
+    /// Swap titles on an already-built disk in one pass: remove some ids, then add
+    /// others in their place (e.g. trade a B&W edition for the colour one). Runs
+    /// `remove` then `add`, so the catalog lands in one consistent state. No rebuild.
+    Replace {
+        /// The same JSON config as `image`/`add`, where `out` is the existing disk.
+        #[arg(long)]
+        config: PathBuf,
+        /// The disk to modify — overrides the config's `out` (see `remove --image`).
+        #[arg(long = "image")]
+        disk: Option<PathBuf>,
+        /// Title id to remove; repeat for several.
+        #[arg(long = "remove", required = true)]
+        remove: Vec<String>,
+        /// Title id to add in its place; repeat for several.
+        #[arg(long = "add", required = true)]
+        add: Vec<String>,
+    },
+
     /// Inspect or patch the launcher's `'SIZE'` (-1) memory partition — the
     /// per-config `app_mem_kb` that `atrium image` bakes in. With no `--pref`,
     /// prints the current preferred/minimum; with `--pref` (and optional `--min`),
@@ -736,6 +773,20 @@ fn main() -> Result<()> {
         }
         Cmd::Add { config } => {
             image::add_to_disk_from_path(&config)?;
+        }
+        Cmd::Remove { config, disk, ids, dry_run } => {
+            let mut cfg = image::load_config(&config)?;
+            if let Some(p) = disk {
+                cfg.out = p;
+            }
+            image::remove_from_disk(&cfg, &ids, dry_run)?;
+        }
+        Cmd::Replace { config, disk, remove, add } => {
+            let mut cfg = image::load_config(&config)?;
+            if let Some(p) = disk {
+                cfg.out = p;
+            }
+            image::replace_on_disk(&cfg, &remove, &add)?;
         }
         Cmd::Size { launcher, pref, min, out } => {
             let mut bytes = std::fs::read(&launcher)

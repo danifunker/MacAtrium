@@ -1444,19 +1444,251 @@ pub fn add_to_disk(cfg: &BuildConfig) -> Result<()> {
     Ok(())
 }
 
+/// Load a [`BuildConfig`] from a JSON file — shared by the in-place disk verbs
+/// (`add` / `remove` / `replace`), which all take the same config as `image`.
+pub fn load_config(config: &Path) -> Result<BuildConfig> {
+    serde_json::from_str(
+        &std::fs::read_to_string(config).with_context(|| format!("reading {}", config.display()))?,
+    )
+    .with_context(|| format!("parsing config {}", config.display()))
+}
+
 /// CLI convenience: load a [`BuildConfig`] (with `out` = an existing MacAtrium
 /// disk and `selection` = the titles to add) from JSON and run [`add_to_disk`].
 pub fn add_to_disk_from_path(config: &Path) -> Result<()> {
-    let cfg: BuildConfig = serde_json::from_str(
-        &std::fs::read_to_string(config).with_context(|| format!("reading {}", config.display()))?,
-    )
-    .with_context(|| format!("parsing config {}", config.display()))?;
-    add_to_disk(&cfg)
+    add_to_disk(&load_config(config)?)
+}
+
+/// The title folder for a catalog `app` path — the first component under the apps
+/// root: `"Apps/SimCity/SimCity 1 0/SimCity 1.0"` + `"Apps"` → `Some("Apps/SimCity")`.
+/// `None` when the app isn't under the apps root, so a stray or absolute path can
+/// never make `remove` delete outside the tree we own.
+fn title_folder_of(app_rel: &str, apps_rel: &str) -> Option<String> {
+    let root = apps_rel.trim_matches('/');
+    if root.is_empty() {
+        return None;
+    }
+    let rest = app_rel.trim_start_matches('/').strip_prefix(root)?.trim_start_matches('/');
+    let first = rest.split('/').find(|s| !s.is_empty())?;
+    Some(format!("{root}/{first}"))
+}
+
+/// The baked-art files a catalog record owns under `images_rel`: the box-art and
+/// screenshot `.rsrc`, plus the icon's `.raw` / `.8.pict` variants (the catalog
+/// stores the icon as a BASE path). An `image` pointing at the icon base is already
+/// covered by the icon entry, so only `.rsrc` images are listed.
+fn art_files_of(rec: &Value, images_rel: &str) -> Vec<String> {
+    let root = images_rel.trim_matches('/');
+    if root.is_empty() {
+        return Vec::new();
+    }
+    let under = |p: &str| p.trim_start_matches('/').starts_with(root);
+    let mut cand: Vec<String> = Vec::new();
+    for k in ["image", "shot"] {
+        if let Some(p) = rec.get(k).and_then(Value::as_str) {
+            if under(p) && p.ends_with(".rsrc") {
+                cand.push(p.to_string());
+            }
+        }
+    }
+    if let Some(icon) = rec.get("icon").and_then(Value::as_str) {
+        if under(icon) {
+            cand.push(format!("{icon}.raw"));
+            cand.push(format!("{icon}.8.pict"));
+        }
+    }
+    let mut out: Vec<String> = Vec::new();
+    for p in cand {
+        if !out.contains(&p) {
+            out.push(p);
+        }
+    }
+    out
+}
+
+/// `atrium remove` — drop titles from an already-built disk, **in place**: delete
+/// each title's app folder and baked art, then re-render the catalog without them.
+/// The inverse of [`add_to_disk`] — no base copy, no launcher reinstall, no rebuild.
+///
+/// Safety: only paths under the configured apps/images roots are ever deleted, and a
+/// title folder is KEPT when a surviving catalog record still lives inside it.
+pub fn remove_from_disk(cfg: &BuildConfig, ids: &[String], dry_run: bool) -> Result<()> {
+    anyhow::ensure!(
+        !cfg.out.as_os_str().is_empty(),
+        "no target disk: set `out` in the config, or pass --image <disk.hda> (a build \
+         config that auto-names its output leaves `out` unset)"
+    );
+    anyhow::ensure!(cfg.out.exists(), "target disk {} not found", cfg.out.display());
+    anyhow::ensure!(!ids.is_empty(), "no titles given to remove (pass --id)");
+
+    let settings = crate::settings::Settings::load_default();
+    let rb_bin = crate::rbcli::resolve_bin(&cfg.rb_cli, settings.rb_cli.as_deref());
+    crate::rbcli::log_version(&rb_bin);
+    let rb = RbCli::new(&rb_bin);
+    let stage = cfg
+        .stage
+        .clone()
+        .unwrap_or_else(|| std::env::temp_dir().join("atrium-remove-stage"));
+    std::fs::create_dir_all(&stage)?;
+
+    // Read the disk's current catalog (MacRoman) back into JSON records.
+    let cur_path = format!("{}/catalog.jsonl", cfg.metadata_dir.trim_end_matches('/'));
+    let cur_tmp = stage.join("catalog-current.jsonl");
+    rb.get(&cfg.out, &cur_path, &cur_tmp, true)
+        .with_context(|| format!("reading the disk's catalog at {cur_path}"))?;
+    let existing: Vec<Value> = catalog::parse_compiled(&std::fs::read(&cur_tmp)?);
+    anyhow::ensure!(!existing.is_empty(), "the disk's catalog is empty or unreadable");
+
+    let want: std::collections::HashSet<&str> = ids.iter().map(String::as_str).collect();
+    let (drop, keep): (Vec<Value>, Vec<Value>) = existing.into_iter().partition(|v| {
+        v.get("id").and_then(Value::as_str).is_some_and(|s| want.contains(s))
+    });
+    let found: Vec<String> = drop
+        .iter()
+        .filter_map(|v| v.get("id").and_then(Value::as_str).map(str::to_string))
+        .collect();
+    let missing: Vec<&str> = ids.iter().map(String::as_str).filter(|i| !found.iter().any(|f| f == i)).collect();
+    if !missing.is_empty() {
+        eprintln!("[remove] not on this disk (ignored): {}", missing.join(", "));
+    }
+    anyhow::ensure!(!drop.is_empty(), "none of the requested id(s) are on this disk");
+
+    let apps_rel = cfg.apps_root.strip_prefix("/MacAtrium/").unwrap_or(&cfg.apps_root).trim_end_matches('/');
+    let images_rel = cfg.images_dir.strip_prefix("/MacAtrium/").unwrap_or(&cfg.images_dir).trim_end_matches('/');
+
+    // A folder still occupied by a SURVIVING record is never deleted.
+    let keep_folders: std::collections::HashSet<String> = keep
+        .iter()
+        .filter_map(|v| v.get("app").and_then(Value::as_str))
+        .filter_map(|a| title_folder_of(a, apps_rel))
+        .collect();
+
+    let (mut folders, mut files): (Vec<String>, Vec<String>) = (Vec::new(), Vec::new());
+    for rec in &drop {
+        if let Some(app) = rec.get("app").and_then(Value::as_str) {
+            match title_folder_of(app, apps_rel) {
+                Some(f) if keep_folders.contains(&f) => {
+                    eprintln!("[remove] keeping {f} — another title still lives there");
+                }
+                Some(f) if !folders.contains(&f) => folders.push(f),
+                _ => {}
+            }
+        }
+        for f in art_files_of(rec, images_rel) {
+            if !files.contains(&f) {
+                files.push(f);
+            }
+        }
+    }
+
+    eprintln!("[remove] {} title(s): {}", drop.len(), found.join(", "));
+    for f in &folders {
+        eprintln!("[remove]   app  /MacAtrium/{f}");
+    }
+    for f in &files {
+        eprintln!("[remove]   art  /MacAtrium/{f}");
+    }
+    if dry_run {
+        eprintln!(
+            "[remove] --dry-run: nothing deleted; the catalog would go {} → {} item(s)",
+            drop.len() + keep.len(),
+            keep.len()
+        );
+        return Ok(());
+    }
+
+    let before = rb.fs_used(&cfg.out).unwrap_or(0);
+    for f in &folders {
+        let p = format!("/MacAtrium/{f}");
+        if let Err(e) = rb.rm(&cfg.out, &p) {
+            eprintln!("[remove] warning: {p}: {e}");
+        }
+    }
+    for f in &files {
+        // Art is best-effort: a title may never have had a given depth/icon variant.
+        let _ = rb.rm(&cfg.out, &format!("/MacAtrium/{f}"));
+    }
+
+    // Re-render the catalog from the survivors and inject it (backs up the old one).
+    let bytes = catalog::render_values(&keep, false, false)?;
+    let cat = stage.join("catalog.jsonl");
+    std::fs::write(&cat, &bytes)?;
+    catalog::inject(&rb_bin, &cfg.out, &cat, &cfg.metadata_dir, Some(&stage))?;
+
+    let after = rb.fs_used(&cfg.out).unwrap_or(before);
+    let freed = before.saturating_sub(after);
+    eprintln!(
+        "\nremoved from {}: {} title(s); catalog now {} item(s){}",
+        cfg.out.display(),
+        drop.len(),
+        keep.len(),
+        if freed > 0 { format!("; freed {} MB", freed / (1024 * 1024)) } else { String::new() }
+    );
+    Ok(())
+}
+
+/// `atrium replace` — swap titles on a built disk in one pass: [`remove_from_disk`]
+/// the old ids, then [`add_to_disk`] the new ones. Doing both here (rather than two
+/// commands) means the catalog is re-rendered on a disk that already has the old
+/// title gone, so a swapped-in title can reuse its folder name cleanly.
+pub fn replace_on_disk(cfg: &BuildConfig, old: &[String], new_ids: &[String]) -> Result<()> {
+    anyhow::ensure!(!new_ids.is_empty(), "no replacement titles given (pass --add)");
+    remove_from_disk(cfg, old, false)?;
+    let mut c = cfg.clone();
+    c.selection = Some(crate::config::Selection::List { ids: new_ids.to_vec() });
+    add_to_disk(&c)
 }
 
 #[cfg(test)]
 mod tests {
-    use super::{dep_installs_on, is_system6_folder_name};
+    use super::{art_files_of, dep_installs_on, is_system6_folder_name, title_folder_of};
+    use serde_json::Value;
+
+    #[test]
+    fn title_folder_is_the_first_component_under_the_apps_root() {
+        assert_eq!(
+            title_folder_of("Apps/SimCity/SimCity 1 0/SimCity 1.0", "Apps"),
+            Some("Apps/SimCity".to_string())
+        );
+        assert_eq!(title_folder_of("Apps/Glider/Glider", "Apps"), Some("Apps/Glider".to_string()));
+        // Never delete outside the apps root: anything else yields None.
+        assert_eq!(title_folder_of("System Folder/Finder", "Apps"), None);
+        assert_eq!(title_folder_of("Apps", "Apps"), None); // the root itself, no title
+        assert_eq!(title_folder_of("Apps/X/Y", ""), None); // no apps root configured
+    }
+
+    #[test]
+    fn art_files_cover_the_rsrcs_and_both_icon_variants() {
+        let rec: Value = serde_json::from_str(
+            r#"{"id":"x","image":"images/x.rsrc","shot":"images/x.shot.rsrc","icon":"images/x.icon"}"#,
+        )
+        .unwrap();
+        assert_eq!(
+            art_files_of(&rec, "images"),
+            vec![
+                "images/x.rsrc".to_string(),
+                "images/x.shot.rsrc".to_string(),
+                "images/x.icon.raw".to_string(),
+                "images/x.icon.8.pict".to_string(),
+            ]
+        );
+    }
+
+    #[test]
+    fn art_files_skip_an_image_that_is_only_the_icon_base() {
+        // The no-box fallback points `image` at the icon BASE; the icon entry already
+        // covers .raw/.8.pict, so it must not be listed (or deleted) twice.
+        let rec: Value =
+            serde_json::from_str(r#"{"id":"x","image":"images/x.icon","icon":"images/x.icon"}"#).unwrap();
+        assert_eq!(
+            art_files_of(&rec, "images"),
+            vec!["images/x.icon.raw".to_string(), "images/x.icon.8.pict".to_string()]
+        );
+        // A path outside the images root is ignored entirely.
+        let stray: Value =
+            serde_json::from_str(r#"{"id":"y","image":"/System Folder/evil.rsrc"}"#).unwrap();
+        assert!(art_files_of(&stray, "images").is_empty());
+    }
 
     #[test]
     fn dep_install_os_substring_match() {
