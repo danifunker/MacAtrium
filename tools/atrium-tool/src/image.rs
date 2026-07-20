@@ -1490,19 +1490,12 @@ pub fn add_to_disk(cfg: &BuildConfig) -> Result<()> {
         eprintln!("[add] warning: {w}");
     }
 
-    // Read the disk's current catalog (MacRoman) back into JSON records.
-    let cur_path = format!("{}/catalog.jsonl", cfg.metadata_dir.trim_end_matches('/'));
-    let cur_tmp = stage.join("catalog-current.jsonl");
-    let existing: Vec<Value> = match rb.get(&cfg.out, &cur_path, &cur_tmp, true) {
-        Ok(()) => catalog::parse_compiled(&std::fs::read(&cur_tmp)?),
-        Err(_) => {
-            eprintln!("[add] no existing catalog on disk — creating a fresh one");
-            Vec::new()
-        }
-    };
-
-    // Merge: keep existing order; a re-added id replaces its record, truly-new ids
-    // append. Then enforce the device item cap.
+    // Extract the disk's whole catalog (paged tree or legacy) and merge the new
+    // records in: a re-added id replaces its record, truly-new ids append.
+    let existing = read_disk_catalog(&rb, cfg, &stage)?;
+    if existing.is_empty() {
+        eprintln!("[add] no existing catalog on disk — creating a fresh one");
+    }
     let mut merged: Vec<Value> = existing;
     let mut index: std::collections::HashMap<String, usize> = merged
         .iter()
@@ -1517,30 +1510,11 @@ pub fn add_to_disk(cfg: &BuildConfig) -> Result<()> {
             None => { index.insert(id, merged.len()); merged.push(rec); added += 1; }
         }
     }
-    // MAX_ITEMS bounds the LEGACY single-file catalog only. The launcher prefers the
-    // paged tree (metadata/index.jsonl, docs/21), which `run_paged` deliberately grows
-    // past 256 by splitting each category into <= MAX_CAT_ITEMS pages — and only ONE
-    // page is ever resident, so RAM does not scale with the title count. Over the cap
-    // we therefore warn rather than refuse: the paged catalog stays complete, and only
-    // a legacy-mode fallback (a launcher finding no index.jsonl) would truncate.
-    if merged.len() > catalog::MAX_ITEMS {
-        eprintln!(
-            "[add] note: {} items is over the {}-item LEGACY single-file catalog cap. The paged \
-             catalog the launcher actually reads is complete; only a legacy fallback would \
-             truncate to the first {}. Launcher RAM is unaffected — a resident page holds at \
-             most {} items.",
-            merged.len(),
-            catalog::MAX_ITEMS,
-            catalog::MAX_ITEMS,
-            catalog::MAX_CAT_ITEMS
-        );
-    }
 
-    // Render the union (MacRoman, CR) and inject it (backs up the old catalog).
-    let bytes = catalog::render_values(&merged, false, false)?;
-    let cat = stage.join("catalog.jsonl");
-    std::fs::write(&cat, &bytes)?;
-    catalog::inject(&rb_bin, &cfg.out, &cat, &cfg.metadata_dir, Some(&stage))?;
+    // Re-push: regenerate the paged tree (+ legacy when it fits) so the launcher sees
+    // the addition. (The old code rewrote only the legacy file, which the launcher
+    // ignores when a paged index is present — so adds never showed on a paged disk.)
+    write_disk_catalog(&rb_bin, cfg, &merged, &stage)?;
 
     eprintln!(
         "\nadded to {}: {added} new + {updated} updated title(s); catalog now {} item(s)",
@@ -1557,6 +1531,105 @@ pub fn load_config(config: &Path) -> Result<BuildConfig> {
         &std::fs::read_to_string(config).with_context(|| format!("reading {}", config.display()))?,
     )
     .with_context(|| format!("parsing config {}", config.display()))
+}
+
+/// EXTRACT: the disk's whole catalog as one flat, deduped record set. Prefers the
+/// paged tree (`metadata/index.jsonl` + `cats/<slug>.jsonl`, docs/21) — what the
+/// launcher reads, and the only form above [`catalog::MAX_ITEMS`]. A title appears in
+/// every category page it belongs to and its record is identical in each, so we dedup
+/// by id (first wins). Falls back to the legacy single-file `catalog.jsonl`, then to
+/// an empty set (a fresh disk). This is the "extract the whole jsonl" the in-place
+/// verbs edit; [`write_disk_catalog`] re-pushes the result.
+fn read_disk_catalog(rb: &RbCli, cfg: &BuildConfig, stage: &Path) -> Result<Vec<Value>> {
+    let md = cfg.metadata_dir.trim_end_matches('/');
+
+    let idx_path = format!("{md}/index.jsonl");
+    if rb.exists(&cfg.out, &idx_path) {
+        let idx_tmp = stage.join("index-current.jsonl");
+        rb.get(&cfg.out, &idx_path, &idx_tmp, true)
+            .with_context(|| format!("reading the paged index {idx_path}"))?;
+        let idx_text = crate::macroman::decode(&std::fs::read(&idx_tmp)?);
+        let mut out: Vec<Value> = Vec::new();
+        let mut seen: std::collections::HashSet<String> = std::collections::HashSet::new();
+        // The catalog uses classic-Mac CR line endings; `str::lines()` won't split on
+        // a bare '\r', so split like `parse_compiled` does.
+        for line in idx_text.split(['\r', '\n']) {
+            let t = line.trim();
+            if t.is_empty() {
+                continue;
+            }
+            let Ok(v) = serde_json::from_str::<Value>(t) else { continue };
+            let Some(slug) = v.get("slug").and_then(Value::as_str) else { continue };
+            let page_path = format!("{md}/cats/{slug}.jsonl");
+            let page_tmp = stage.join(format!("page-{slug}.jsonl"));
+            if rb.get(&cfg.out, &page_path, &page_tmp, true).is_err() {
+                eprintln!("  warning: catalog page {slug} unreadable — skipping");
+                continue;
+            }
+            for rec in catalog::parse_compiled(&std::fs::read(&page_tmp)?) {
+                if let Some(id) = rec.get("id").and_then(Value::as_str) {
+                    if seen.insert(id.to_string()) {
+                        out.push(rec);
+                    }
+                }
+            }
+        }
+        return Ok(out);
+    }
+
+    // Legacy single-file fallback (small/old disks); empty on a fresh disk.
+    let cur_path = format!("{md}/catalog.jsonl");
+    let cur_tmp = stage.join("catalog-current.jsonl");
+    match rb.get(&cfg.out, &cur_path, &cur_tmp, true) {
+        Ok(()) => Ok(catalog::parse_compiled(&std::fs::read(&cur_tmp)?)),
+        Err(_) => Ok(Vec::new()),
+    }
+}
+
+/// RE-PUSH: regenerate the disk's catalog from an edited record set. Writes the
+/// records as a source dataset, re-runs the paged generator ([`catalog::run_paged`] —
+/// re-splitting categories into pages and rebuilding the index, docs/21) and injects
+/// it, so the launcher sees the change. Also writes the legacy single-file when the
+/// set fits (≤ [`catalog::MAX_ITEMS`], for an old launcher's fallback), or removes a
+/// now-stale legacy file when the set has grown past it. Mirrors the full build's
+/// `[6/7] catalog` stage, so an in-place edit lands byte-identical to a rebuild.
+fn write_disk_catalog(rb_bin: &str, cfg: &BuildConfig, records: &[Value], stage: &Path) -> Result<()> {
+    let rb = RbCli::new(rb_bin);
+    let md = cfg.metadata_dir.trim_end_matches('/');
+
+    let tax = stage.join("taxonomy.json");
+    std::fs::write(&tax, crate::config::EMBEDDED_TAXONOMY)?;
+    let cats = stage.join("categories.jsonl");
+    std::fs::write(&cats, crate::config::EMBEDDED_CATEGORIES)?;
+
+    // Paged tree — always (the launcher prefers it, any size). Pages the records
+    // DIRECTLY (no build() re-parse), so the on-device record shape — where `genre`
+    // is a joined string, not the source array — round-trips. Category membership is
+    // re-applied from the bundled DB, so an in-place edit matches a from-scratch image.
+    let paged_dir = stage.join("paged");
+    let _ = std::fs::remove_dir_all(&paged_dir);
+    let report =
+        catalog::render_paged_values(records, Some(&cats), Some(&tax), &paged_dir, false, false)?;
+    catalog::inject_paged(rb_bin, &cfg.out, &paged_dir, md)?;
+    eprintln!(
+        "  catalog: {} item(s) in {} categor(y/ies) / {} page(s)",
+        report.items, report.categories, report.pages
+    );
+
+    // Legacy single-file — keep it in step: rewrite when it fits, drop it when over.
+    let legacy_path = format!("{md}/catalog.jsonl");
+    if records.len() <= catalog::MAX_ITEMS {
+        let cat = stage.join("catalog.jsonl");
+        std::fs::write(&cat, catalog::render_values(records, false, false)?)?;
+        catalog::inject(rb_bin, &cfg.out, &cat, md, Some(stage))?;
+    } else if rb.exists(&cfg.out, &legacy_path) {
+        let _ = rb.rm(&cfg.out, &legacy_path);
+        eprintln!(
+            "  catalog: over {} items — paged-only; removed the now-stale legacy catalog.jsonl",
+            catalog::MAX_ITEMS
+        );
+    }
+    Ok(())
 }
 
 /// CLI convenience: load a [`BuildConfig`] (with `out` = an existing MacAtrium
@@ -1676,12 +1749,8 @@ pub fn remove_from_disk(
         .unwrap_or_else(|| std::env::temp_dir().join("atrium-remove-stage"));
     std::fs::create_dir_all(&stage)?;
 
-    // Read the disk's current catalog (MacRoman) back into JSON records.
-    let cur_path = format!("{}/catalog.jsonl", cfg.metadata_dir.trim_end_matches('/'));
-    let cur_tmp = stage.join("catalog-current.jsonl");
-    rb.get(&cfg.out, &cur_path, &cur_tmp, true)
-        .with_context(|| format!("reading the disk's catalog at {cur_path}"))?;
-    let existing: Vec<Value> = catalog::parse_compiled(&std::fs::read(&cur_tmp)?);
+    // Extract the disk's whole catalog (paged tree or legacy) into flat records.
+    let existing = read_disk_catalog(&rb, cfg, &stage)?;
     anyhow::ensure!(!existing.is_empty(), "the disk's catalog is empty or unreadable");
 
     let want: std::collections::HashSet<&str> = ids.iter().map(String::as_str).collect();
@@ -1748,7 +1817,7 @@ pub fn remove_from_disk(
     let before = rb.fs_used(&cfg.out).unwrap_or(0);
     for f in &folders {
         let p = format!("/MacAtrium/{f}");
-        if let Err(e) = rb.rm(&cfg.out, &p) {
+        if let Err(e) = rb.rm_recursive(&cfg.out, &p) {
             eprintln!("[remove] warning: {p}: {e}");
         }
     }
@@ -1757,11 +1826,8 @@ pub fn remove_from_disk(
         let _ = rb.rm(&cfg.out, &format!("/MacAtrium/{f}"));
     }
 
-    // Re-render the catalog from the survivors and inject it (backs up the old one).
-    let bytes = catalog::render_values(&keep, false, false)?;
-    let cat = stage.join("catalog.jsonl");
-    std::fs::write(&cat, &bytes)?;
-    catalog::inject(&rb_bin, &cfg.out, &cat, &cfg.metadata_dir, Some(&stage))?;
+    // Re-push the survivors: regenerate the paged tree (+ legacy when it fits).
+    write_disk_catalog(&rb_bin, cfg, &keep, &stage)?;
 
     let after = rb.fs_used(&cfg.out).unwrap_or(before);
     let freed = before.saturating_sub(after);

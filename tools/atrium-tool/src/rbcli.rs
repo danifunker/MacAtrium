@@ -106,9 +106,19 @@ impl RbCli {
 
     /// Delete a file or directory from an image (`rb-cli rm`). Errors if the path
     /// is absent, so callers that treat absence as fine check with `ls` first.
+    /// rb-cli refuses a non-empty directory here — use [`Self::rm_recursive`] for a
+    /// folder (e.g. an app tree).
     pub fn rm(&self, image: &Path, path: &str) -> Result<()> {
         let img = image.to_string_lossy();
         self.run(&["rm", &img, path])?;
+        Ok(())
+    }
+
+    /// Delete a path and, if it's a directory, its whole tree (`rb-cli rm -r`).
+    /// Needed to remove a harvested app folder (the plain `rm` errors on a directory).
+    pub fn rm_recursive(&self, image: &Path, path: &str) -> Result<()> {
+        let img = image.to_string_lossy();
+        self.run(&["rm", "-r", &img, path])?;
         Ok(())
     }
 

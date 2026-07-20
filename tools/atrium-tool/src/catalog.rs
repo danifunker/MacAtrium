@@ -793,18 +793,47 @@ pub fn run_paged(
         Some(p) => Some(Taxonomy::load(p)?),
         None => None,
     };
-    // an item's categories: the DB when it has an entry, else the item's derived
-    // set — so a title not yet in the category DB (e.g. a freshly added reservoir
-    // collection) is never orphaned/invisible; it falls back to Color/B&W + genre.
-    let cats_of = |i: usize| -> Vec<String> {
-        match &db {
+    // Each item's FINAL categories: the DB when it has an entry, else the item's
+    // derived set — so a title not in the DB is never orphaned (Color/B&W + genre).
+    // Serialise to Values with those categories baked in, then page them.
+    let mut values: Vec<Value> = Vec::with_capacity(items.len());
+    for i in 0..items.len() {
+        let cats = match &db {
             Some(db) => match db.get(&items[i].id) {
                 Some(c) if !c.is_empty() => c.clone(),
                 _ => items[i].categories.clone(),
             },
             None => items[i].categories.clone(),
+        };
+        let mut v = serde_json::to_value(&items[i])?;
+        if let Value::Object(m) = &mut v {
+            m.insert("categories".into(), serde_json::to_value(cats)?);
         }
+        values.push(v);
+    }
+    let mut report = page_values(&values, tax.as_ref(), out_dir, lf, crlf)?;
+    report.warnings = base.warnings;
+    Ok(report)
+}
+
+/// Page a set of ALREADY-COMPILED records (each carrying its final `categories` +
+/// `name`/`id`/`app` and an optional `hotkey`) into the paged tree under `out_dir`:
+/// group by category (taxonomy order when given, else first-encountered), sort
+/// alphabetically within a category (except list-ordered ones like Recommended),
+/// split any category over [`MAX_CAT_ITEMS`] into numbered sub-pages, and write
+/// `cats/<slug>.jsonl` + `index.jsonl` + `hotkeys.jsonl` (MacRoman). Unlike
+/// [`run_paged`] this never re-runs [`build`], so it round-trips on-device records —
+/// whose `genre` is a joined string, not the source array — which is what the
+/// in-place disk verbs feed it.
+fn page_values(items: &[Value], tax: Option<&Taxonomy>, out_dir: &Path, lf: bool, crlf: bool) -> Result<PagedReport> {
+    let cats_of = |i: usize| -> Vec<String> {
+        items[i]
+            .get("categories")
+            .and_then(Value::as_array)
+            .map(|a| a.iter().filter_map(Value::as_str).map(str::to_string).collect())
+            .unwrap_or_default()
     };
+    let name_of = |i: usize| items[i].get("name").and_then(Value::as_str).unwrap_or("");
 
     // category name → item indices, in first-encountered order...
     let mut pos: HashMap<String, usize> = HashMap::new();
@@ -820,14 +849,14 @@ pub fn run_paged(
     }
     // ...then re-order the categories themselves by the taxonomy (present ones in
     // `order`, any extras alphabetically after).
-    if let Some(tax) = &tax {
+    if let Some(tax) = tax {
         let rank = |c: &str| tax.order.iter().position(|o| o == c).unwrap_or(usize::MAX);
         cats.sort_by(|a, b| rank(&a.0).cmp(&rank(&b.0)).then_with(|| a.0.cmp(&b.0)));
     }
     // order within each category (alpha unless list-ordered, e.g. Recommended).
     for (name, idxs) in &mut cats {
         if !is_list_ordered(name) {
-            idxs.sort_by(|&a, &b| items[a].name.to_lowercase().cmp(&items[b].name.to_lowercase()));
+            idxs.sort_by(|&a, &b| name_of(a).to_lowercase().cmp(&name_of(b).to_lowercase()));
         }
     }
 
@@ -848,15 +877,10 @@ pub fn run_paged(
                 format!("{name} ({})", page_no + 1)
             };
             let slug = unique_slug(&page_name, &mut used);
-            // v1: full on-device records (CatItem unchanged), but with the
-            // item's `categories` set to its DB membership (so the launcher's
-            // tag display matches navigation), capped at the device max. The
-            // per-item struct-slim (deriving art paths from an `art` base) is a
-            // separate v2 — it would ripple through the Toolbox UI (docs/21 §6).
             let recs: Vec<Value> = chunk
                 .iter()
                 .map(|&i| -> Result<Value> {
-                    let mut v = serde_json::to_value(&items[i])?;
+                    let mut v = items[i].clone();
                     if let Value::Object(m) = &mut v {
                         let mut c = cats_of(i);
                         c.truncate(MAX_ITEM_CATS);
@@ -865,8 +889,7 @@ pub fn run_paged(
                     Ok(v)
                 })
                 .collect::<Result<_>>()?;
-            let bytes = render_values(&recs, crlf, lf)?;
-            std::fs::write(cats_dir.join(format!("{slug}.jsonl")), &bytes)
+            std::fs::write(cats_dir.join(format!("{slug}.jsonl")), render_values(&recs, crlf, lf)?)
                 .with_context(|| format!("writing page {slug}"))?;
             let entry: Map<String, Value> = [
                 ("name".to_string(), Value::from(page_name.clone())),
@@ -890,17 +913,17 @@ pub fn run_paged(
     let hotkeys: Vec<Value> = items
         .iter()
         .filter_map(|it| {
-            it.hotkey.as_ref().map(|k| {
-                let m: Map<String, Value> = [
-                    ("key".to_string(), Value::from(k.clone())),
-                    ("id".to_string(), Value::from(it.id.clone())),
-                    ("name".to_string(), Value::from(it.name.clone())),
-                    ("app".to_string(), Value::from(it.app.clone())),
-                ]
-                .into_iter()
-                .collect();
-                Value::Object(m)
-            })
+            let k = it.get("hotkey").and_then(Value::as_str).filter(|k| !k.is_empty())?;
+            let f = |key: &str| it.get(key).and_then(Value::as_str).unwrap_or("").to_string();
+            let m: Map<String, Value> = [
+                ("key".to_string(), Value::from(k.to_string())),
+                ("id".to_string(), Value::from(f("id"))),
+                ("name".to_string(), Value::from(f("name"))),
+                ("app".to_string(), Value::from(f("app"))),
+            ]
+            .into_iter()
+            .collect();
+            Some(Value::Object(m))
         })
         .collect();
     std::fs::write(out_dir.join("hotkeys.jsonl"), render_values(&hotkeys, crlf, lf)?)
@@ -912,8 +935,47 @@ pub fn run_paged(
         items: items.len(),
         hotkeys: hotkeys.len(),
         biggest_page: biggest,
-        warnings: base.warnings,
+        warnings: Vec::new(),
     })
+}
+
+/// Regenerate the paged tree from ALREADY-COMPILED records (the on-device catalog
+/// shape the in-place disk verbs read back and edit). Applies the category DB
+/// (authoritative membership, so a re-paged title matches a from-scratch build),
+/// falling back to each record's own `categories`, then [`page_values`]. Category
+/// order follows `taxonomy` when given. Never runs [`build`], so records whose
+/// `genre` is a joined string (not the source array) round-trip cleanly.
+pub fn render_paged_values(
+    items: &[Value],
+    categories: Option<&Path>,
+    taxonomy: Option<&Path>,
+    out_dir: &Path,
+    lf: bool,
+    crlf: bool,
+) -> Result<PagedReport> {
+    let db = match categories {
+        Some(p) => Some(load_category_db(p)?),
+        None => None,
+    };
+    let tax = match taxonomy {
+        Some(p) => Some(Taxonomy::load(p)?),
+        None => None,
+    };
+    let prepared: Vec<Value> = items
+        .iter()
+        .map(|v| -> Result<Value> {
+            let mut v = v.clone();
+            if let (Some(db), Value::Object(m)) = (&db, &mut v) {
+                if let Some(id) = m.get("id").and_then(Value::as_str).map(str::to_string) {
+                    if let Some(c) = db.get(&id).filter(|c| !c.is_empty()) {
+                        m.insert("categories".into(), serde_json::to_value(c.clone())?);
+                    }
+                }
+            }
+            Ok(v)
+        })
+        .collect::<Result<_>>()?;
+    page_values(&prepared, tax.as_ref(), out_dir, lf, crlf)
 }
 
 /// Inject a generated catalog into an image's metadata dir, backing up any
