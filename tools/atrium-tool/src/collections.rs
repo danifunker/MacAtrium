@@ -46,6 +46,16 @@ impl Collection {
             .with_context(|| format!("parsing collection {}", path.display()))
     }
 
+    /// Write the collection back as pretty JSON (the `data/collections/*.json`
+    /// format). Used by the in-place disk verbs to keep the saved selection in step
+    /// with what they just added to / removed from a built disk.
+    pub fn save(&self, path: &Path) -> Result<()> {
+        let json = serde_json::to_string_pretty(self)
+            .with_context(|| format!("serialising collection {}", self.name))?;
+        std::fs::write(path, json + "\n")
+            .with_context(|| format!("writing collection {}", path.display()))
+    }
+
     /// The `overrides` as an id-keyed JSONL overlay string, ready for
     /// [`merge::run`](crate::merge::run). Empty when there are no overrides.
     pub fn overrides_jsonl(&self) -> String {
@@ -100,6 +110,12 @@ pub fn find(name: &str) -> Result<Collection> {
         "collection '{name}' not found (looked in {})",
         search_dirs().iter().map(|d| d.display().to_string()).collect::<Vec<_>>().join(", ")
     )
+}
+
+/// The file backing a named collection (`<dir>/<name>.json`), user dir winning —
+/// the path the in-place disk verbs write back to when syncing the selection.
+pub fn find_path(name: &str) -> Option<PathBuf> {
+    search_dirs().into_iter().map(|d| d.join(format!("{name}.json"))).find(|p| p.exists())
 }
 
 /// One listed collection + where it came from.

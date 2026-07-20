@@ -366,6 +366,11 @@ enum Cmd {
         /// Print exactly what would be deleted and exit, changing nothing.
         #[arg(long)]
         dry_run: bool,
+        /// Also drop the ids from the config's saved collection, so a later full
+        /// rebuild doesn't bring them back. Off by default: the dataset is only
+        /// ever edited deliberately.
+        #[arg(long)]
+        update_collection: bool,
     },
 
     /// Swap titles on an already-built disk in one pass: remove some ids, then add
@@ -384,6 +389,10 @@ enum Cmd {
         /// Title id to add in its place; repeat for several.
         #[arg(long = "add", required = true)]
         add: Vec<String>,
+        /// Also apply the swap to the config's saved collection, so a later full
+        /// rebuild produces the same disk. Off by default.
+        #[arg(long)]
+        update_collection: bool,
     },
 
     /// Inspect or patch the launcher's `'SIZE'` (-1) memory partition — the
@@ -774,19 +783,19 @@ fn main() -> Result<()> {
         Cmd::Add { config } => {
             image::add_to_disk_from_path(&config)?;
         }
-        Cmd::Remove { config, disk, ids, dry_run } => {
+        Cmd::Remove { config, disk, ids, dry_run, update_collection } => {
             let mut cfg = image::load_config(&config)?;
             if let Some(p) = disk {
                 cfg.out = p;
             }
-            image::remove_from_disk(&cfg, &ids, dry_run)?;
+            image::remove_from_disk(&cfg, &ids, dry_run, update_collection)?;
         }
-        Cmd::Replace { config, disk, remove, add } => {
+        Cmd::Replace { config, disk, remove, add, update_collection } => {
             let mut cfg = image::load_config(&config)?;
             if let Some(p) = disk {
                 cfg.out = p;
             }
-            image::replace_on_disk(&cfg, &remove, &add)?;
+            image::replace_on_disk(&cfg, &remove, &add, update_collection)?;
         }
         Cmd::Size { launcher, pref, min, out } => {
             let mut bytes = std::fs::read(&launcher)

@@ -1506,13 +1506,52 @@ fn art_files_of(rec: &Value, images_rel: &str) -> Vec<String> {
     out
 }
 
+/// Keep the SAVED SELECTION in step with an in-place disk edit: drop `removed` ids
+/// and append `added` ones in the collection the config names, then write it back.
+///
+/// Opt-in (`--update-collection`), because a disk verb silently rewriting `data/`
+/// would break the rule that the dataset is only ever edited deliberately. Without
+/// it the disk and the collection drift, and the next full rebuild resurrects what
+/// `remove` deleted. `None` when the config names no collection.
+fn sync_collection(cfg: &BuildConfig, removed: &[String], added: &[String]) -> Result<Option<PathBuf>> {
+    let Some(name) = cfg.collection.as_deref().filter(|s| !s.is_empty()) else {
+        eprintln!("[sync] the config names no collection — nothing to update");
+        return Ok(None);
+    };
+    let Some(path) = crate::collections::find_path(name) else {
+        anyhow::bail!("collection '{name}' not found on disk — cannot sync it");
+    };
+    let mut c = crate::collections::Collection::load(&path)?;
+    if c.name.is_empty() {
+        c.name = name.to_string();
+    }
+    let before = c.ids.len();
+    c.ids.retain(|i| !removed.contains(i));
+    c.recommended.retain(|i| !removed.contains(i)); // a dropped title can't stay Recommended
+    for a in added {
+        if !c.ids.contains(a) {
+            c.ids.push(a.clone());
+        }
+    }
+    c.save(&path)?;
+    eprintln!("[sync] {name}: {before} → {} id(s) -> {}", c.ids.len(), path.display());
+    Ok(Some(path))
+}
+
 /// `atrium remove` — drop titles from an already-built disk, **in place**: delete
 /// each title's app folder and baked art, then re-render the catalog without them.
 /// The inverse of [`add_to_disk`] — no base copy, no launcher reinstall, no rebuild.
 ///
 /// Safety: only paths under the configured apps/images roots are ever deleted, and a
 /// title folder is KEPT when a surviving catalog record still lives inside it.
-pub fn remove_from_disk(cfg: &BuildConfig, ids: &[String], dry_run: bool) -> Result<()> {
+/// `update_collection` also drops the ids from the config's saved collection, so a
+/// later rebuild doesn't bring them back.
+pub fn remove_from_disk(
+    cfg: &BuildConfig,
+    ids: &[String],
+    dry_run: bool,
+    update_collection: bool,
+) -> Result<()> {
     anyhow::ensure!(
         !cfg.out.as_os_str().is_empty(),
         "no target disk: set `out` in the config, or pass --image <disk.hda> (a build \
@@ -1594,6 +1633,9 @@ pub fn remove_from_disk(cfg: &BuildConfig, ids: &[String], dry_run: bool) -> Res
             drop.len() + keep.len(),
             keep.len()
         );
+        if update_collection {
+            eprintln!("[remove] --dry-run: the saved collection would drop {} id(s) too", found.len());
+        }
         return Ok(());
     }
 
@@ -1624,6 +1666,18 @@ pub fn remove_from_disk(cfg: &BuildConfig, ids: &[String], dry_run: bool) -> Res
         keep.len(),
         if freed > 0 { format!("; freed {} MB", freed / (1024 * 1024)) } else { String::new() }
     );
+
+    // The disk is now out of step with the saved selection unless we sync it.
+    if update_collection {
+        sync_collection(cfg, &found, &[])?;
+    } else {
+        let (it, them) = if found.len() == 1 { ("it", "it") } else { ("them", "them") };
+        eprintln!(
+            "note: the saved collection still lists {} — a full rebuild would bring {it} back. \
+             Re-run with --update-collection to drop {them} there too.",
+            found.join(", ")
+        );
+    }
     Ok(())
 }
 
@@ -1631,12 +1685,21 @@ pub fn remove_from_disk(cfg: &BuildConfig, ids: &[String], dry_run: bool) -> Res
 /// the old ids, then [`add_to_disk`] the new ones. Doing both here (rather than two
 /// commands) means the catalog is re-rendered on a disk that already has the old
 /// title gone, so a swapped-in title can reuse its folder name cleanly.
-pub fn replace_on_disk(cfg: &BuildConfig, old: &[String], new_ids: &[String]) -> Result<()> {
+pub fn replace_on_disk(
+    cfg: &BuildConfig,
+    old: &[String],
+    new_ids: &[String],
+    update_collection: bool,
+) -> Result<()> {
     anyhow::ensure!(!new_ids.is_empty(), "no replacement titles given (pass --add)");
-    remove_from_disk(cfg, old, false)?;
+    remove_from_disk(cfg, old, false, update_collection)?; // drops the old ids (+ syncs them)
     let mut c = cfg.clone();
     c.selection = Some(crate::config::Selection::List { ids: new_ids.to_vec() });
-    add_to_disk(&c)
+    add_to_disk(&c)?;
+    if update_collection {
+        sync_collection(cfg, &[], new_ids)?; // …then record the additions
+    }
+    Ok(())
 }
 
 #[cfg(test)]
