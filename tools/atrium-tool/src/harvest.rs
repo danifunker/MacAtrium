@@ -175,7 +175,9 @@ fn variant_rank(name: &str) -> i32 {
 /// and, among the remaining `APPL`s, prefers the one whose name best matches the
 /// source folder name (so "Crystal Quest" wins over a bundled "CritterEditor",
 /// and a "... Level Editor" loses to the game), preferring a colour build over a
-/// B&W one on a tie. Falls back to the first APPL.
+/// B&W one on a tie. Returns `None` when a bundled Finder is the ONLY `APPL` —
+/// launching it would ship a title called "Finder" that boots the shell, so the
+/// caller skips the title instead.
 fn pick_appl(entries: &[Entry], src_folder: &str) -> Option<String> {
     let base_slug = slugify(src_folder.rsplit('/').next().unwrap_or(src_folder));
     let real: Vec<&Entry> = entries
@@ -183,11 +185,13 @@ fn pick_appl(entries: &[Entry], src_folder: &str) -> Option<String> {
         .filter(|e| !e.is_dir && e.ostype == "APPL" && e.creator != "MACS" && e.name != "Finder")
         .collect();
     if real.is_empty() {
-        // No "real" app — last resort, take any APPL so we don't drop the title.
-        return entries
-            .iter()
-            .find(|e| !e.is_dir && e.ostype == "APPL")
-            .map(|e| e.name.clone());
+        // Nothing but a bundled Finder (creator MACS / name "Finder"). NEVER launch
+        // that: `harvest_one` renames the destination folder to the picked APPL, so a
+        // Finder pick ships a title literally called "Finder" that boots the shell
+        // instead of the game — the Ultima II donor folder did exactly this. Skipping
+        // beats shipping a bogus entry; the caller drops it with a warning. When the
+        // real app is nested in a SUBfolder, fix it by curating `app` in the overlay.
+        return None;
     }
     // Best folder-name match; then the colour build; then the shorter name
     // (editors/extras tend to be "<game> <something>"); ls order as final tiebreak.
@@ -624,9 +628,13 @@ mod tests {
             e("APPL", "WZRD", "Wizardry"),
         ];
         assert_eq!(pick_appl(&entries, "/Games/1990/Wizardry I (3.02)").as_deref(), Some("Wizardry"));
-        // Only a Finder present -> last resort still returns it (don't drop the title).
+        // Only a bundled Finder -> no usable launch target. Skip the title rather
+        // than harvest it AS "Finder" (which boots the shell, not a game).
         let entries = vec![e("APPL", "MACS", "Finder")];
-        assert_eq!(pick_appl(&entries, "/Games/x/Foo").as_deref(), Some("Finder"));
+        assert_eq!(pick_appl(&entries, "/Games/x/Foo"), None);
+        // Same when it's a plain-named Finder with a non-Apple creator.
+        let entries = vec![e("APPL", "ZZZZ", "Finder")];
+        assert_eq!(pick_appl(&entries, "/Games/x/Foo"), None);
         // A game shipping both a B&W and a Colour build -> pick Colour.
         let entries = vec![
             e("APPL", "SANT", "SimAnt\u{2122} B&W"),
