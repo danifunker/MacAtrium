@@ -510,6 +510,62 @@ fn bake_variants_rsrc(
     Ok(Some(format!("{images_rel}/{name}.rsrc")))
 }
 
+/// The launcher's WORST-CASE resident footprint for a build, in KB (docs/44):
+///   * the static navigation model — `MODEL_MAX_CATS`(128) × `sizeof(ModelCat)`,
+///     dominated by each one's `idx[MAX_ITEMS]` (128 × 256 × 4 B = 128 KB);
+///   * ONE resident catalog page — `MAX_CAT_ITEMS`(128) × `sizeof(CatItem)` (~1.74 KB);
+///   * one cover at the DEEPEST baked depth (16/24-bit bake as 32-bit direct pixels).
+///
+/// Only one page is ever resident, so this does NOT scale with the library size —
+/// see docs/21. Pure arithmetic so it unit-tests. Returns `(model, page, art, total)` KB.
+///
+/// The art term is a deliberate UPPER bound: it counts uncompressed pixels, while a
+/// baked cover is a PackBits-compressed PICT (a 384px 8-bit cover measures ~90 KB,
+/// not the 144 KB counted here). Treat a warning as "check this", not "this will
+/// fail". Do NOT reuse this to gate loading at runtime: the launcher deliberately
+/// does not (`ui.c` `cap = 24`), because exactly this kind of coarse estimate
+/// under-budgeted 8-bit on a real Quadra and collapsed it to 1-bit art. The
+/// authoritative guard is `art_load_rsrc`'s live `MaxBlock()` check (docs/44).
+fn launcher_peak_kb(depths: &[String], bound: (u32, u32)) -> (u32, u32, u32, u32) {
+    const MODEL_KB: u32 = 138; // 128 cats × ~1104 B (the idx[256] array dominates)
+    const PAGE_KB: u32 = 228; // 128 items × ~1.74 KB CatItem
+    let deepest = depths.iter().filter_map(|d| d.parse::<u32>().ok()).max().unwrap_or(1);
+    let px = bound.0 as u64 * bound.1 as u64;
+    let bytes = match deepest {
+        1 => px / 8,
+        2 => px / 4,
+        4 => px / 2,
+        8 => px,
+        _ => px * 4, // 16/24-bit are stored as 32-bit direct pixels
+    };
+    let art_kb = (bytes / 1024) as u32;
+    (MODEL_KB, PAGE_KB, art_kb, MODEL_KB + PAGE_KB + art_kb)
+}
+
+/// Report the launcher's estimated peak against the configured partition, and warn
+/// when the deepest baked art can't fit the MINIMUM partition. The launcher already
+/// degrades gracefully at runtime (ArtCaps, docs/44) — catching it here just saves a
+/// full build and a boot to discover it.
+fn art_memory_preflight(cfg: &BuildConfig) {
+    let Some([pref, min]) = cfg.app_mem_kb else { return };
+    let bound = cfg.art_bounds();
+    let (model, page, art, total) = launcher_peak_kb(&cfg.art_depths, bound);
+    let deepest = cfg.art_depths.iter().filter_map(|d| d.parse::<u32>().ok()).max().unwrap_or(1);
+    eprintln!(
+        "[preflight] launcher peak ~{total} KB (model {model} + page {page} + {deepest}-bit art \
+         {art} @ {}x{}) vs partition {pref}/{min} KB",
+        bound.0, bound.1
+    );
+    if total > min {
+        eprintln!(
+            "[preflight] WARNING: that upper bound exceeds the {min} KB MINIMUM partition. The art \
+             figure counts uncompressed pixels, so a PackBits PICT is smaller in practice — and \
+             art_load_rsrc drops a tier on a live MaxBlock check rather than failing. Worth a look \
+             though: raise app_mem_kb, or lower art_depths / max_art_size."
+        );
+    }
+}
+
 /// Bake the depth variants for one source image under `name` (e.g. "prince" for
 /// box art or "prince.shot" for the screenshot), inject them, and return the
 /// catalog path to record — a base path for multi-variant, an explicit `.ext`
@@ -1014,6 +1070,9 @@ pub fn run(cfg: &BuildConfig) -> Result<()> {
             None
         }
     };
+
+    // Launcher RAM preflight (docs/44): can the partition hold the deepest baked art?
+    art_memory_preflight(cfg);
 
     // 1c. grow the image to the requested size (disk-size controller).
     crate::preflight::apply_disk_size(&rb, cfg, auto_mb)?;
@@ -1716,8 +1775,31 @@ pub fn replace_on_disk(
 
 #[cfg(test)]
 mod tests {
-    use super::{art_files_of, dep_installs_on, is_system6_folder_name, title_folder_of};
+    use super::{art_files_of, dep_installs_on, is_system6_folder_name, launcher_peak_kb, title_folder_of};
     use serde_json::Value;
+
+    #[test]
+    fn launcher_peak_tracks_the_deepest_depth_not_the_library_size() {
+        let d = |v: &[&str]| v.iter().map(|s| s.to_string()).collect::<Vec<_>>();
+        // 384x384 = 147,456 px. 1-bit packs 8 px/byte, 8-bit is a byte each,
+        // 24-bit bakes as 32-bit direct pixels.
+        let (m, p, art1, t1) = launcher_peak_kb(&d(&["1"]), (384, 384));
+        assert_eq!((m, p), (138, 228)); // fixed: model + one resident page
+        assert_eq!(art1, 18); // 147456/8 = 18 KB
+        assert_eq!(t1, 138 + 228 + 18);
+
+        let (_, _, art8, _) = launcher_peak_kb(&d(&["1", "8"]), (384, 384));
+        assert_eq!(art8, 144); // deepest wins: 147456 B
+
+        let (_, _, art24, t24) = launcher_peak_kb(&d(&["1", "8", "24"]), (384, 384));
+        assert_eq!(art24, 576); // 147456*4
+        assert_eq!(t24, 138 + 228 + 576);
+
+        // A bigger art bound is the real driver — 720px 24-bit is why that target
+        // wants a 3 MB partition.
+        let (_, _, big, _) = launcher_peak_kb(&d(&["24"]), (720, 720));
+        assert_eq!(big, 2025); // 720*720*4 = 2,073,600 B
+    }
 
     #[test]
     fn title_folder_is_the_first_component_under_the_apps_root() {
