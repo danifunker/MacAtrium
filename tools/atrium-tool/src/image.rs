@@ -969,7 +969,7 @@ fn rebuild_desktop_via_snow(rb: &RbCli, cfg: &BuildConfig, stage: &Path) -> Resu
         Ok(out) if out.to_lowercase().contains("error") => {
             eprintln!("[desktop] WARNING: fsck reports the volume is not clean (Shut Down may have mistimed):\n{out}")
         }
-        Ok(_) => eprintln!("[desktop]   volume clean; Desktop DB rebuilt; re-blessed 7.1"),
+        Ok(_) => eprintln!("[desktop]   volume clean; Desktop DB rebuilt; re-blessed {target}"),
         Err(e) => eprintln!("[desktop] WARNING: fsck did not pass (volume may be dirty): {e:#}"),
     }
     Ok(())
