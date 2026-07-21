@@ -337,6 +337,21 @@ enum Cmd {
         launcher: Option<PathBuf>,
     },
 
+    /// Strip the QuickTime-family extensions (QuickTime, its components, Apple Photo
+    /// Access) + the root QuickTime folder from an existing image, in place (no
+    /// rebuild). These need Color QuickDraw / a 68020+, so they bomb at boot on a
+    /// 68000 compact (Mac Plus/SE) — this retrofits a colour disk into one that boots
+    /// there. The `image` build does this automatically for a pure-B&W target (see
+    /// `strip_quicktime`). docs/40.
+    StripQuicktime {
+        /// Disk image to modify in place.
+        #[arg(long)]
+        image: PathBuf,
+        /// rb-cli binary (default: settings / the built-in absolute path).
+        #[arg(long)]
+        rb_cli: Option<PathBuf>,
+    },
+
     /// Add titles to an already-built MacAtrium disk, in place: harvest the
     /// selected titles into the existing image, bake their art, and merge their
     /// catalog records with the disk's current catalog (existing titles keep
@@ -779,6 +794,10 @@ fn main() -> Result<()> {
         Cmd::InstallAllSystems { image, launcher } => {
             let n = image::install_all_systems_on_image(&image, launcher)?;
             eprintln!("install-all-systems: launcher installed into {n} System Folder(s)");
+        }
+        Cmd::StripQuicktime { image, rb_cli } => {
+            let n = image::strip_quicktime_on_image(&image, rb_cli)?;
+            eprintln!("strip-quicktime: removed {n} QuickTime item(s) from {}", image.display());
         }
         Cmd::Add { config } => {
             image::add_to_disk_from_path(&config)?;

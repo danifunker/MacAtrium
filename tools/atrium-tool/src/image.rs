@@ -108,6 +108,114 @@ fn strip_control_panels_in(rb: &RbCli, cfg: &BuildConfig, sysfolder: &str) -> Re
     Ok(())
 }
 
+/// QuickTime-family Extensions removed for a B&W/compact build (see
+/// [`strip_quicktime_all_systems`]). Each needs Color QuickDraw / a 68020+, so on a
+/// 68000 compact (Mac Plus, SE, Classic) it fails to load at boot — the "Apple Photo
+/// Access" error the user hit. The CD *filesystem* extensions (Foreign File / High
+/// Sierra / ISO 9660 File Access, Apple CD-ROM) and the Sound Manager are deliberately
+/// absent here: they work on a 68000 and CD titles need them.
+const QUICKTIME_EXTENSIONS: &[&str] = &[
+    "QuickTime™",
+    "QuickTime™ Musical Instruments",
+    "QuickTime Extensions", // a folder of QuickTime sub-components (PowerPlug, codecs)
+    "Apple Photo Access",   // Photo CD — the extension that errors on a Plus/SE
+];
+
+/// Fold a filename to an ASCII key for encoding-insensitive matching: keep only
+/// lowercased ASCII alphanumerics, dropping spaces, accents, and the "™" symbol. So
+/// "QuickTime™" and a "QuickTime" the encoder wrote without the ™ both key to
+/// "quicktime" — the match never depends on how rb-cli byte-encodes the trademark
+/// glyph on the HFS volume.
+fn ascii_fold(s: &str) -> String {
+    s.chars()
+        .filter(|c| c.is_ascii_alphanumeric())
+        .map(|c| c.to_ascii_lowercase())
+        .collect()
+}
+
+/// Remove the QuickTime-family extensions ([`QUICKTIME_EXTENSIONS`]) from every System
+/// Folder's `Extensions`, plus the root-level "QuickTime™ Folder" payload the base
+/// ships — the B&W/compact finalize that keeps a 68000 Mac (Plus/SE) from bombing on
+/// QuickTime / Apple Photo Access at boot (docs/40). Folders go recursively; absent
+/// names are skipped; every failure warns and continues (a finalize step must never
+/// abort an otherwise-good build).
+/// Remove the QuickTime-family entries ([`QUICKTIME_EXTENSIONS`]) from a single
+/// directory `dir`. Files go via `rm`, folders recursively; a non-matching entry, an
+/// absent dir, or a failed remove is skipped (warning). Returns the count removed.
+fn strip_qt_in_dir(rb: &RbCli, out: &Path, dir: &str) -> usize {
+    let Ok(entries) = rb.ls_exact(out, dir) else {
+        return 0; // dir absent (e.g. a System 6 folder has no `Extensions` subfolder)
+    };
+    let mut removed = 0usize;
+    for e in &entries {
+        if !QUICKTIME_EXTENSIONS.iter().any(|t| ascii_fold(t) == ascii_fold(&e.name)) {
+            continue;
+        }
+        let path = format!("{dir}/{}", e.name);
+        let res = if e.is_dir {
+            rb.rm_recursive(out, &path)
+        } else {
+            rb.rm(out, &path)
+        };
+        match res {
+            Ok(()) => {
+                eprintln!("[compact]   removed QuickTime item: {path}");
+                removed += 1;
+            }
+            Err(err) => {
+                eprintln!("[compact] WARNING: could not remove {path}: {err:#} — continuing")
+            }
+        }
+    }
+    removed
+}
+
+fn strip_quicktime_all_systems(rb: &RbCli, out: &Path) -> Result<usize> {
+    let mut removed = 0usize;
+    for folder in system_folders(rb, out) {
+        // System 7.x keeps these in `Extensions/`; System 6 keeps INITs flat in the
+        // System Folder root (no `Extensions` subfolder) — so scan BOTH. The match
+        // list is specific enough that scanning the root never touches System/Finder.
+        removed += strip_qt_in_dir(rb, out, &format!("/{folder}/Extensions"));
+        removed += strip_qt_in_dir(rb, out, &format!("/{folder}"));
+    }
+    // Root-level QuickTime payload (the "QuickTime™ Folder" the QT base drops at the
+    // volume root) — disk space only, but part of disabling the QuickTime base.
+    if let Ok(roots) = rb.ls_exact(out, "/") {
+        for e in roots.iter().filter(|e| e.is_dir && ascii_fold(&e.name) == "quicktimefolder") {
+            match rb.rm_recursive(out, &format!("/{}", e.name)) {
+                Ok(()) => {
+                    eprintln!("[compact]   removed root QuickTime folder: {}", e.name);
+                    removed += 1;
+                }
+                Err(err) => {
+                    eprintln!("[compact] WARNING: could not remove /{}: {err:#} — continuing", e.name)
+                }
+            }
+        }
+    }
+    if removed == 0 {
+        eprintln!("[compact] strip_quicktime: no QuickTime extensions present to remove");
+    } else {
+        eprintln!("[compact] stripped {removed} QuickTime item(s)");
+    }
+    Ok(removed)
+}
+
+/// Standalone: strip the QuickTime-family extensions from an existing disk image (no
+/// rebuild) — retrofit a colour disk into a Mac Plus/SE-safe one, or clean a base.
+/// `rb_cli` overrides the configured/settings rb-cli path. Returns the count removed.
+pub fn strip_quicktime_on_image(image: &Path, rb_cli: Option<PathBuf>) -> Result<usize> {
+    let settings = crate::settings::Settings::load(&crate::settings::default_path());
+    let cfg_rb_cli = rb_cli
+        .map(|p| p.to_string_lossy().into_owned())
+        .unwrap_or_else(|| BuildConfig::default().rb_cli);
+    let rb_bin = crate::rbcli::resolve_bin(&cfg_rb_cli, settings.rb_cli.as_deref());
+    crate::rbcli::log_version(&rb_bin);
+    let rb = RbCli::new(&rb_bin);
+    strip_quicktime_all_systems(&rb, image)
+}
+
 /// A folder name that denotes an *installable* System 6 (6.0.4–6.0.8, at or above
 /// MacAtrium's 6.0.4 Gestalt floor). Used only when a System Folder has no `Startup
 /// Items`, to tell System 6 (finder-replace) from pre-6 System 4/5 (skip).
@@ -1312,6 +1420,14 @@ pub fn run(cfg: &BuildConfig) -> Result<()> {
         // `requires` into the System Folders whose OS needs it (verbatim from a
         // reservoir donor). No-op unless an installed title declares `requires:[…]`.
         install_dependencies(&rb, cfg, &present)?;
+        // Compact/B&W target: QuickTime + Apple Photo Access need Color QuickDraw / a
+        // 68020+, so on a 68000 (Mac Plus/SE) they error at boot. Strip them BEFORE the
+        // Desktop rebuild so the rebuilt DB — and the slack right-size reclaims — both
+        // reflect the removal (docs/40). Auto-on for a pure-B&W build; see
+        // BuildConfig::strip_quicktime.
+        if cfg.strip_quicktime_enabled() {
+            strip_quicktime_all_systems(&rb, &cfg.out)?;
+        }
         // Rebuild the volume's Desktop DB in Snow (7.5.5 boot), then re-bless 7.1.
         rebuild_desktop_via_snow(&rb, cfg, &stage)?;
     } else if cfg.finder_replace {
@@ -1876,7 +1992,10 @@ pub fn replace_on_disk(
 
 #[cfg(test)]
 mod tests {
-    use super::{art_files_of, dep_installs_on, is_system6_folder_name, launcher_peak_kb, title_folder_of};
+    use super::{
+        art_files_of, ascii_fold, dep_installs_on, is_system6_folder_name, launcher_peak_kb,
+        title_folder_of, QUICKTIME_EXTENSIONS,
+    };
     use serde_json::Value;
 
     #[test]
@@ -1888,6 +2007,30 @@ mod tests {
         assert_eq!(c.final_bless_folder(), "System Folder 6.0.8");
         c.final_bless = Some("   ".into()); // blank is not a choice
         assert_eq!(c.final_bless_folder(), DEFAULT_FINAL_BLESS);
+    }
+
+    #[test]
+    fn quicktime_strip_matches_family_but_keeps_cd_and_sound() {
+        let is_qt = |name: &str| QUICKTIME_EXTENSIONS.iter().any(|t| ascii_fold(t) == ascii_fold(name));
+        // QuickTime family — matched regardless of the ™ byte-encoding or case.
+        assert!(is_qt("QuickTime™"));
+        assert!(is_qt("QuickTime")); // encoder wrote it without the ™
+        assert!(is_qt("quicktime\u{2122} musical instruments"));
+        assert!(is_qt("QuickTime Extensions"));
+        assert!(is_qt("Apple Photo Access"));
+        // The 68000-safe CD/file-access + sound extensions must NOT be stripped.
+        for keep in [
+            "Apple CD-ROM",
+            "Foreign File Access",
+            "High Sierra File Access",
+            "ISO 9660 File Access",
+            "Audio CD Access",
+            "Sound Manager",
+            "Sound Manager 68K",
+            "AppleShare",
+        ] {
+            assert!(!is_qt(keep), "{keep} must be kept");
+        }
     }
 
     #[test]

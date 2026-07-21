@@ -281,6 +281,13 @@ pub struct BuildConfig {
     /// pure-B&W compact build, or `[]` to fall back to the single `art_depth`.
     #[serde(default = "d_art_depths")]
     pub art_depths: Vec<String>,
+    /// Remove the QuickTime-family extensions (QuickTime, its components, Apple Photo
+    /// Access) from the image's System Folders. `None` = auto: on for a pure-B&W build
+    /// (`art_depths` == `["1"]`, the Mac Plus/SE target — those extensions need Color
+    /// QuickDraw / a 68020+ and bomb at boot on a 68000), off for a colour build.
+    /// `true`/`false` forces it. Resolved by [`Self::strip_quicktime_enabled`].
+    #[serde(default)]
+    pub strip_quicktime: Option<bool>,
     /// Pack each item's depth variants into ONE per-item resource fork
     /// (`images/<id>.rsrc`: a 1-bit `ABMP` + a `PICT` per colour depth, id =
     /// 128+bits) instead of loose `.pict`/`.raw` files — far fewer files on the
@@ -548,6 +555,16 @@ impl BuildConfig {
         self.art_depths.iter().any(|d| d.trim() != "1")
     }
 
+    /// Whether this build strips the QuickTime-family extensions (QuickTime, its
+    /// components, Apple Photo Access) from the image's System Folders. Explicit
+    /// [`Self::strip_quicktime`] wins; otherwise auto — on for a pure-B&W build (the
+    /// Mac Plus/SE target: those extensions need Color QuickDraw / a 68020+ and error
+    /// at boot on a 68000), off for a colour build. Applied by
+    /// `image::strip_quicktime_all_systems`.
+    pub fn strip_quicktime_enabled(&self) -> bool {
+        self.strip_quicktime.unwrap_or(!self.wants_color_art())
+    }
+
     /// The launcher memory partition `(preferred_kb, minimum_kb)` to bake in, or
     /// `None` to leave the binary's built-in 2 MB / 1 MB. An explicit `app_mem_kb`
     /// always wins. `minimum` is clamped to be <= `preferred` (the Process Manager
@@ -709,6 +726,27 @@ mod tests {
     }
 
     #[test]
+    fn strip_quicktime_auto_tracks_bw_then_explicit_override_wins() {
+        // Auto (field unset): a colour build keeps QuickTime; a pure-B&W (Plus/SE)
+        // build strips it.
+        let color = BuildConfig::default(); // art_depths 1/8/24
+        assert!(color.wants_color_art());
+        assert!(!color.strip_quicktime_enabled());
+
+        let bw: BuildConfig = serde_json::from_str(r#"{"out":"o","art_depths":["1"]}"#).unwrap();
+        assert!(!bw.wants_color_art());
+        assert!(bw.strip_quicktime_enabled());
+
+        // An explicit flag overrides the auto default either way.
+        let bw_keep: BuildConfig =
+            serde_json::from_str(r#"{"out":"o","art_depths":["1"],"strip_quicktime":false}"#).unwrap();
+        assert!(!bw_keep.strip_quicktime_enabled());
+        let color_strip: BuildConfig =
+            serde_json::from_str(r#"{"out":"o","strip_quicktime":true}"#).unwrap();
+        assert!(color_strip.strip_quicktime_enabled());
+    }
+
+    #[test]
     fn launcher_path_defaults_to_build_dir() {
         // No config path + no env override -> build/MacAtrium.bin (the launcher is
         // never embedded; it's built by Retro68 or dropped in from a release).
@@ -775,6 +813,7 @@ impl Default for BuildConfig {
             art_dir: None,
             art_depth: d_artdepth(),
             art_depths: d_art_depths(),
+            strip_quicktime: None,
             art_forks: d_art_forks(),
             art_max: None,
             max_art_size: None,
