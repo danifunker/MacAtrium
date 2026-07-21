@@ -189,6 +189,7 @@ struct App {
     art_dir: String,
     max_art_size: String,
     bw_only: bool,
+    strip_quicktime: bool, // remove QuickTime + Apple Photo Access (compact/B&W target)
     app_mem_pref: String,
     app_mem_min: String,
     d1: bool,
@@ -328,6 +329,7 @@ impl Default for App {
             art_dir: String::new(),
             max_art_size: String::new(),
             bw_only: false,
+            strip_quicktime: false,
             app_mem_pref: String::new(),
             app_mem_min: String::new(),
             d1: true,
@@ -963,6 +965,7 @@ impl App {
             startup_sound: opt(&self.startup_sound),
             shutdown_sound: opt(&self.shutdown_sound),
             app_mem_kb: self.app_mem_kb(),
+            strip_quicktime: Some(self.strip_quicktime),
             ..BuildConfig::default()
         }
     }
@@ -1001,6 +1004,7 @@ impl App {
             None => { self.sel_mode = 0; self.sel_text.clear(); }
         }
         self.bw_only = c.art_depths == ["1"];
+        self.strip_quicktime = c.strip_quicktime.unwrap_or(!c.wants_color_art());
         let has = |d: &str| c.art_depths.iter().any(|x| x == d);
         self.d1 = has("1"); self.d4 = has("4"); self.d8 = has("8");
         self.d16 = has("16"); self.d24 = has("24");
@@ -1449,12 +1453,24 @@ impl App {
 
             ui.collapsing("Art & launcher RAM", |ui| {
                 ui.horizontal(|ui| {
-                    ui.checkbox(&mut self.bw_only, "Mac Plus / SE (B&W only)")
-                        .on_hover_text("1-bit artwork only — skips every colour PICT. Much smaller image.");
+                    if ui
+                        .checkbox(&mut self.bw_only, "Mac Plus / SE (B&W only)")
+                        .on_hover_text("1-bit artwork only — skips every colour PICT. Much smaller image.")
+                        .changed()
+                        && self.bw_only
+                    {
+                        self.strip_quicktime = true; // compact Macs can't load QuickTime
+                    }
                     ui.separator();
                     ui.label("max art size:");
                     ui.add(egui::TextEdit::singleline(&mut self.max_art_size).hint_text("720x768").desired_width(80.0));
                 });
+                ui.checkbox(&mut self.strip_quicktime, "strip QuickTime base (Apple Photo Access, etc.)")
+                    .on_hover_text(
+                        "Remove QuickTime + Apple Photo Access from every System Folder — both the 7.x \
+                         Extensions and the flat System 6 layout. They need Color QuickDraw / a 68020+, \
+                         so they error at boot on a Mac Plus/SE. Leave off for colour machines.",
+                    );
                 ui.add_enabled_ui(!self.bw_only, |ui| {
                     ui.horizontal(|ui| {
                         ui.label("art depths:");
@@ -2595,6 +2611,7 @@ mod tests {
         a.sel_mode = 3;
         a.sel_text = "Action, Puzzle".into();
         a.bw_only = true; // -> art_depths ["1"]
+        a.strip_quicktime = true;
         a.app_mem_pref = "512".into();
         a.app_mem_min = "384".into();
         a.harvest = vec![HarvestUi {
@@ -2614,6 +2631,7 @@ mod tests {
         assert_eq!(b.sel_mode, 3);
         assert_eq!(b.sel_text, "Action, Puzzle");
         assert!(b.bw_only);
+        assert!(b.strip_quicktime);
         assert_eq!(b.app_mem_pref, "512");
         assert_eq!(b.app_mem_min, "384");
         assert_eq!(b.harvest.len(), 1);
