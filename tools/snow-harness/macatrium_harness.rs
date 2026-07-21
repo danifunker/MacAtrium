@@ -1,15 +1,23 @@
 // MacAtrium headless Snow harness.
 //
-// Boots a Macintosh II (ROM + Macintosh Display Card 8*24 ROM) with a SCSI hard
-// disk attached, runs for a cycle budget, periodically dumps the framebuffer to
-// PNG, and can tap a scripted sequence of keys at given cycle marks. This is the
-// no-GUI observation path for verifying the launch-return keystone and the MVP
-// launcher (the dev machine has no display server).
+// Boots the Mac model auto-detected from <rom>: a Macintosh II (which needs the
+// Macintosh Display Card 8*24 ROM for a framebuffer) or a compact 68000 model —
+// Plus / SE / Classic, built-in 512x342 1-bit video, no NuBus, so pass "-" for
+// <mdc_rom>. A SCSI hard disk is attached; it runs for a cycle budget, periodically
+// dumps the framebuffer to PNG, and can tap a scripted sequence of keys at given
+// cycle marks. This is the no-GUI observation path for verifying the launch-return
+// keystone and the launcher (the dev machine has no display server). The compact
+// (no-Color-QD) path is what verifies the Mac Plus/SE display guards.
 //
 // Usage:
-//   macatrium_harness <rom> <mdc_rom> <hdd.img> <out_dir> <max_cycles> \
+//   macatrium_harness <rom> <mdc_rom|-> <hdd.img> <out_dir> <max_cycles> \
 //       [--snap-every N] [--keys "CYCLE:KEY;CYCLE:KEY;..."] [--wall-secs S] \
-//       [--pram FILE]
+//       [--pram FILE] [--disk2 FILE] [--cdrom ISO] [--cd-dir DIR]
+//
+// --cd-dir DIR exposes a folder of CD images to the guest via the BlueSCSI Toolbox
+// (LIST CDS / SET NEXT CD): the launcher enumerates it and switches the disc in the
+// id-3 CD-ROM drive programmatically. A CD drive is attached at id 3 if --cdrom
+// wasn't given, so SET NEXT CD has a drive to (re)mount into.
 //
 // KEY names: l f r q enter return esc up down left right space  (lowercase)
 // A click is scheduled with KEY = `click@X,Y` (absolute framebuffer pixels), e.g.
@@ -87,6 +95,8 @@ fn main() -> Result<()> {
     let mut wall_secs: u64 = 1800;
     let mut pram_path: Option<String> = None;
     let mut disk2: Option<String> = None; // 2nd SCSI disk (docs/37 multi-disk verify)
+    let mut cdrom: Option<String> = None; // SCSI CD-ROM image (ISO/TOAST) — run-from-CD games
+    let mut cd_dir: Option<String> = None; // BlueSCSI Toolbox CD-image folder (LIST CDS / SET NEXT CD)
     // schedule[cycle] = input actions due at that cycle
     let mut schedule: BTreeMap<u64, Vec<Act>> = BTreeMap::new();
     let mut i = 6;
@@ -96,6 +106,8 @@ fn main() -> Result<()> {
             "--wall-secs"  => { wall_secs  = a[i + 1].parse()?; i += 2; }
             "--pram"       => { pram_path  = Some(a[i + 1].clone()); i += 2; }
             "--disk2"      => { disk2      = Some(a[i + 1].clone()); i += 2; }
+            "--cdrom"      => { cdrom      = Some(a[i + 1].clone()); i += 2; }
+            "--cd-dir"     => { cd_dir     = Some(a[i + 1].clone()); i += 2; }
             "--keys" => {
                 const CMD: u8 = 0x37; // Command (universal scancode)
                 const OPT: u8 = 0x3A; // Option
@@ -111,6 +123,17 @@ fn main() -> Result<()> {
                         schedule.entry(cyc).or_default().push(Act::MouseAbs(x, y));
                         schedule.entry(cyc + 1_000_000).or_default().push(Act::MouseBtn(true));
                         schedule.entry(cyc + 3_000_000).or_default().push(Act::MouseBtn(false));
+                    } else if let Some(coords) = k.strip_prefix("dclick@") {
+                        // Double-click: warp, then two press/release pairs ~1M cycles
+                        // apart (well within GetDblTime) to open/launch an icon.
+                        let (xs, ys) = coords.split_once(',').expect("dclick@X,Y");
+                        let x: u16 = xs.parse()?;
+                        let y: u16 = ys.parse()?;
+                        schedule.entry(cyc).or_default().push(Act::MouseAbs(x, y));
+                        schedule.entry(cyc + 500_000).or_default().push(Act::MouseBtn(true));
+                        schedule.entry(cyc + 1_000_000).or_default().push(Act::MouseBtn(false));
+                        schedule.entry(cyc + 1_500_000).or_default().push(Act::MouseBtn(true));
+                        schedule.entry(cyc + 2_000_000).or_default().push(Act::MouseBtn(false));
                     } else if let Some(coords) = k.strip_prefix("hold@") {
                         // Press-and-hold at (x,y) for DUR cycles, then release. Drives
                         // hold-to-scroll auto-repeat (a scroll-arrow held down) — the
@@ -176,11 +199,22 @@ fn main() -> Result<()> {
     fs::create_dir_all(out_dir)?;
 
     let rom = fs::read(rom_path)?;
-    let mdc = fs::read(mdc_path)?;
     let model = MacModel::detect_from_rom(&rom).expect("cannot detect model from ROM");
     log::info!("Detected model: {model}");
 
-    let extra = [ExtraROMs::MDC12(&mdc)];
+    // The Macintosh Display Card ROM is a Mac II NuBus card. Compact models
+    // (Plus / SE / Classic) have built-in video and no NuBus, so pass "-" as
+    // <mdc_rom> to skip it — the compact bus ignores the extra ROM regardless.
+    // A Mac II needs it for a framebuffer.
+    let mdc: Option<Vec<u8>> = if mdc_path.as_str() == "-" {
+        None
+    } else {
+        Some(fs::read(mdc_path)?)
+    };
+    let extra: Vec<ExtraROMs> = match mdc {
+        Some(ref m) => vec![ExtraROMs::MDC12(m.as_slice())],
+        None => vec![],
+    };
     let (mut emu, frame_recv) = Emulator::new(&rom, &extra, model)?;
 
     // Persist PRAM across runs (boot depth / monitor settings live in slot PRAM).
@@ -197,6 +231,24 @@ fn main() -> Result<()> {
     if let Some(ref d2) = disk2 {
         cmd.send(EmulatorCommand::ScsiAttachHdd(1, PathBuf::from(d2)))?;
         log::info!("attached 2nd SCSI disk (id 1): {d2}");
+    }
+    if let Some(ref cd) = cdrom {
+        // SCSI CD-ROM at id 3 (Apple's default). The emulated System needs the
+        // 'Apple CD-ROM' + 'ISO 9660/Foreign File Access' extensions; the drive is
+        // recognized at cold boot (which this is). ISO/TOAST/CUE-BIN supported.
+        cmd.send(EmulatorCommand::ScsiAttachCdrom(3))?;
+        cmd.send(EmulatorCommand::ScsiLoadMedia(3, PathBuf::from(cd)))?;
+        log::info!("attached SCSI CD-ROM (id 3) with media: {cd}");
+    }
+    if let Some(ref dir) = cd_dir {
+        // BlueSCSI Toolbox CD switching: LIST CDS enumerates this folder and
+        // SET NEXT CD remounts a chosen image on the CD-ROM drive. Ensure a CD
+        // drive exists at id 3 (empty if --cdrom wasn't given) for the remount.
+        if cdrom.is_none() {
+            cmd.send(EmulatorCommand::ScsiAttachCdrom(3))?;
+        }
+        cmd.send(EmulatorCommand::SetCdDir(Some(PathBuf::from(dir))))?;
+        log::info!("toolbox CD-image dir (id 3): {dir}");
     }
     cmd.send(EmulatorCommand::Run)?;
     cmd.send(EmulatorCommand::SetSpeed(EmulatorSpeed::Uncapped))?;

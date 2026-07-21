@@ -17,10 +17,18 @@ boot/screenshot is desirable but unproven."* It's proven now.
 | Display-card ROM | MAME `nb_mdc824.zip` → `3410868.bin` | 32 KB; the **Macintosh Display Card 8•24** — a Mac II has no built-in video, Snow needs this for a framebuffer (`ExtraROMs::MDC12`) |
 | Boot disk | `~/MacOS_SampleDisks/MacLC_*.hda` | raw SCSI images; **7.0.1 / 7.1 / 7.5.5** all boot + auto-launch + launch/return verified on the Mac II ROM. 6.0.8 boots + MultiFinder activates but the launcher needs a port (docs/11 §C″). |
 
-Snow's CPU tops out at SE/30 class but the **Mac II (68020)** covers System
-7.x with Color QD — see docs/11 §B. The 7.5.5 image renders at 1-bit here, so
-the runs exercise the **B&W** render backend (the hard MVP requirement); the
-Color backend is implemented but needs a colour depth to exercise.
+Snow emulates the compact 68000 Macs (Plus / SE / Classic) as well as the Mac II
+(68020) and SE/30 (68030). Two rungs matter here:
+
+- **Mac II (68020) + Color QD** covers System 7.x with colour — see docs/11 §B.
+- **Mac SE (68000), NO Color QD** — pass a Mac SE ROM and `-` for `<mdc_rom>` (a
+  compact model has built-in video, no NuBus display card). This is the path that
+  verifies the Mac Plus/SE display guards (docs/40): a launcher that calls a Color
+  QuickDraw trap (`GetMainDevice`/`HasDepth`/`SetDepth`) there bombs with an
+  unimplemented-trap error, exactly as on real hardware. The model is auto-detected
+  from the ROM (`MacModel::detect_from_rom`), so just hand it the SE ROM.
+
+The 1-bit **B&W** render backend is exercised on both.
 
 ## Build the harness
 
@@ -75,9 +83,13 @@ printf '\x0bMultiFinder    ' | dd of=copy_608.hda bs=1 seek=49178 conv=notrunc  
 ## Run a scripted test
 
 ```
-macatrium_harness <rom> <mdc_rom> <hdd.img> <out_dir> <max_cycles> \
+macatrium_harness <rom> <mdc_rom|-> <hdd.img> <out_dir> <max_cycles> \
     [--snap-every N] [--keys "CYCLE:KEY;CYCLE:KEY;..."] [--wall-secs S] [--disk2 <hdd2.img>]
 ```
+
+- `<mdc_rom>` is the Mac II display-card ROM; pass `-` to skip it for a compact
+  model (Plus / SE / Classic). Example — boot the B&W disk on a Mac SE:
+  `macatrium_harness "…/Mac SE.ROM" - MacAtrium_BW.hda out 4000000000 --snap-every 250000000`
 
 - `--snap-every N` dumps `snap_NNN_<cycle>.png` every N cycles; `final.png` at the end.
 - `--disk2 <hdd2.img>` attaches a **second** SCSI disk (id 1) — for the multi-disk
