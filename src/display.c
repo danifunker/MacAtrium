@@ -5,6 +5,7 @@
  */
 #include "display.h"
 #include <Devices.h>   /* PBControlSync, CntrlParam, ParmBlkPtr */
+#include <Gestalt.h>   /* Color QuickDraw presence test (color_qd_present) */
 #include <string.h>
 
 /* gdDevType isn't in Retro68's leaner headers; it's bit 0 of gdFlags. */
@@ -37,10 +38,32 @@ static unsigned char spid_for_depth(short depth)
 static const short kCandidates[] = { 1, 2, 4, 8, 16, 32 };
 #define NCAND ((int)(sizeof kCandidates / sizeof kCandidates[0]))
 
+/* The Graphics Devices Manager — GetMainDevice / HasDepth / SetDepth, and the slot-
+ * driver Control/Status calls further down — ships with Color QuickDraw. On the 68000
+ * compacts (Mac Plus, SE, Classic, Portable, PowerBook 100) Color QD is absent and
+ * those traps are UNIMPLEMENTED: calling one bombs with an "unimplemented trap" system
+ * error, it does NOT return NULL/paramErr. So every wrapper below early-outs when Color
+ * QD is missing, BEFORE it touches a GDevice trap. That is what makes display.h's
+ * "no-ops / depth 1 when Color QD is absent" contract actually hold for every caller —
+ * so e.g. art_caps_probe() can measure the machine without a hasColorQD guard of its
+ * own, and a future caller can't reintroduce the crash by forgetting one. Probe once
+ * (Gestalt is safe on every System our images boot, 6.0.4+) and cache the result. */
+static int color_qd_present(void)
+{
+    static int cached = -1;
+    if (cached < 0) {
+        long v;
+        cached = (Gestalt(gestaltQuickdrawVersion, &v) == noErr && v >= gestalt8BitQD) ? 1 : 0;
+    }
+    return cached;
+}
+
 int display_depths(short *out, int max)
 {
-    GDHandle gd = GetMainDevice();
+    GDHandle gd;
     int n = 0, i;
+    if (!color_qd_present()) return 0;   /* no Color QD -> no Graphics Devices Manager */
+    gd = GetMainDevice();
     if (!gd) return 0;
     for (i = 0; i < NCAND; i++) {
         /* whichFlags = 0 -> match any mode at this depth (colour or mono). */
@@ -54,7 +77,9 @@ int display_depths(short *out, int max)
 
 short display_current_depth(void)
 {
-    GDHandle gd = GetMainDevice();
+    GDHandle gd;
+    if (!color_qd_present()) return 1;   /* B&W compact: the screen is 1-bit, always */
+    gd = GetMainDevice();
     if (gd) {
         PixMapHandle pm = (**gd).gdPMap;
         if (pm) return (**pm).pixelSize;
@@ -64,8 +89,10 @@ short display_current_depth(void)
 
 OSErr display_set_depth(short depth)
 {
-    GDHandle gd = GetMainDevice();
+    GDHandle gd;
     short    flags;
+    if (!color_qd_present()) return paramErr;   /* can't switch depth without Color QD */
+    gd = GetMainDevice();
     if (!gd) return paramErr;
     /* Pick a colour mode for >1 bpp, monochrome for 1 bpp. */
     flags = (depth > 1) ? (1 << gdDevType) : 0;
@@ -118,11 +145,13 @@ static short display_current_mode_id(GDHandle gd)
  * reads the id as a byte at csParam offset 0. */
 OSErr display_set_default_depth(short depth)
 {
-    GDHandle      gd = GetMainDevice();
+    GDHandle      gd;
     short         mode;
     unsigned char spID;
     CntrlParam    pb;
 
+    if (!color_qd_present()) return paramErr;                 /* no slot PRAM to write without Color QD */
+    gd = GetMainDevice();
     if (!gd) return paramErr;
     if (display_current_depth() != depth) return paramErr;   /* only persist a live, proven depth */
 
