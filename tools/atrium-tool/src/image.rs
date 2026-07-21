@@ -225,6 +225,21 @@ fn is_system6_folder_name(name: &str) -> bool {
         .any(|v| name.contains(v))
 }
 
+/// A "no screenshot available" placeholder, baked as the `shot` for any title with
+/// no gameplay screenshot (nothing matched on MacGarden, the picker found only
+/// box/title art, or a curated `mg.shot:false`), so the Carousel never shows a bare
+/// app icon in the screenshot slot. Embedded so a build needs no external asset.
+const NO_SHOT_PNG: &[u8] = include_bytes!("no-screenshot.png");
+
+/// Write the embedded placeholder into `stage` (once) and return its path.
+fn placeholder_shot(stage: &Path) -> Result<PathBuf> {
+    let p = stage.join("no-screenshot.png");
+    if !p.exists() {
+        std::fs::write(&p, NO_SHOT_PNG).with_context(|| format!("writing {}", p.display()))?;
+    }
+    Ok(p)
+}
+
 /// Install the launcher into **every** System Folder on the volume so a bless-swap
 /// between Systems always boots back into MacAtrium (docs/36 Phase 2): Startup Items
 /// for System 7+ (folders that have a `Startup Items`), as the Finder for System
@@ -821,7 +836,10 @@ fn bake_art(cfg: &BuildConfig, rb: &RbCli, stage: &Path, work: &Path) -> Result<
         let shot_vol = format!("{fid}.shot");
         let shot_src = cfg.art_dir.as_ref().and_then(|adir| find_art(adir, &shot_name))
             .or_else(|| mg_art.and_then(|adir| find_art(adir, &shot_name)))
-            .or_else(|| downloaded_shot.get(&id).cloned());
+            .or_else(|| downloaded_shot.get(&id).cloned())
+            // No real screenshot anywhere -> the "no screenshot available" placeholder,
+            // so the screenshot slot never falls back to the blocky app icon.
+            .or_else(|| placeholder_shot(stage).ok());
 
         let mut fields = String::new();
         let mut has_box = false;

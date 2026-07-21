@@ -87,6 +87,61 @@ fn is_box(name: &str) -> bool {
     n.contains("box") || n.contains("cover") || n.contains("_front") || n.contains("_back")
 }
 
+/// Filename markers for images that are NOT gameplay — box art (`is_box`) plus
+/// title/menu/loading cards, disk/CD/floppy/serial media scans, magazine & eBay
+/// photos, and modern-remake screenshots. MG's screenshot list carries no type
+/// metadata, so the filename is the only signal. Deliberately specific tokens
+/// (`_art`, `disk.`) to avoid matching real titles (e.g. "frontier", "arcade").
+fn is_non_gameplay(name: &str) -> bool {
+    let n = name.to_ascii_lowercase();
+    if is_box(&n) {
+        return true;
+    }
+    const BAD: &[&str] = &[
+        "loading", "title", "menu", "splash", "about", "logo", "_start", "start.", "start_",
+        "floppy", "_disk", "disk.", "disk_", "cdrom", "folder", "serial", "manual",
+        "macformat", "magazine", "thumbnail", "s-l1600", "_art", "coverart",
+    ];
+    BAD.iter().any(|k| n.contains(k)) || n.contains("-x.") // "-x." = a modern remake (apeiron-x.jpg)
+}
+
+/// Filename hints that a screenshot is actual gameplay. (`stage`/`start` are NOT
+/// hints — MG uses them for title/stage-select cards as often as gameplay.)
+fn is_gameplay_hint(name: &str) -> bool {
+    let n = name.to_ascii_lowercase();
+    ["play", "ingame", "in-game", "gameplay", "scrn", "screen", "level"]
+        .iter()
+        .any(|k| n.contains(k))
+}
+
+/// Choose the gameplay screenshot to bake as `shot`. A curated `mg.shot` override
+/// wins — a filename to pin, or `false` to force none (→ the art bake's "no
+/// screenshot" placeholder). Otherwise prefer a gameplay-hinted non-box image, then
+/// any non-box/non-title image, and finally `None` when everything on MG looks like
+/// box/title/menu art.
+fn pick_shot<'a>(screenshots: &'a [String], override_shot: Option<&Value>) -> Option<&'a str> {
+    match override_shot {
+        Some(Value::Bool(false)) => return None, // force the placeholder
+        Some(Value::String(f)) => {
+            return screenshots
+                .iter()
+                .map(String::as_str)
+                .find(|s| s.eq_ignore_ascii_case(f));
+        }
+        _ => {}
+    }
+    screenshots
+        .iter()
+        .map(String::as_str)
+        .find(|s| is_gameplay_hint(s) && !is_non_gameplay(s))
+        .or_else(|| {
+            screenshots
+                .iter()
+                .map(String::as_str)
+                .find(|s| !is_non_gameplay(s))
+        })
+}
+
 /// Flatten Macintosh Garden's HTML description to plain text: strip comments and
 /// tags (which drops the internal `/games/…` links and their hrefs), decode the
 /// handful of entities MG uses, and let `clamp_desc` collapse whitespace + cap.
@@ -314,17 +369,18 @@ pub fn run(
             obj.insert("source".into(), Value::from("Macintosh Garden"));
         }
 
+        // Curated per-title screenshot override: `mg.shot` = a filename to pin, or
+        // `false` to force the "no screenshot" placeholder (handled in the art bake).
+        let shot_override = obj.get("mg").and_then(|m| m.get("shot")).cloned();
+
         // offline colour detect from a gameplay screenshot already on disk.
         // Pre-1987 Macs were 1-bit, so don't let a colourful later shot mislabel
         // them — leave `color` for the catalog/curation to decide (matches enrich).
         let pre_color = obj.get("year").and_then(Value::as_i64).is_some_and(|y| y < 1987);
         if !pre_color && (overwrite || missing(&obj, "color")) {
-            if let Some(shot) = r
-                .screenshots
-                .iter()
-                .filter(|f| !is_box(f))
+            if let Some(shot) = pick_shot(&r.screenshots, shot_override.as_ref())
                 .map(|f| r.dir(archive).join(f))
-                .find(|p| p.is_file())
+                .filter(|p| p.is_file())
             {
                 if let Ok(is_col) = is_color_image(&shot) {
                     obj.insert("color".into(), Value::Bool(is_col));
@@ -345,7 +401,7 @@ pub fn run(
                         }
                     }
                 }
-                if let Some(s) = r.screenshots.iter().find(|f| !is_box(f)) {
+                if let Some(s) = pick_shot(&r.screenshots, shot_override.as_ref()) {
                     let srcf = r.dir(archive).join(s);
                     if srcf.is_file() {
                         let dst = adir.join(format!("{id}.shot.{}", ext_of(s)));
@@ -433,6 +489,22 @@ impl ArtIndex {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn pick_shot_prefers_gameplay_and_skips_non_gameplay() {
+        let s = |v: &[&str]| v.iter().map(|x| x.to_string()).collect::<Vec<_>>();
+        // gameplay-hinted wins over a loading/title card (SimLife)
+        assert_eq!(pick_shot(&s(&["x.loading.jpg", "x.play_.1.jpg"]), None), Some("x.play_.1.jpg"));
+        // skip a title card, take the first real screenshot (Avara)
+        assert_eq!(pick_shot(&s(&["avaraTitle.png", "avara1.png"]), None), Some("avara1.png"));
+        // skip a modern-remake "-x." image (Apeiron)
+        assert_eq!(pick_shot(&s(&["apeiron-x.jpg", "apeiron_large.jpg"]), None), Some("apeiron_large.jpg"));
+        // everything is box/disk -> None, so the art bake substitutes the placeholder (Hoyle)
+        assert_eq!(pick_shot(&s(&["h_front.jpg", "h_back.jpg", "cards_disk.jpg"]), None), None);
+        // override: `false` forces None; a filename pins that image
+        assert_eq!(pick_shot(&s(&["a.png", "b.png"]), Some(&Value::Bool(false))), None);
+        assert_eq!(pick_shot(&s(&["a.png", "b.png"]), Some(&Value::String("b.png".into()))), Some("b.png"));
+    }
 
     #[test]
     fn strips_html_tags_links_entities() {

@@ -120,5 +120,14 @@
     "simcity",
     "populous",
     "the-oregon-trail"
-  ]
+  ],
+  "overrides": {
+    "apeiron": { "mg": { "shot": false } },
+    "banzai": { "mg": { "shot": false } },
+    "marathon": { "mg": { "shot": false } },
+    "reader-rabbit-2": { "mg": { "shot": false } },
+    "solarian-ii": { "mg": { "shot": "solarian-ii.png" } },
+    "swoop": { "mg": { "shot": false } },
+    "where-in-europe-is-carmen-sandiego": { "mg": { "shot": false } }
+  }
 }
