@@ -255,24 +255,37 @@ OSErr macfs_unmount(short vref)
     return PBUnmountVol((ParmBlkPtr)&hp);
 }
 
-int macfs_find_cd_vol(short *vref)
+int macfs_find_cd_vol_named(short *vref, char *name, int cap)
 {
     short i;
+    if (name && cap > 0) name[0] = '\0';
     for (i = 1; ; i++) {                            /* ioVolIndex 1..N until nsvErr */
         HParamBlockRec hp;
+        Str63          nm;
         memset(&hp, 0, sizeof hp);
-        hp.volumeParam.ioNamePtr  = NULL;
+        hp.volumeParam.ioNamePtr  = (StringPtr)nm;  /* fetch the name too */
         hp.volumeParam.ioVolIndex = i;
         if (PBHGetVInfoSync(&hp) != noErr) break;   /* past the last mounted volume */
         /* ioVAtrb bit 7 = hardware-locked (write-protected media) => a CD-ROM.
          * Fixed HDs and the data-disk libraries are writable, so this singles out
          * the mounted Toolbox CD. */
         if (hp.volumeParam.ioVAtrb & 0x0080) {
-            *vref = hp.volumeParam.ioVRefNum;
+            if (vref) *vref = hp.volumeParam.ioVRefNum;
+            if (name && cap > 0) {                  /* Pascal name -> C string */
+                int len = nm[0];
+                if (len > cap - 1) len = cap - 1;
+                memcpy(name, (char *)nm + 1, (size_t)len);
+                name[len] = '\0';
+            }
             return 1;
         }
     }
     return 0;
+}
+
+int macfs_find_cd_vol(short *vref)
+{
+    return macfs_find_cd_vol_named(vref, (char *)0, 0);
 }
 
 OSErr macfs_open_df(const FSSpec *spec, char perm, short *refNum)

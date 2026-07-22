@@ -58,6 +58,13 @@ OSErr macfs_unmount(short vref);
  * drop the outgoing disc before a Toolbox swap so Mac OS doesn't nag (docs/45). */
 int macfs_find_cd_vol(short *vref);
 
+/* Like macfs_find_cd_vol, but also copy the mounted CD-ROM volume's HFS name into
+ * `name` (a C string, NUL-terminated, up to `cap` bytes) — the CD Library reverse-
+ * maps it to the host image so the "(in drive)" marker names the disc actually in
+ * the drive, even after a reboot (docs/45, cdidx.h). `name` may be NULL (then this
+ * is exactly macfs_find_cd_vol). */
+int macfs_find_cd_vol_named(short *vref, char *name, int cap);
+
 /* Enumerate mounted volumes carrying a /MacAtrium/metadata library into `out`
  * (boot volume first). Returns the count (0 if even the boot volume has none). */
 int macfs_volumes(VolTable *out);

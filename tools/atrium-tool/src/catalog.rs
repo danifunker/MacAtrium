@@ -929,6 +929,30 @@ fn page_values(items: &[Value], tax: Option<&Taxonomy>, out_dir: &Path, lf: bool
     std::fs::write(out_dir.join("hotkeys.jsonl"), render_values(&hotkeys, crlf, lf)?)
         .with_context(|| format!("writing {}", out_dir.join("hotkeys.jsonl").display()))?;
 
+    // cdindex (docs/45): every title carrying BOTH a host image and an expected
+    // volume name, so the launcher can reverse-map the CD volume ACTUALLY mounted
+    // back to its image — marking the disc in the drive even after a reboot, with
+    // no persisted session state. Written unconditionally (empty when no CD titles).
+    let cdindex: Vec<Value> = items
+        .iter()
+        .filter_map(|it| {
+            let s = |key: &str| it.get(key).and_then(Value::as_str).unwrap_or("");
+            let (image, volume) = (s("cdImage"), s("cdVolume"));
+            if image.is_empty() || volume.is_empty() {
+                return None;
+            }
+            let m: Map<String, Value> = [
+                ("image".to_string(), Value::from(image.to_string())),
+                ("volume".to_string(), Value::from(volume.to_string())),
+            ]
+            .into_iter()
+            .collect();
+            Some(Value::Object(m))
+        })
+        .collect();
+    std::fs::write(out_dir.join("cdindex.jsonl"), render_values(&cdindex, crlf, lf)?)
+        .with_context(|| format!("writing {}", out_dir.join("cdindex.jsonl").display()))?;
+
     Ok(PagedReport {
         categories: cats.len(),
         pages,
@@ -1012,9 +1036,10 @@ pub fn inject(
 }
 
 /// Inject a paged catalog tree (docs/21) — `index.jsonl` + `cats/<slug>.jsonl` +
-/// `hotkeys.jsonl` — into an image's metadata dir (and `metadata/cats`), as TEXT.
-/// The launcher reads `metadata/index.jsonl` first; if present it pages, else it
-/// falls back to the legacy single `catalog.jsonl`.
+/// `hotkeys.jsonl` + `cdindex.jsonl` (docs/45 CD reverse index) — into an image's
+/// metadata dir (and `metadata/cats`), as TEXT. The launcher reads
+/// `metadata/index.jsonl` first; if present it pages, else it falls back to the
+/// legacy single `catalog.jsonl`.
 pub fn inject_paged(rb_bin: &str, image: &Path, paged_dir: &Path, metadata_dir: &str) -> Result<()> {
     let rb = RbCli::new(rb_bin);
     let md = metadata_dir.trim_end_matches('/');
@@ -1022,7 +1047,7 @@ pub fn inject_paged(rb_bin: &str, image: &Path, paged_dir: &Path, metadata_dir: 
     let cats_vol = format!("{md}/cats");
     rb.mkdir_p(image, &cats_vol)?;
 
-    for f in ["index.jsonl", "hotkeys.jsonl"] {
+    for f in ["index.jsonl", "hotkeys.jsonl", "cdindex.jsonl"] {
         let host = paged_dir.join(f);
         if host.exists() {
             rb.put_text(image, &host, &format!("{md}/{f}"), "TEXT", "ttxt")
@@ -1377,6 +1402,28 @@ mod tests {
         let v: Value = serde_json::from_str(hk.split(['\r', '\n']).find(|l| !l.trim().is_empty()).unwrap()).unwrap();
         assert_eq!(v.get("key").and_then(Value::as_str), Some("a"));
         assert_eq!(v.get("app").and_then(Value::as_str), Some("Apps/A/A"));
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn paged_cdindex_only_for_cd_titles() {
+        // A run-from-CD title (cdImage + cdVolume) is indexed; a plain title is not.
+        // The launcher reverse-maps the mounted CD volume back to its image (docs/45).
+        let src = "{\"id\":\"myst\",\"name\":\"Myst\",\"app\":\"Apps/Myst/Myst\",\"cdImage\":\"MYST.iso\",\"cdVolume\":\"Myst\"}\n\
+                   {\"id\":\"b\",\"name\":\"B\",\"app\":\"Apps/B/B\"}\n";
+        let dir = std::env::temp_dir().join(format!("atrium-paged-cdx-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        let s = dir.join("src.jsonl");
+        std::fs::write(&s, src).unwrap();
+        run_paged(&s, &dir, None, None, false, false).unwrap();
+
+        let cdx = macroman::decode(&std::fs::read(dir.join("cdindex.jsonl")).unwrap());
+        let lines: Vec<&str> = cdx.split(['\r', '\n']).filter(|l| !l.trim().is_empty()).collect();
+        assert_eq!(lines.len(), 1, "only the CD title is indexed");
+        let v: Value = serde_json::from_str(lines[0]).unwrap();
+        assert_eq!(v.get("image").and_then(Value::as_str), Some("MYST.iso"));
+        assert_eq!(v.get("volume").and_then(Value::as_str), Some("Myst"));
         let _ = std::fs::remove_dir_all(&dir);
     }
 

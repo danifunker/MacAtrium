@@ -26,6 +26,7 @@
 #include "launch.h"
 #include "cdswap.h"        /* docs/45: BlueSCSI Toolbox CD auto-insert */
 #include "toolbox.h"       /* docs/45: CD Library browser (toolbox_list_cds, …) */
+#include "cdidx.h"         /* docs/45: CD-title reverse index (mounted volume -> image) */
 #include "sysctl.h"
 #include "sound.h"
 #include "prefs.h"
@@ -1936,12 +1937,49 @@ static void cdl_index(int n, short y)
     DrawText((Ptr)&b[i], 0, len);
 }
 
+/* The CD-title reverse index (docs/45, cdidx.h): metadata/cdindex.jsonl maps each
+ * CD title's host image to the HFS volume that mounts when it's inserted. Loaded
+ * once (lazily, boot volume), it lets the CD Library name the disc ACTUALLY in the
+ * drive by reverse-mapping the mounted CD volume — correct after a reboot, with no
+ * persisted session state. */
+static CdIdxEntry gCdIdx[CDIDX_MAX];
+static int        gNCdIdx     = 0;
+static int        gCdIdxTried = 0;
+
+static const char *cdidx_reverse(const char *volName)
+{
+    if (!gCdIdxTried) {
+        FSSpec spec;
+        char  *buf;
+        long   len;
+        gCdIdxTried = 1;                            /* one attempt; an absent file is fine */
+        if (macfs_make_spec("metadata/cdindex.jsonl", &spec) == noErr &&
+            macfs_read_all(&spec, &buf, &len) == noErr) {
+            gNCdIdx = cdidx_parse(buf, len, gCdIdx, CDIDX_MAX);
+            DisposePtr(buf);
+        }
+    }
+    return cdidx_image_for_volume(gCdIdx, gNCdIdx, volName);
+}
+
 static void cdl_draw(WindowPtr dlg, const TbEntry *cds, int n, int sel, int top,
                      short tbFound, const char *active)
 {
     Rect  pr = dlg->portRect, row;
     short W = (short)(pr.right - pr.left);
     int   i;
+    short cdv;
+    char  volName[ITEM_CDVOL_LEN];
+    const char *marker = "";
+    /* "(in drive)" reflects the disc ACTUALLY mounted: read the mounted CD-ROM
+     * volume and reverse-map it to its host image via the CD index (right even after
+     * a reboot). If it isn't a known game disk, fall back to the image MacAtrium
+     * inserted this session. No CD mounted => no marker — honest: never a stale name
+     * after an eject, never a guess (docs/45). */
+    if (macfs_find_cd_vol_named(&cdv, volName, sizeof volName)) {
+        const char *img = cdidx_reverse(volName);
+        marker = img ? img : active;
+    }
 
     SetPort(dlg);
     EraseRect(&pr);
@@ -1956,7 +1994,7 @@ static void cdl_draw(WindowPtr dlg, const TbEntry *cds, int n, int sel, int top,
     for (i = 0; i < CDL_ROWS && top + i < n; i++) {
         int   idx      = top + i;
         short y        = (short)(40 + i * 16);
-        int   isActive = active[0] && toolbox_name_eq(active, cds[idx].name);
+        int   isActive = marker[0] && toolbox_name_eq(marker, cds[idx].name);
         if (isActive) { MoveTo(CDL_X_MARK, y); cdl_str(">"); }
         cdl_index(cds[idx].index, y);          /* right-aligned index column */
         MoveTo(CDL_X_NAME, y);                 /* names all start here       */

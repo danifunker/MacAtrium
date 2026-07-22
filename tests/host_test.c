@@ -10,6 +10,7 @@
 #include "model.h"
 #include "artcaps.h"   /* pure half only, via -DARTCAPS_HOST_TEST (docs/44) */
 #include "toolbox.h"   /* pure half only, via -DTOOLBOX_HOST_TEST (docs/45) */
+#include "cdidx.h"     /* CD-title reverse index parse + lookup (docs/45) */
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -636,6 +637,38 @@ static void test_toolbox_magic(void)
     CHECK(!toolbox_has_magic(page, (int)sizeof page), "tb no magic in ordinary mode data");
 }
 
+/* ---- cdidx: CD-title reverse index (docs/45) ---------------------------- */
+
+static void test_cdidx(void)
+{
+    /* image + volume both required; incomplete/blank lines dropped. CR/LF/CRLF mix. */
+    static const char idx[] =
+        "{\"image\":\"MYST.iso\",\"volume\":\"Myst\"}\r\n"
+        "{\"image\":\"SPECTRE.iso\",\"volume\":\"Spectre VR\"}\n"
+        "\r\n"                                      /* blank line -> skipped */
+        "{\"image\":\"NOVOL.iso\"}\r\n"             /* no volume -> dropped */
+        "{\"volume\":\"Orphan\"}\n";                /* no image  -> dropped */
+    CdIdxEntry e[8];
+    int n = cdidx_parse(idx, (long)(sizeof idx - 1), e, 8);
+
+    CHECK(n == 2, "cdidx keeps 2 complete records, drops incomplete/blank");
+    CHECK(strcmp(e[0].image, "MYST.iso") == 0 && strcmp(e[0].volume, "Myst") == 0, "cdidx record 0");
+    CHECK(strcmp(e[1].image, "SPECTRE.iso") == 0 &&
+          strcmp(e[1].volume, "Spectre VR") == 0, "cdidx record 1 (volume with space)");
+
+    /* reverse lookup: case-insensitive like HFS; misses and empties -> NULL. */
+    CHECK(cdidx_image_for_volume(e, n, "myst") &&
+          strcmp(cdidx_image_for_volume(e, n, "myst"), "MYST.iso") == 0, "cdidx reverse ci -> image");
+    CHECK(cdidx_image_for_volume(e, n, "SPECTRE VR") &&
+          strcmp(cdidx_image_for_volume(e, n, "SPECTRE VR"), "SPECTRE.iso") == 0, "cdidx reverse ci w/ space");
+    CHECK(cdidx_image_for_volume(e, n, "Riven") == 0, "cdidx reverse miss -> NULL");
+    CHECK(cdidx_image_for_volume(e, n, "") == 0, "cdidx reverse empty name -> NULL");
+    CHECK(cdidx_image_for_volume(e, 0, "Myst") == 0, "cdidx reverse empty index -> NULL");
+
+    /* cap is honored (stop at the requested count). */
+    CHECK(cdidx_parse(idx, (long)(sizeof idx - 1), e, 1) == 1, "cdidx honors cap");
+}
+
 /* ---- compat (docs/40) --------------------------------------------------- */
 
 static void test_compat(void)
@@ -759,6 +792,7 @@ int main(void)
     test_toolbox_fuzzy();
     test_toolbox_cdb();
     test_toolbox_magic();
+    test_cdidx();
 
     printf("\n%d/%d checks passed\n", g_total - g_fail, g_total);
     return g_fail ? 1 : 0;
