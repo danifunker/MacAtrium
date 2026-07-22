@@ -169,27 +169,35 @@ if (r == CD_OK || (r != CD_UNSUPPORTED && !it->cdRequired)) {
 ## 6. Manual browse — the CD Library
 
 `run_cd_list_dialog` (Esc menu) lists the cached images and lets the user insert
-one by hand: right-aligned **index column**, then the name; the disc **actually in
-the drive** is marked `(in drive)`. **Insert** (button / Return) unmounts the
-outgoing CD volume (`macfs_find_cd_vol` — hardware-locked/write-protected media)
-then `SET NEXT CD`, so no swap nag.
+one by hand: right-aligned **index column**, then the name. An **`In drive:` line**
+always names the disc actually loaded, and a catalogued game disc's list row is also
+flagged `>` `(in drive)`. **Insert** (button / Return) unmounts the outgoing CD
+volume (`macfs_find_cd_vol` — hardware-locked/write-protected media) then
+`SET NEXT CD`, so no swap nag.
 
-**The `(in drive)` marker is live, not remembered.** `cdl_draw` reads the CD-ROM
-volume *actually mounted* (`macfs_find_cd_vol_named`) on every draw and resolves it
-to an image, so the marker stays honest across ejects and reboots with **no
-persisted state**:
+**Everything is read live, Mac-side — BlueSCSI exposes no "current CD" query.** The
+Toolbox command set is LIST CDS / SET NEXT CD / COUNT CDS / METADATA; none report
+the *loaded* image (METADATA's subcommands are only device-list / capabilities /
+working-dir), the firmware never re-derives the INQUIRY strings on a swap, and the
+MiSTer core is frozen — so there is nothing to read and nothing we could add. Instead
+`cdl_draw` names the disc on every draw, identically on MiSTer, real BlueSCSI, and
+snow:
 
-- a **reverse index** — `cdidx.c` over `metadata/cdindex.jsonl` (one `{image,
-  volume}` per CD title, emitted by `catalog::page_values` next to `index.jsonl`) —
-  maps the mounted volume name back to its host image, so the marker is right even
-  right after a reboot, and follows an out-of-band OSD swap between known titles;
-- if the mounted disc isn't a catalogued CD title, it falls back to the image
-  MacAtrium inserted **this session** (`cdswap_active_image`);
-- **no CD mounted ⇒ no marker** — never a stale name after an eject, never a guess.
+- a **mounted disc** gives its real HFS volume name via `macfs_find_cd_vol_named` —
+  a **non-game** disc included;
+- a disc that answers the drive but mounts **no Mac volume** (audio / non-HFS,
+  detected by a `TEST UNIT READY` probe — `toolbox_media_present`) shows a generic
+  **`Audio CD`**;
+- an **empty drive** shows `(none)`.
 
-Because it reads live hardware, the marker deliberately does **not** try to survive
-a reboot via a saved "last inserted" value — an unmounted or swapped disc would make
-that a lie. The reverse index is what restores post-reboot correctness honestly.
+The list-row `>` `(in drive)` flag is driven **only** by the **reverse index** —
+`cdidx.c` over `metadata/cdindex.jsonl` (one `{image, volume}` per CD title, emitted
+by `catalog::page_values` next to `index.jsonl`) — which maps the mounted volume name
+back to its host image. So a catalogued game disc is flagged correctly even right
+after a reboot and follows an out-of-band OSD swap between known titles; a disc that
+isn't a catalogued CD title is still **named** on the `In drive:` line, just not
+flagged against a list row. No session "last inserted" value is consulted — an
+unmounted or swapped disc would make that a lie.
 
 ---
 

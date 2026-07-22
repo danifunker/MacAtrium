@@ -34,14 +34,6 @@ typedef struct {
  * the reason; the caller decides whether to still launch (per it->cdRequired). */
 CdResult cdswap_ensure(const CatItem *it, const CdSwapUI *ui, short *cdVref);
 
-/* The image filename of the CD currently inserted this session ("" if none) — for
- * the CD Library browser's "active" marker. */
-const char *cdswap_active_image(void);
-
-/* Record an image as the active disc (the CD Library browser sets this after a
- * manual insert). */
-void        cdswap_set_active_image(const char *image);
-
 /* ---- session CD-image cache (docs/45) ------------------------------------------
  * Scan the host CD listing once (probe + LIST CDS) and keep it in RAM, so title
  * launches don't re-walk the SCSI bus each time. The scan is LAZY — it runs on the
@@ -55,6 +47,11 @@ void cdswap_scan(void);
 /* 1 (and *id when non-NULL) if a Toolbox CD-ROM was found this session, else 0.
  * Scans on first use if cdswap_scan() hasn't run yet. */
 int  cdswap_ready(short *id);
+
+/* 1 if a disc is loaded in the CD device — including an audio / non-HFS disc that
+ * mounts no Mac volume — else 0. Scans for the CD device on first use. Lets the CD
+ * Library always name what is actually in the drive (docs/45). */
+int  cdswap_media_present(void);
 
 /* The cached listing for the CD Library browser: entries, with *n = count, *found =
  * a CD device answered, *id = its SCSI id. Any out-param may be NULL. Scans on first

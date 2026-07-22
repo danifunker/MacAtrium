@@ -239,6 +239,30 @@ static int tb_is_cdrom(short id)
     return (err == noErr) && ((resp[0] & 0x1F) == TB_PDT_CDROM);
 }
 
+/* TEST UNIT READY on `id`: 1 if a disc is loaded (a data disc that mounts a Mac
+ * volume OR an audio / non-HFS disc that mounts none), 0 if the drive is empty. A
+ * media change parks a UNIT ATTENTION on the first TUR, so we issue two — the first
+ * clears it, the second reports true readiness. Standard SCSI (no data phase), so the
+ * CD Library can name the loaded disc identically on MiSTer, real BlueSCSI, and snow,
+ * none of which expose a "current CD" Toolbox query (docs/45). */
+int toolbox_media_present(short id)
+{
+    unsigned char cdb[6];
+    OSErr err;
+    short stat, msg;
+    int   attempt;
+
+    for (attempt = 0; attempt < 2; attempt++) {
+        memset(cdb, 0, sizeof cdb);              /* TEST UNIT READY = all-zero 6-byte CDB */
+        stat = -1; msg = 0;
+        if (SCSIGet() != noErr) return 0;        /* bus busy -> report empty (best effort) */
+        err = tb_begin(id, cdb, 6);
+        (void)SCSIComplete(&stat, &msg, TB_SCSI_TIMEOUT);
+        if (err == noErr && (stat & 0xFF) == 0) return 1;   /* GOOD -> a disc is present */
+    }
+    return 0;                                    /* CHECK CONDITION twice -> no media */
+}
+
 int toolbox_probe_id(int pin, short *outId)
 {
     /* Session cache (RAM): "probe on first use each boot" (docs/45). */

@@ -16,17 +16,6 @@
 /* The CD volume we last inserted this session (RAM), so step 2 can unmount the
  * outgoing disc even when the incoming title's metadata doesn't name it. */
 static char gLastCdVol[ITEM_CDVOL_LEN];   /* "" = nothing inserted yet */
-/* The image filename now in the drive, for the CD Library browser's active marker. */
-static char gLastCdImage[ITEM_CDIMG_LEN];
-
-const char *cdswap_active_image(void) { return gLastCdImage; }
-
-void cdswap_set_active_image(const char *image)
-{
-    if (!image) { gLastCdImage[0] = '\0'; return; }
-    strncpy(gLastCdImage, image, sizeof gLastCdImage - 1);
-    gLastCdImage[sizeof gLastCdImage - 1] = '\0';
-}
 
 /* ---- session CD-image cache (docs/45) --------------------------------------- */
 static short   gCdId;                 /* cached Toolbox CD-ROM SCSI id            */
@@ -52,6 +41,13 @@ int cdswap_ready(short *id)
     if (!gCdFound) return 0;
     if (id) *id = gCdId;
     return 1;
+}
+
+int cdswap_media_present(void)
+{
+    cd_scan_once();
+    if (!gCdFound) return 0;
+    return toolbox_media_present(gCdId);
 }
 
 const TbEntry *cdswap_cds(int *n, int *found, short *id)
@@ -93,7 +89,6 @@ CdResult cdswap_ensure(const CatItem *it, const CdSwapUI *ui, short *cdVref)
     /* 1. Fast-path: the wanted disc is already inserted. */
     if (it->cdVolume[0] && macfs_find_vol_by_name(it->cdVolume, &vref)) {
         *cdVref = vref;
-        cdswap_set_active_image(it->cdImage);
         return CD_OK;
     }
 
@@ -122,7 +117,6 @@ CdResult cdswap_ensure(const CatItem *it, const CdSwapUI *ui, short *cdVref)
     /* Without an expected volume name we can't verify or find the vRefNum, so this is
      * a best-effort switch (fine for an app-on-HD title that just reads the CD). */
     if (!it->cdVolume[0]) {
-        cdswap_set_active_image(it->cdImage);
         return CD_OK;
     }
 
@@ -135,7 +129,6 @@ CdResult cdswap_ensure(const CatItem *it, const CdSwapUI *ui, short *cdVref)
             *cdVref = vref;
             strncpy(gLastCdVol, it->cdVolume, sizeof gLastCdVol - 1);
             gLastCdVol[sizeof gLastCdVol - 1] = '\0';
-            cdswap_set_active_image(it->cdImage);
             return CD_OK;
         }
         if (ui && ui->wait_tick && !ui->wait_tick(ui->ctx))

@@ -1963,22 +1963,29 @@ static const char *cdidx_reverse(const char *volName)
 }
 
 static void cdl_draw(WindowPtr dlg, const TbEntry *cds, int n, int sel, int top,
-                     short tbFound, const char *active)
+                     short tbFound)
 {
     Rect  pr = dlg->portRect, row;
     short W = (short)(pr.right - pr.left);
     int   i;
     short cdv;
     char  volName[ITEM_CDVOL_LEN];
-    const char *marker = "";
-    /* "(in drive)" reflects the disc ACTUALLY mounted: read the mounted CD-ROM
-     * volume and reverse-map it to its host image via the CD index (right even after
-     * a reboot). If it isn't a known game disk, fall back to the image MacAtrium
-     * inserted this session. No CD mounted => no marker — honest: never a stale name
-     * after an eject, never a guess (docs/45). */
+    char  inDrive[ITEM_CDVOL_LEN];
+    const char *marker = "";           /* listed image to flag with ">", if we can map it */
+    /* Always name the disc ACTUALLY in the drive, read Mac-side so it is identical on
+     * MiSTer, real BlueSCSI, and snow (BlueSCSI exposes no "current CD" query). A
+     * mounted disc gives its real HFS volume name (a non-game disc included); a disc
+     * that answers the drive but mounts no Mac volume (audio / non-HFS) shows a generic
+     * label; an empty drive shows nothing. A game disc is additionally flagged in the
+     * list by reverse-mapping its volume to the host image via the CD index (docs/45). */
+    inDrive[0] = '\0';
     if (macfs_find_cd_vol_named(&cdv, volName, sizeof volName)) {
-        const char *img = cdidx_reverse(volName);
-        marker = img ? img : active;
+        strncpy(inDrive, volName, sizeof inDrive - 1);
+        inDrive[sizeof inDrive - 1] = '\0';
+        marker = cdidx_reverse(volName);           /* game disc -> its listed image */
+        if (!marker) marker = "";
+    } else if (cdswap_media_present()) {
+        strcpy(inDrive, "Audio CD");               /* present, but mounts no Mac volume */
     }
 
     SetPort(dlg);
@@ -2007,6 +2014,11 @@ static void cdl_draw(WindowPtr dlg, const TbEntry *cds, int n, int sel, int top,
         InvertRect(&row);
     }
 
+    if (tbFound) {                             /* always name the disc in the drive (docs/45) */
+        MoveTo(16, (short)(pr.bottom - 58));
+        cdl_str("In drive:  ");
+        cdl_str(inDrive[0] ? inDrive : "(none)");
+    }
     MoveTo(16, (short)(pr.bottom - 42));
     cdl_str("Up/Down to select, Return or Insert to load, Esc to close.");
     DrawControls(dlg);
@@ -2019,8 +2031,9 @@ static void cdl_insert(short tbId, const TbEntry *cd)
 {
     short cdv;
     if (macfs_find_cd_vol(&cdv)) (void)macfs_unmount(cdv);
-    if (toolbox_set_next_cd(tbId, cd->index))
-        cdswap_set_active_image(cd->name);
+    (void)toolbox_set_next_cd(tbId, cd->index);
+    /* No session bookkeeping: the next cdl_draw reads the drive live (mounted volume
+     * name, or the CD reverse index) and names whatever actually mounted (docs/45). */
 }
 
 /* List the host's CD images and let the user insert one. Reached from the Esc menu. */
@@ -2051,7 +2064,7 @@ static void run_cd_list_dialog(void)
     doneBtn = NewControl(dlg, &r, "\pDone", true, 1, 0, 1, pushButProc, 0L);
     if (!(tbFound && n > 0)) HiliteControl(insBtn, 255);   /* nothing to insert → dim */
 
-    cdl_draw(dlg, cds, n, sel, top, tbFound, cdswap_active_image());
+    cdl_draw(dlg, cds, n, sel, top, tbFound);
     ValidRect(&dlg->portRect);
 
     while (running) {
@@ -2061,7 +2074,7 @@ static void run_cd_list_dialog(void)
             case updateEvt: {
                 WindowPtr w = (WindowPtr)evt.message;
                 BeginUpdate(w);
-                if (w == dlg) cdl_draw(dlg, cds, n, sel, top, tbFound, cdswap_active_image());
+                if (w == dlg) cdl_draw(dlg, cds, n, sel, top, tbFound);
                 else { SetPort(w); ui_draw(&gUi); }
                 EndUpdate(w);
                 SetPort(dlg);
@@ -2078,13 +2091,13 @@ static void run_cd_list_dialog(void)
                         if (ctl == doneBtn) running = 0;
                         else if (ctl == insBtn && tbFound && n > 0) {
                             cdl_insert(tbId, &cds[sel]);
-                            cdl_draw(dlg, cds, n, sel, top, tbFound, cdswap_active_image());
+                            cdl_draw(dlg, cds, n, sel, top, tbFound);
                         }
                     } else if (n > 0) {                       /* click a list row */
                         int i = (p.v - 28) / 16;
                         if (i >= 0 && top + i < n) {
                             sel = top + i;
-                            cdl_draw(dlg, cds, n, sel, top, tbFound, cdswap_active_image());
+                            cdl_draw(dlg, cds, n, sel, top, tbFound);
                         }
                     }
                 } else if (w != dlg) SysBeep(1);
@@ -2097,13 +2110,13 @@ static void run_cd_list_dialog(void)
                 if (c == kCharEscape) { running = 0; break; }
                 if (c == CDL_UP && sel > 0) {
                     sel--; if (sel < top) top = sel;
-                    cdl_draw(dlg, cds, n, sel, top, tbFound, cdswap_active_image());
+                    cdl_draw(dlg, cds, n, sel, top, tbFound);
                 } else if (c == CDL_DOWN && sel < n - 1) {
                     sel++; if (sel >= top + CDL_ROWS) top = sel - CDL_ROWS + 1;
-                    cdl_draw(dlg, cds, n, sel, top, tbFound, cdswap_active_image());
+                    cdl_draw(dlg, cds, n, sel, top, tbFound);
                 } else if ((c == kCharReturn || c == kCharEnter) && tbFound && n > 0) {
                     cdl_insert(tbId, &cds[sel]);
-                    cdl_draw(dlg, cds, n, sel, top, tbFound, cdswap_active_image());
+                    cdl_draw(dlg, cds, n, sel, top, tbFound);
                 }
                 break;
             }
