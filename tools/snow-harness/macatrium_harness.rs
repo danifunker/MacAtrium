@@ -12,12 +12,18 @@
 // Usage:
 //   macatrium_harness <rom> <mdc_rom|-> <hdd.img> <out_dir> <max_cycles> \
 //       [--snap-every N] [--keys "CYCLE:KEY;CYCLE:KEY;..."] [--wall-secs S] \
-//       [--pram FILE] [--disk2 FILE] [--cdrom ISO] [--cd-dir DIR]
+//       [--pram FILE] [--disk2 FILE] [--cdrom ISO] [--cd-dir DIR] [--shared-dir DIR]
 //
 // --cd-dir DIR exposes a folder of CD images to the guest via the BlueSCSI Toolbox
 // (LIST CDS / SET NEXT CD): the launcher enumerates it and switches the disc in the
 // id-3 CD-ROM drive programmatically. A CD drive is attached at id 3 if --cdrom
 // wasn't given, so SET NEXT CD has a drive to (re)mount into.
+//
+// --shared-dir DIR is the OTHER half of the Toolbox: the SD-card "shared folder" the
+// file ops work on (LIST/COUNT FILES, GET FILE, SEND FILE PREP/DATA/END), which is how
+// the SD-card file browser and its copy in/out are exercised (docs/46). It is a
+// separate directory from --cd-dir on purpose — the firmware keeps the two apart, so
+// browsing files can never disturb CD switching.
 //
 // KEY names: l f r q enter return esc up down left right space  (lowercase)
 // A click is scheduled with KEY = `click@X,Y` (absolute framebuffer pixels), e.g.
@@ -97,6 +103,7 @@ fn main() -> Result<()> {
     let mut disk2: Option<String> = None; // 2nd SCSI disk (docs/37 multi-disk verify)
     let mut cdrom: Option<String> = None; // SCSI CD-ROM image (ISO/TOAST) — run-from-CD games
     let mut cd_dir: Option<String> = None; // BlueSCSI Toolbox CD-image folder (LIST CDS / SET NEXT CD)
+    let mut shared_dir: Option<String> = None; // Toolbox shared folder for the file ops (docs/46)
     // schedule[cycle] = input actions due at that cycle
     let mut schedule: BTreeMap<u64, Vec<Act>> = BTreeMap::new();
     let mut i = 6;
@@ -108,6 +115,7 @@ fn main() -> Result<()> {
             "--disk2"      => { disk2      = Some(a[i + 1].clone()); i += 2; }
             "--cdrom"      => { cdrom      = Some(a[i + 1].clone()); i += 2; }
             "--cd-dir"     => { cd_dir     = Some(a[i + 1].clone()); i += 2; }
+            "--shared-dir" => { shared_dir = Some(a[i + 1].clone()); i += 2; }
             "--keys" => {
                 const CMD: u8 = 0x37; // Command (universal scancode)
                 const OPT: u8 = 0x3A; // Option
@@ -249,6 +257,13 @@ fn main() -> Result<()> {
         }
         cmd.send(EmulatorCommand::SetCdDir(Some(PathBuf::from(dir))))?;
         log::info!("toolbox CD-image dir (id 3): {dir}");
+    }
+    if let Some(ref dir) = shared_dir {
+        // BlueSCSI Toolbox shared folder — the SD-card side the file ops read and
+        // write (docs/46). Needs no drive of its own: the file commands are answered
+        // by the Toolbox device itself, not by a CD/disk target.
+        cmd.send(EmulatorCommand::SetSharedDir(Some(PathBuf::from(dir))))?;
+        log::info!("toolbox shared dir (files): {dir}");
     }
     cmd.send(EmulatorCommand::Run)?;
     cmd.send(EmulatorCommand::SetSpeed(EmulatorSpeed::Uncapped))?;

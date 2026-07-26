@@ -88,4 +88,19 @@ OSErr macfs_open_df(const FSSpec *spec, char perm, short *refNum);
 OSErr macfs_get_finfo(const FSSpec *spec, FInfo *info);
 OSErr macfs_create(const FSSpec *spec, OSType creator, OSType type);
 
+/* Write side, for moving files to and from the SD card (docs/46). `macfs_open_rf`
+ * opens the resource fork as a byte STREAM (HOpenRF, not FSpOpenResFile — we copy
+ * bytes, we do not read a resource map); `macfs_set_finfo` restores type/creator,
+ * without which a correctly copied application is an unopenable document to the
+ * Finder; `macfs_mkdir` creates a /MacAtrium-relative folder (already-exists is
+ * success). All System 6-safe. */
+OSErr macfs_open_rf(const FSSpec *spec, char perm, short *refNum);
+OSErr macfs_set_finfo(const FSSpec *spec, const FInfo *info);
+OSErr macfs_mkdir(const char *relToRoot);
+
+/* Commit a volume's buffered catalog + data. Closing a fork is NOT enough: classic
+ * Mac OS holds writes until a clean unmount, so a copied file can vanish on a reset
+ * while every call reported success. Call after finishing a write (docs/46). */
+OSErr macfs_flush_vol(short vref);
+
 #endif /* MACATRIUM_MACFS_H */

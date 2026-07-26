@@ -107,6 +107,66 @@ void toolbox_cdb_device_info(unsigned char *cdb, int subcmd)
     /* CDB[8] = allocation length; 0 => 8 bytes (v0 backward-compat). */
 }
 
+/* ---- file-transfer CDBs (docs/46) ------------------------------------------ */
+
+void toolbox_cdb_list_files(unsigned char *cdb)
+{
+    memset(cdb, 0, TB_CDB_LEN);
+    cdb[0] = TB_OP_LIST_FILES;
+}
+
+void toolbox_cdb_count_files(unsigned char *cdb)
+{
+    memset(cdb, 0, TB_CDB_LEN);
+    cdb[0] = TB_OP_COUNT_FILES;
+}
+
+void toolbox_cdb_get_file(unsigned char *cdb, int index, unsigned long blockOff, int blocks)
+{
+    memset(cdb, 0, TB_CDB_LEN);
+    cdb[0] = TB_OP_GET_FILE;
+    cdb[1] = (unsigned char)index;                        /* index in the listing    */
+    cdb[2] = (unsigned char)((blockOff >> 24) & 0xFF);    /* 32-bit block offset, BE */
+    cdb[3] = (unsigned char)((blockOff >> 16) & 0xFF);
+    cdb[4] = (unsigned char)((blockOff >> 8) & 0xFF);
+    cdb[5] = (unsigned char)(blockOff & 0xFF);
+    cdb[6] = (unsigned char)blocks;                       /* 4 KB blocks; 0 reads as 1 */
+}
+
+void toolbox_cdb_send_file_prep(unsigned char *cdb)
+{
+    memset(cdb, 0, TB_CDB_LEN);
+    cdb[0] = TB_OP_SEND_FILE_PREP;    /* the filename follows in the DataOut phase */
+}
+
+void toolbox_cdb_send_file_10(unsigned char *cdb, int blocks, unsigned long blockOff)
+{
+    memset(cdb, 0, TB_CDB_LEN);
+    cdb[0] = TB_OP_SEND_FILE_10;
+    cdb[3] = (unsigned char)((blockOff >> 16) & 0xFF);    /* 24-bit block offset, BE */
+    cdb[4] = (unsigned char)((blockOff >> 8) & 0xFF);
+    cdb[5] = (unsigned char)(blockOff & 0xFF);
+    cdb[6] = (unsigned char)blocks;   /* 512-byte blocks; 0 selects the legacy form */
+}
+
+void toolbox_cdb_send_file_bytes(unsigned char *cdb, int nbytes, unsigned long blockOff)
+{
+    memset(cdb, 0, TB_CDB_LEN);
+    cdb[0] = TB_OP_SEND_FILE_10;
+    cdb[1] = (unsigned char)((nbytes >> 8) & 0xFF);   /* legacy u16 BE byte count */
+    cdb[2] = (unsigned char)(nbytes & 0xFF);
+    cdb[3] = (unsigned char)((blockOff >> 16) & 0xFF);
+    cdb[4] = (unsigned char)((blockOff >> 8) & 0xFF);
+    cdb[5] = (unsigned char)(blockOff & 0xFF);
+    cdb[6] = 0;                    /* 0 selects the CDB[1..2] byte-count encoding */
+}
+
+void toolbox_cdb_send_file_end(unsigned char *cdb)
+{
+    memset(cdb, 0, TB_CDB_LEN);
+    cdb[0] = TB_OP_SEND_FILE_END;
+}
+
 void toolbox_cdb_mode_sense_p31(unsigned char *cdb)
 {
     memset(cdb, 0, 6);
@@ -115,15 +175,24 @@ void toolbox_cdb_mode_sense_p31(unsigned char *cdb)
     cdb[4] = 64;                      /* allocation length — enough for the page */
 }
 
-int toolbox_has_magic(const unsigned char *buf, int len)
+/* 1 if the NUL-terminated `needle` occurs anywhere in buf[len]. */
+static int tb_contains(const unsigned char *buf, int len, const char *needle, int mlen)
 {
-    static const char magic[] = TB_MAGIC;
-    int mlen = (int)sizeof(magic) - 1;   /* drop the terminating NUL */
     int i;
     for (i = 0; i + mlen <= len; i++) {
-        if (memcmp(buf + i, magic, (size_t)mlen) == 0) return 1;
+        if (memcmp(buf + i, needle, (size_t)mlen) == 0) return 1;
     }
     return 0;
+}
+
+int toolbox_has_magic(const unsigned char *buf, int len)
+{
+    static const char blue[] = TB_MAGIC;
+    static const char zulu[] = TB_MAGIC_ZULU;
+    /* BlueSCSI and ZuluSCSI share the whole command set and differ only here, so
+     * accept either signature — one client, both devices (docs/45). */
+    return tb_contains(buf, len, blue, (int)sizeof(blue) - 1) ||
+           tb_contains(buf, len, zulu, (int)sizeof(zulu) - 1);
 }
 
 #ifndef TOOLBOX_HOST_TEST
@@ -153,6 +222,20 @@ static OSErr tb_read(void *dst, long nbytes)
     return SCSIRead((Ptr)tib);
 }
 
+/* DataOut counterpart of tb_read: hand `nbytes` from `src` to the target. Used by the
+ * file send (SEND FILE PREP/DATA) and SET WORKING DIR (docs/46). */
+static OSErr tb_write(const void *src, long nbytes)
+{
+    SCSIInstr tib[2];
+    tib[0].scOpcode = scInc;
+    tib[0].scParam1 = (long)src;
+    tib[0].scParam2 = nbytes;
+    tib[1].scOpcode = scStop;
+    tib[1].scParam1 = 0;
+    tib[1].scParam2 = 0;
+    return SCSIWrite((Ptr)tib);
+}
+
 /* Select `id` and send a `cdbLen`-byte CDB (10 for the vendor ops, 6 for MODE
  * SENSE). Caller must reach SCSIComplete regardless (to release the bus). Returns
  * noErr once the CDB is accepted. */
@@ -176,6 +259,12 @@ int toolbox_set_next_cd(short id, int index)
     return (err == noErr && (stat & 0xFF) == 0) ? 1 : 0;
 }
 
+/* One shared 4 KB staging buffer for LIST CDS / LIST FILES. Both drain a whole DataIn
+ * phase in a single SCSIRead and are never in flight at the same time, so they share
+ * this rather than each carrying its own 4 KB static — the B&W build runs a 384 KB
+ * partition (docs/44). TB_MAX_CDS and TB_MAX_FILES are both 100. */
+static unsigned char gTbList[TB_MAX_FILES * TB_ENTRY_SIZE];
+
 int toolbox_list_cds(short id, TbEntry *buf, int cap, int *n)
 {
     /* One SCSIRead must span the WHOLE DataIn phase. The original SCSI Manager
@@ -188,18 +277,18 @@ int toolbox_list_cds(short id, TbEntry *buf, int cap, int *n)
      * and stops. No COUNT command is issued (COUNT CDS is 0xDA, outside the MiSTer
      * RTL's 0xD0-0xD9 window); the count is however many populated entries precede
      * the first empty name. */
-    static unsigned char raw[TB_MAX_CDS * TB_ENTRY_SIZE];
+    unsigned char *raw = gTbList;            /* shared staging buffer (see gTbList) */
     unsigned char cdb[TB_CDB_LEN];
     OSErr err;
     short stat = -1, msg = 0;
     int count = 0, i;
 
     *n = 0;
-    memset(raw, 0, sizeof raw);
+    memset(raw, 0, sizeof gTbList);
     toolbox_cdb_list_cds(cdb);
     if (SCSIGet() != noErr) return 0;
     err = tb_begin(id, cdb, TB_CDB_LEN);
-    if (err == noErr) (void)tb_read(raw, (long)sizeof raw);
+    if (err == noErr) (void)tb_read(raw, (long)sizeof gTbList);
     (void)SCSIComplete(&stat, &msg, TB_SCSI_TIMEOUT);
     if (err != noErr) return 0;
 
@@ -308,5 +397,237 @@ int toolbox_probe_id(int pin, short *outId)
     }
     cached = -1;
     return 0;
+}
+
+/* ---- file transfer (docs/46) ----------------------------------------------- */
+
+int toolbox_file_caps(short id, unsigned char *caps)
+{
+    unsigned char cdb[TB_CDB_LEN];
+    unsigned char resp[8];
+    OSErr err;
+    short stat = -1, msg = 0;
+
+    if (caps) *caps = 0;
+    memset(resp, 0, sizeof resp);
+    toolbox_cdb_device_info(cdb, TB_SUB_GET_CAPS);
+    if (SCSIGet() != noErr) return 0;
+    err = tb_begin(id, cdb, TB_CDB_LEN);
+    if (err == noErr) (void)tb_read(resp, (long)sizeof resp);
+    (void)SCSIComplete(&stat, &msg, TB_SCSI_TIMEOUT);
+    if (err != noErr || (stat & 0xFF) != 0) return 0;
+    if (caps) *caps = resp[1];   /* byte 0 = API version, byte 1 = the TB_CAP_* bits */
+    return 1;
+}
+
+int toolbox_count_files(short id, int *n)
+{
+    unsigned char cdb[TB_CDB_LEN];
+    unsigned char resp[8];
+    OSErr err;
+    short stat = -1, msg = 0;
+
+    if (n) *n = 0;
+    memset(resp, 0, sizeof resp);
+    toolbox_cdb_count_files(cdb);
+    if (SCSIGet() != noErr) return 0;
+    err = tb_begin(id, cdb, TB_CDB_LEN);
+    if (err == noErr) (void)tb_read(resp, (long)sizeof resp);
+    (void)SCSIComplete(&stat, &msg, TB_SCSI_TIMEOUT);
+    /* CHECK CONDITION here is exactly how a target that serves the CD ops but NOT the
+     * file ops announces itself (the open MiSTer question) — the caller hides the
+     * browser instead of failing mid-transfer. */
+    if (err != noErr || (stat & 0xFF) != 0) return 0;
+    if (n) *n = resp[0];
+    return 1;
+}
+
+int toolbox_list_files(short id, TbEntry *buf, int cap, int *n)
+{
+    /* Same single-SCSIRead-per-DataIn rule as toolbox_list_cds — one TIB must span the
+     * whole phase or the tail entries come back as uninitialised garbage. */
+    unsigned char *raw = gTbList;            /* shared staging buffer (see gTbList) */
+    unsigned char cdb[TB_CDB_LEN];
+    OSErr err;
+    short stat = -1, msg = 0;
+    int count = 0, i;
+
+    *n = 0;
+    memset(raw, 0, sizeof gTbList);
+    toolbox_cdb_list_files(cdb);
+    if (SCSIGet() != noErr) return 0;
+    err = tb_begin(id, cdb, TB_CDB_LEN);
+    if (err == noErr) (void)tb_read(raw, (long)sizeof gTbList);
+    (void)SCSIComplete(&stat, &msg, TB_SCSI_TIMEOUT);
+    if (err != noErr) return 0;
+
+    /* Same 40-byte wire layout as LIST CDS, so the CD entry parser is reused verbatim;
+     * for files `isDir` is meaningful (type 0x00 = directory). */
+    for (i = 0; i < cap && i < TB_MAX_FILES; i++) {
+        const unsigned char *e = &raw[i * TB_ENTRY_SIZE];
+        if (e[TB_NAME_OFF] == 0) break;          /* empty name -> end of the listing */
+        toolbox_parse_cd_entry(e, &buf[count++]);
+    }
+    if (count == 0 && (stat & 0xFF) != 0) return 0;
+    *n = count;
+    return 1;
+}
+
+int toolbox_get_file_block(short id, int index, unsigned long blockOff, void *dst, long cap)
+{
+    unsigned char cdb[TB_CDB_LEN];
+    OSErr err;
+    short stat = -1, msg = 0;
+    long  want = (cap < TB_GET_BLOCK) ? cap : TB_GET_BLOCK;
+
+    /* One 4 KB block per command: the baseline every target implements (the
+     * CAP_LARGE_TRANSFERS flag only matters for asking for several at once). Offset 0
+     * is what makes the firmware (re)open the file; later offsets seek within it. */
+    toolbox_cdb_get_file(cdb, index, blockOff, 1);
+    if (SCSIGet() != noErr) return 0;
+    err = tb_begin(id, cdb, TB_CDB_LEN);
+    /* A short DataIn at EOF makes the handshaked SCSIRead report an error even though
+     * the bytes did land, and it cannot say HOW many arrived — so the caller sizes the
+     * final block from the listing's file size instead of from a returned count. */
+    if (err == noErr) (void)tb_read(dst, want);
+    (void)SCSIComplete(&stat, &msg, TB_SCSI_TIMEOUT);
+    return (err == noErr && (stat & 0xFF) == 0) ? 1 : 0;
+}
+
+int toolbox_send_file_prep(short id, const char *name)
+{
+    unsigned char cdb[TB_CDB_LEN];
+    unsigned char nm[TB_SEND_NAME_LEN + 1];
+    OSErr err;
+    short stat = -1, msg = 0;
+    int   i;
+
+    /* Exactly 33 bytes: up to 32 name characters plus the NUL the firmware scans for.
+     * PREP also truncates any existing file, which is what makes a retry clean. */
+    memset(nm, 0, sizeof nm);
+    for (i = 0; i < TB_SEND_NAME_LEN && name && name[i]; i++) nm[i] = (unsigned char)name[i];
+    toolbox_cdb_send_file_prep(cdb);
+    if (SCSIGet() != noErr) return 0;
+    err = tb_begin(id, cdb, TB_CDB_LEN);
+    if (err == noErr) (void)tb_write(nm, (long)sizeof nm);
+    (void)SCSIComplete(&stat, &msg, TB_SCSI_TIMEOUT);
+    return (err == noErr && (stat & 0xFF) == 0) ? 1 : 0;
+}
+
+int toolbox_send_file_data(short id, const void *src, long nbytes, unsigned long blockOff)
+{
+    unsigned char cdb[TB_CDB_LEN];
+    OSErr err;
+    short stat = -1, msg = 0;
+
+    if (nbytes <= 0) return 1;
+    /* Whole 512-byte blocks use the block encoding; a short tail uses the legacy byte
+     * count, because padding a RAW copy out to a block boundary would append zeros to
+     * the file the user asked us to send (docs/46). */
+    if ((nbytes % TB_SEND_BLOCK) == 0 && (nbytes / TB_SEND_BLOCK) <= 255)
+        toolbox_cdb_send_file_10(cdb, (int)(nbytes / TB_SEND_BLOCK), blockOff);
+    else
+        toolbox_cdb_send_file_bytes(cdb, (int)nbytes, blockOff);
+    if (SCSIGet() != noErr) return 0;
+    err = tb_begin(id, cdb, TB_CDB_LEN);
+    if (err == noErr) (void)tb_write(src, nbytes);
+    (void)SCSIComplete(&stat, &msg, TB_SCSI_TIMEOUT);
+    return (err == noErr && (stat & 0xFF) == 0) ? 1 : 0;
+}
+
+int toolbox_send_file_end(short id)
+{
+    unsigned char cdb[TB_CDB_LEN];
+    OSErr err;
+    short stat = -1, msg = 0;
+
+    toolbox_cdb_send_file_end(cdb);          /* no data phase — straight to status */
+    if (SCSIGet() != noErr) return 0;
+    err = tb_begin(id, cdb, TB_CDB_LEN);
+    (void)SCSIComplete(&stat, &msg, TB_SCSI_TIMEOUT);
+    return (err == noErr && (stat & 0xFF) == 0) ? 1 : 0;
+}
+
+int toolbox_probe_file_id(short *outId)
+{
+    /* Session cache, same shape as toolbox_probe_id. Deliberately does NOT require a
+     * CD-ROM peripheral type: the file Toolbox is served by the emulated HARD DISK
+     * (the handoff spec implements it there, and snow answers page 0x31 from
+     * disk.rs), so take the first device carrying the magic and try id 0 first. */
+    static short cached = -1;
+    static int   done   = 0;
+    unsigned char cdb[6];
+    unsigned char resp[64];
+    static const short order[7] = { 0, 1, 2, 3, 4, 5, 6 };
+    int i;
+
+    if (done) {
+        if (cached < 0) return 0;
+        *outId = cached;
+        return 1;
+    }
+    done = 1;
+    toolbox_cdb_mode_sense_p31(cdb);
+    for (i = 0; i < 7; i++) {
+        short id = order[i];
+        OSErr err;
+        short stat = -1, msg = 0;
+        if (SCSIGet() != noErr) continue;
+        memset(resp, 0, sizeof resp);
+        err = tb_begin(id, cdb, 6);
+        if (err == noErr) (void)tb_read(resp, (long)sizeof resp);
+        (void)SCSIComplete(&stat, &msg, TB_SCSI_TIMEOUT);
+        if (err == noErr && toolbox_has_magic(resp, (int)sizeof resp)) {
+            cached = id;
+            *outId = id;
+            return 1;
+        }
+    }
+    cached = -1;
+    return 0;
+}
+
+int toolbox_set_working_dir(short id, const char *path)
+{
+    unsigned char cdb[TB_CDB_LEN];
+    OSErr err;
+    short stat = -1, msg = 0;
+    int len = 0;
+
+    while (path && path[len] && len < TB_MAX_PATH) len++;
+    memset(cdb, 0, TB_CDB_LEN);
+    cdb[0] = TB_OP_DEVICE_INFO;
+    cdb[1] = TB_SUB_SET_WORKING_DIR;
+    cdb[8] = (unsigned char)len;      /* 0 => reset to the default shared folder */
+    if (SCSIGet() != noErr) return 0;
+    err = tb_begin(id, cdb, TB_CDB_LEN);
+    if (err == noErr && len > 0) (void)tb_write(path, (long)len);
+    (void)SCSIComplete(&stat, &msg, TB_SCSI_TIMEOUT);
+    return (err == noErr && (stat & 0xFF) == 0) ? 1 : 0;
+}
+
+int toolbox_get_working_dir(short id, char *out, int cap)
+{
+    unsigned char cdb[TB_CDB_LEN];
+    unsigned char resp[TB_MAX_PATH + 1];
+    OSErr err;
+    short stat = -1, msg = 0;
+    int i;
+
+    if (out && cap > 0) out[0] = '\0';
+    memset(resp, 0, sizeof resp);
+    memset(cdb, 0, TB_CDB_LEN);
+    cdb[0] = TB_OP_DEVICE_INFO;
+    cdb[1] = TB_SUB_GET_WORKING_DIR;
+    cdb[8] = TB_MAX_PATH;                       /* allocation length */
+    if (SCSIGet() != noErr) return 0;
+    err = tb_begin(id, cdb, TB_CDB_LEN);
+    if (err == noErr) (void)tb_read(resp, (long)TB_MAX_PATH);
+    (void)SCSIComplete(&stat, &msg, TB_SCSI_TIMEOUT);
+    if (err != noErr || (stat & 0xFF) != 0) return 0;
+    if (!out || cap <= 0) return 1;
+    for (i = 0; i < cap - 1 && i < TB_MAX_PATH && resp[i]; i++) out[i] = (char)resp[i];
+    out[i] = '\0';
+    return 1;
 }
 #endif /* TOOLBOX_HOST_TEST */

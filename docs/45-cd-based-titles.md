@@ -5,7 +5,12 @@ right disc for a title on demand**, over the BlueSCSI Toolbox vendor SCSI comman
 set. One `folder` of CD images on the host is exposed as a single CD-ROM whose
 mounted disc the guest can swap at runtime — so a curated library can span dozens
 of discs behind one drive. Works identically against the **Snow** emulator (dev
-loop), a real **BlueSCSI**, and the **MiSTer** MacLC core.
+loop), a real **BlueSCSI** or **ZuluSCSI** (same protocol, see §2), and the
+**MiSTer** MacLC core.
+
+> The *file* half of the same Toolbox — browsing the SD card and copying files to and
+> from it — is [docs/46](46-sdcard-file-transfer.md). The two never collide: file ops
+> resolve through the working-dir override, CD ops through a separate `CD_IMG_DIR`.
 
 Status: ✅ **built** — probe, list, fuzzy match, swap, unmount, startup cache, and
 the CD Library browser are implemented and host-tested. The launch wiring
@@ -69,6 +74,13 @@ Two things that bite:
 
 1. For each id in `{6,0,1,2,3,4,5}`: MODE SENSE(6) page `0x31`, check for the magic.
 2. **Then confirm it's a CD-ROM** via INQUIRY (peripheral type `0x05`).
+
+**BlueSCSI *and* ZuluSCSI** are supported: same Toolbox protocol, one SCSI2SD
+firmware base, so every opcode is identical. They diverge only in the page-`0x31`
+signature — `"BlueSCSI is the BEST…"` vs `"ZuluSCSI is GPLv3 FTW…"` — so
+`toolbox_has_magic` accepts either (matching the ZuluSCSI *brand*, since the tagline
+suffix varies between firmware builds). Adding a device is a one-line signature, not
+a second code path.
 
 Step 2 matters: a BlueSCSI **hard disk also answers page `0x31`** (it serves the
 file-sharing Toolbox), so page `0x31` alone can aim the CD ops at the HDD and you

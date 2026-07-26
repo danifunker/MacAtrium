@@ -5,7 +5,7 @@
 CC      ?= cc
 CFLAGS  ?= -Wall -Wextra -std=c99 -I../src -DARTCAPS_HOST_TEST -DTOOLBOX_HOST_TEST -DMACATRIUM_HOST_TEST
 
-host_test: host_test.c ../src/json.c ../src/catalog.c ../src/cpu.c ../src/compat.c ../src/model.c ../src/artcaps.c ../src/toolbox.c ../src/cdidx.c
+host_test: host_test.c ../src/json.c ../src/catalog.c ../src/cpu.c ../src/compat.c ../src/model.c ../src/artcaps.c ../src/toolbox.c ../src/cdidx.c ../src/filebrowse.c ../src/macbin.c
 	$(CC) $(CFLAGS) $^ -o $@
 
 .PHONY: test clean

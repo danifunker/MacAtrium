@@ -48,5 +48,8 @@ pascal OSErr SCSICmd(Ptr buffer, short count)   M68K_INLINE(0x3F3C, 0x0003, 0xA8
 pascal OSErr SCSIComplete(short *stat, short *message, unsigned long wait)
                                                 M68K_INLINE(0x3F3C, 0x0004, 0xA815);
 pascal OSErr SCSIRead(Ptr tibPtr)               M68K_INLINE(0x3F3C, 0x0005, 0xA815);
+/* DATA_OUT counterpart of SCSIRead — the Toolbox file send (SEND FILE PREP/10)
+ * hands the target a filename and then the file bytes (docs/46). */
+pascal OSErr SCSIWrite(Ptr tibPtr)              M68K_INLINE(0x3F3C, 0x0006, 0xA815);
 
 #endif /* MACATRIUM_SCSIMGR_H */

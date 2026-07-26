@@ -11,6 +11,8 @@
 #include "artcaps.h"   /* pure half only, via -DARTCAPS_HOST_TEST (docs/44) */
 #include "toolbox.h"   /* pure half only, via -DTOOLBOX_HOST_TEST (docs/45) */
 #include "cdidx.h"     /* CD-title reverse index parse + lookup (docs/45) */
+#include "filebrowse.h" /* SD-card browser path arithmetic, pure half (docs/46) */
+#include "macbin.h"    /* MacBinary II wrapper for fork-preserving copies (docs/46) */
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -619,6 +621,145 @@ static void test_toolbox_cdb(void)
     }
 }
 
+/* The SD-card file-transfer CDBs (docs/46). Byte order matters more than the values:
+ * a wrong-endian offset silently writes the right bytes to the wrong place. */
+static void test_toolbox_file_cdb(void)
+{
+    unsigned char cdb[TB_CDB_LEN];
+    int i, allzero;
+
+    toolbox_cdb_list_files(cdb);
+    CHECK(cdb[0] == 0xD0, "tb CDB LIST_FILES opcode");
+    allzero = 1; for (i = 1; i < TB_CDB_LEN; i++) if (cdb[i]) allzero = 0;
+    CHECK(allzero, "tb CDB LIST_FILES body zero");
+
+    toolbox_cdb_count_files(cdb);
+    CHECK(cdb[0] == 0xD2, "tb CDB COUNT_FILES opcode");
+
+    /* GET FILE: index in [1], 32-bit big-endian 4 KB-block offset in [2..5], block
+     * count in [6]. 0x00010203 proves the byte order rather than just the value. */
+    toolbox_cdb_get_file(cdb, 7, 0x00010203UL, 2);
+    CHECK(cdb[0] == 0xD1 && cdb[1] == 7, "tb CDB GET_FILE opcode + index");
+    CHECK(cdb[2] == 0x00 && cdb[3] == 0x01 && cdb[4] == 0x02 && cdb[5] == 0x03,
+          "tb CDB GET_FILE block offset big-endian");
+    CHECK(cdb[6] == 2, "tb CDB GET_FILE block count");
+
+    toolbox_cdb_send_file_prep(cdb);
+    CHECK(cdb[0] == 0xD3, "tb CDB SEND_FILE_PREP opcode");
+
+    /* SEND FILE 10: 24-bit big-endian block offset in [3..5], block count in [6].
+     * Whether a sequential write sends the cumulative offset (spec / snow / MiSTer,
+     * absolute seek) or 0 every chunk (BlueSCSI firmware, relative seek) is settled at
+     * run time; this only pins the wire encoding. */
+    toolbox_cdb_send_file_10(cdb, 4, 0x00040506UL);
+    CHECK(cdb[0] == 0xD4, "tb CDB SEND_FILE_10 opcode");
+    CHECK(cdb[3] == 0x04 && cdb[4] == 0x05 && cdb[5] == 0x06,
+          "tb CDB SEND_FILE_10 block offset big-endian");
+    CHECK(cdb[6] == 4, "tb CDB SEND_FILE_10 block count");
+    toolbox_cdb_send_file_10(cdb, 1, 0);
+    CHECK(cdb[3] == 0 && cdb[4] == 0 && cdb[5] == 0,
+          "tb CDB SEND_FILE_10 sequential write sends offset 0");
+
+    toolbox_cdb_send_file_end(cdb);
+    CHECK(cdb[0] == 0xD5, "tb CDB SEND_FILE_END opcode");
+
+    toolbox_cdb_device_info(cdb, TB_SUB_GET_CAPS);
+    CHECK(cdb[0] == 0xD9 && cdb[1] == 0x01, "tb CDB GET_CAPABILITIES subcmd");
+}
+
+/* SD-card browser path arithmetic (docs/46). The join has to REFUSE anything that
+ * could climb out of the shared folder rather than quietly sanitise it, and the
+ * parent walk must stop dead at the base. */
+static void test_filebrowse_path(void)
+{
+    char p[TB_MAX_PATH];
+
+    strcpy(p, "/shared");
+    CHECK(fb_path_join(p, (int)sizeof p, "Games") && strcmp(p, "/shared/Games") == 0,
+          "fb join appends a component");
+    CHECK(fb_path_join(p, (int)sizeof p, "Sub") && strcmp(p, "/shared/Games/Sub") == 0,
+          "fb join nests");
+
+    strcpy(p, "/");                       /* root must not become "//x" */
+    CHECK(fb_path_join(p, (int)sizeof p, "x") && strcmp(p, "/x") == 0,
+          "fb join at root keeps one slash");
+
+    strcpy(p, "/shared");
+    CHECK(!fb_path_join(p, (int)sizeof p, ".."), "fb join refuses ..");
+    CHECK(!fb_path_join(p, (int)sizeof p, "."), "fb join refuses .");
+    CHECK(!fb_path_join(p, (int)sizeof p, "a/b"), "fb join refuses embedded separator");
+    CHECK(strcmp(p, "/shared") == 0, "fb join leaves the path untouched when it refuses");
+
+    {   /* deeper than the firmware's path limit -> refuse, never truncate (a truncated
+         * path would silently address the WRONG directory) */
+        char small[12];
+        strcpy(small, "/shared");
+        CHECK(!fb_path_join(small, (int)sizeof small, "TooLongName"),
+              "fb join refuses an overlong path");
+        CHECK(strcmp(small, "/shared") == 0, "fb join does not truncate on refusal");
+    }
+
+    strcpy(p, "/shared/Games/Sub");
+    CHECK(fb_path_parent(p, "/shared") && strcmp(p, "/shared/Games") == 0,
+          "fb parent climbs one level");
+    CHECK(fb_path_parent(p, "/shared") && strcmp(p, "/shared") == 0,
+          "fb parent climbs to the base");
+    CHECK(!fb_path_parent(p, "/shared"), "fb parent stops at the base");
+    CHECK(strcmp(p, "/shared") == 0, "fb parent leaves the base intact");
+}
+
+/* MacBinary II (docs/46). Two things matter: a wrapped file must round-trip every
+ * field the Finder needs, and macbin_parse must NOT mistake an ordinary file for a
+ * wrapper — that single decision is what routes a download into two forks or into a
+ * plain data fork, and getting it wrong corrupts the file either way. */
+static void test_macbin(void)
+{
+    unsigned char hdr[MACBIN_HDR];
+    MacBinInfo    mi;
+
+    CHECK(macbin_padded(0) == 0,     "macbin pad 0");
+    CHECK(macbin_padded(1) == 128,   "macbin pad 1 -> 128");
+    CHECK(macbin_padded(128) == 128, "macbin pad 128 stays");
+    CHECK(macbin_padded(129) == 256, "macbin pad 129 -> 256");
+
+    macbin_build_header(hdr, "Prince of Persia", 1234UL, 56789UL,
+                        0x4150504CUL /* APPL */, 0x504F5021UL /* POP! */, 0x20);
+    CHECK(macbin_parse(hdr, MACBIN_HDR, &mi), "macbin parses its own header");
+    CHECK(strcmp(mi.name, "Prince of Persia") == 0, "macbin round-trips the name");
+    CHECK(mi.dataLen == 1234UL && mi.rsrcLen == 56789UL, "macbin round-trips fork lengths");
+    CHECK(mi.type == 0x4150504CUL && mi.creator == 0x504F5021UL,
+          "macbin round-trips type/creator");
+    CHECK(mi.finderFlags == 0x20, "macbin round-trips Finder flags");
+
+    {   /* the stored checksum really covers bytes 0..123 */
+        unsigned short stored = (unsigned short)(((unsigned short)hdr[124] << 8) | hdr[125]);
+        CHECK(stored == macbin_crc(hdr, 124), "macbin stores a CRC of bytes 0..123");
+        hdr[10] ^= 0xFF;                       /* corrupt a name byte */
+        CHECK(!macbin_parse(hdr, MACBIN_HDR, &mi), "macbin rejects a mismatched CRC");
+    }
+
+    {   /* an ordinary file must never be taken for a wrapper */
+        unsigned char plain[MACBIN_HDR];
+        memset(plain, 0, sizeof plain);
+        CHECK(!macbin_parse(plain, MACBIN_HDR, &mi), "macbin rejects all-zero (no name)");
+        memcpy(plain, "This is just a text file, honest.", 33);
+        CHECK(!macbin_parse(plain, MACBIN_HDR, &mi), "macbin rejects plain text");
+    }
+
+    {   /* absurd fork length -> refuse, rather than hand the copy loop a bad size.
+         * Refresh the CRC first so it is the LENGTH check under test, not the CRC. */
+        unsigned short crc;
+        macbin_build_header(hdr, "x", 0UL, 0UL, 0UL, 0UL, 0);
+        hdr[83] = 0xFF;                        /* dataLen >= 2 GB */
+        crc = macbin_crc(hdr, 124);
+        hdr[124] = (unsigned char)((crc >> 8) & 0xFF);
+        hdr[125] = (unsigned char)(crc & 0xFF);
+        CHECK(!macbin_parse(hdr, MACBIN_HDR, &mi), "macbin rejects an absurd fork length");
+    }
+
+    CHECK(!macbin_parse(hdr, 64, &mi), "macbin rejects a short buffer");
+}
+
 static void test_toolbox_magic(void)
 {
     unsigned char page[56];
@@ -627,6 +768,11 @@ static void test_toolbox_magic(void)
     memset(page, 0, sizeof page);
     memcpy(page + 14, "BlueSCSI is the BEST STOLEN FROM BLUESCSI", 41);
     CHECK(toolbox_has_magic(page, (int)sizeof page), "tb magic detected in page 0x31");
+
+    /* A real ZuluSCSI serves the same protocol with its own page-0x31 signature. */
+    memset(page, 0, sizeof page);
+    memcpy(page + 14, "ZuluSCSI is GPLv3 FTW RabbitHoleComputing", 41);
+    CHECK(toolbox_has_magic(page, (int)sizeof page), "tb magic detected for ZuluSCSI");
 
     memset(page, 0, sizeof page);
     CHECK(!toolbox_has_magic(page, (int)sizeof page), "tb no magic in a blank page");
@@ -791,6 +937,9 @@ int main(void)
     test_toolbox_find();
     test_toolbox_fuzzy();
     test_toolbox_cdb();
+    test_toolbox_file_cdb();
+    test_filebrowse_path();
+    test_macbin();
     test_toolbox_magic();
     test_cdidx();
 

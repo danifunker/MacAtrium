@@ -34,8 +34,8 @@ static const char *kGridStyle[GRID_N] = { "Finder", "Tiles" };
 
 /* Esc-menu row kinds and their labels (indexed by kind). The visible set per run
  * is built into Ui::menuRows by ui_init (Finder rows omitted on the boot shell). */
-enum { MROW_SETTINGS, MROW_SHOW_FINDER, MROW_EXIT, MROW_RESTART, MROW_SHUTDOWN, MROW_CHOOSE_OS, MROW_STATUS, MROW_CDLIST };
-static const char *kMenuLabel[] = { "Settings", "Show Finder", "Exit to Finder", "Restart", "Shut Down", "System Folder Chooser", "MacAtrium Status", "CD Library" };
+enum { MROW_SETTINGS, MROW_SHOW_FINDER, MROW_EXIT, MROW_RESTART, MROW_SHUTDOWN, MROW_CHOOSE_OS, MROW_STATUS, MROW_CDLIST, MROW_SDCARD };
+static const char *kMenuLabel[] = { "Settings", "Show Finder", "Exit to Finder", "Restart", "Shut Down", "System Folder Chooser", "MacAtrium Status", "CD Library", "SD Card" };
 
 /* ---- small helpers -------------------------------------------------------- */
 
@@ -196,6 +196,10 @@ void ui_init(Ui *u, Env *env, Render *r, Model *m, WindowPtr win, int safe)
         u->menuRows[k++] = MROW_SETTINGS;
         u->menuRows[k++] = MROW_STATUS;
         u->menuRows[k++] = MROW_CDLIST;
+        /* Always listed, like CD Library: deciding here would mean probing the SCSI
+         * bus during ui_init, which is exactly the boot cost the lazy Toolbox probe
+         * exists to avoid. An unsupported target is explained in the dialog. */
+        u->menuRows[k++] = MROW_SDCARD;
         if (env->canLaunchReturn) {
             u->menuRows[k++] = MROW_SHOW_FINDER;
             u->menuRows[k++] = MROW_EXIT;
@@ -2786,6 +2790,7 @@ UiCommand ui_menu_command(Ui *u, int i)
         case MROW_CHOOSE_OS:   return UI_OPEN_CHOOSER;
         case MROW_STATUS:      return UI_SHOW_STATUS;
         case MROW_CDLIST:      return UI_OPEN_CDLIST;
+        case MROW_SDCARD:      return UI_OPEN_SDCARD;
     }
     return UI_NONE;
 }

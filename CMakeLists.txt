@@ -57,6 +57,8 @@ add_application(MacAtrium
     src/toolbox.c            # docs/45: BlueSCSI Toolbox CD client (SCSI Manager) — parse/match host-tested
     src/cdswap.c             # docs/45: launch-time CD insert orchestration (probe/list/set/wait)
     src/cdidx.c              # docs/45: CD-title reverse index (mounted volume -> host image) — pure
+    src/filebrowse.c         # docs/46: SD-card browser model (probe/listing/path) — path logic pure
+    src/macbin.c             # docs/46: MacBinary II wrapper so forks survive the SD card — pure
     src/mem.c                # MEM_DEBUG on-screen memory probe (no-op unless -DMEM_DEBUG=ON)
     src/macatrium.r          # overrides SIZE (-1): 4 MB partition + suspend/resume
     src/macatrium-icon.r     # Finder app icon (greenhouse): ICN#/icl8/BNDL/FREF

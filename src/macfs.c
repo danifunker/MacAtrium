@@ -300,6 +300,64 @@ OSErr macfs_get_finfo(const FSSpec *spec, FInfo *info)
     return HGetFInfo(spec->vRefNum, spec->parID, (ConstStr255Param)spec->name, info);
 }
 
+OSErr macfs_open_rf(const FSSpec *spec, char perm, short *refNum)
+{
+    /* The resource fork as a plain byte STREAM. We are moving bytes in and out of a
+     * MacBinary wrapper, not manipulating resources, so this is HOpenRF rather than
+     * FSpOpenResFile — no resource map is read, and it works on System 6 (docs/46). */
+    return HOpenRF(spec->vRefNum, spec->parID, (ConstStr255Param)spec->name, perm, refNum);
+}
+
+OSErr macfs_set_finfo(const FSSpec *spec, const FInfo *info)
+{
+    /* Restores type/creator on a file arriving from the SD card — without it a
+     * perfectly copied application is just an unopenable document to the Finder.
+     * Retro68's headers have no HSetFInfo, so this uses the param-block call (the
+     * same 6.0.8-safe idiom as PBHGetVInfoSync / PBUnmountVol above). */
+    HParamBlockRec hp;
+    OSErr          err;
+
+    memset(&hp, 0, sizeof hp);
+    hp.fileParam.ioNamePtr = (StringPtr)spec->name;
+    hp.fileParam.ioVRefNum = spec->vRefNum;
+    hp.fileParam.ioDirID   = spec->parID;
+    /* Read the catalog entry first: PBHSetFInfo writes the whole fileParam block
+     * back, so a zeroed block would wipe the creation/modification dates. */
+    err = PBHGetFInfoSync(&hp);
+    if (err != noErr) return err;
+
+    hp.fileParam.ioFlFndrInfo = *info;
+    hp.fileParam.ioNamePtr    = (StringPtr)spec->name;
+    hp.fileParam.ioVRefNum    = spec->vRefNum;
+    hp.fileParam.ioDirID      = spec->parID;   /* GetFInfo leaves the FILE's id here */
+    hp.fileParam.ioFDirIndex  = 0;
+    return PBHSetFInfoSync(&hp);
+}
+
+OSErr macfs_flush_vol(short vref)
+{
+    /* Classic Mac OS buffers the catalog and file data; closing a fork does NOT
+     * commit the volume. Without this a freshly copied file survives only until the
+     * next clean unmount — a reset (or an emulator stopped mid-run) loses it, even
+     * though every call reported success (docs/46). */
+    return FlushVol((StringPtr)0, vref);
+}
+
+OSErr macfs_mkdir(const char *relToRoot)
+{
+    FSSpec         spec;
+    HParamBlockRec hp;
+    OSErr          err = macfs_make_spec(relToRoot, &spec);
+
+    if (err != noErr && err != fnfErr) return err;
+    memset(&hp, 0, sizeof hp);
+    hp.fileParam.ioNamePtr = (StringPtr)spec.name;
+    hp.fileParam.ioVRefNum = spec.vRefNum;
+    hp.fileParam.ioDirID   = spec.parID;
+    err = PBDirCreateSync(&hp);
+    return (err == dupFNErr) ? noErr : err;        /* already there counts as success */
+}
+
 OSErr macfs_create(const FSSpec *spec, OSType creator, OSType type)
 {
     return HCreate(spec->vRefNum, spec->parID, (ConstStr255Param)spec->name, creator, type);

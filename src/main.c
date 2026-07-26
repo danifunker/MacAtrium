@@ -27,6 +27,7 @@
 #include "cdswap.h"        /* docs/45: BlueSCSI Toolbox CD auto-insert */
 #include "toolbox.h"       /* docs/45: CD Library browser (toolbox_list_cds, …) */
 #include "cdidx.h"         /* docs/45: CD-title reverse index (mounted volume -> image) */
+#include "filebrowse.h"    /* docs/46: SD-card shared-folder browser (Toolbox file ops) */
 #include "sysctl.h"
 #include "sound.h"
 #include "prefs.h"
@@ -2126,6 +2127,434 @@ static void run_cd_list_dialog(void)
     SetPort(gWin);
 }
 
+/* ---- SD-card file browser (docs/46) ---------------------------------------- */
+#define FBL_ROWS   12               /* visible rows                              */
+#define FBL_LEFT   0x1C             /* Mac left-arrow char code (climb a level)  */
+#define FBL_X_NAME 24               /* name column: fixed left edge              */
+#define FBL_X_SIZE 392              /* size column: right edge (right-aligned)   */
+
+/* Draw a byte count compactly, right-aligned (integer math only — no FPU here). */
+static void fbl_size(unsigned long b, short y)
+{
+    char          s[16];
+    int           i = (int)sizeof s;
+    unsigned long v;
+    char          unit;
+    short         len;
+
+    if (b >= 1048576UL)   { v = (b + 524288UL) / 1048576UL; unit = 'M'; }
+    else if (b >= 1024UL) { v = (b + 512UL) / 1024UL;       unit = 'K'; }
+    else                  { v = b;                          unit = 'B'; }
+    s[--i] = unit;
+    if (v == 0) s[--i] = '0';
+    else while (v > 0 && i > 0) { s[--i] = (char)('0' + (int)(v % 10)); v /= 10; }
+    len = (short)((int)sizeof s - i);
+    MoveTo((short)(FBL_X_SIZE - TextWidth((Ptr)&s[i], 0, len)), y);
+    DrawText((Ptr)&s[i], 0, len);
+}
+
+/* Draw a one-line status into the browser's hint row, erasing whatever was there.
+ * Used for progress and for the outcome of a copy. */
+static void fbl_status(WindowPtr dlg, const char *msg)
+{
+    Rect pr = dlg->portRect, line;
+
+    SetPort(dlg);
+    SetRect(&line, 12, (short)(pr.bottom - 72), (short)(pr.right - 12), (short)(pr.bottom - 50));
+    EraseRect(&line);
+    MoveTo(16, (short)(pr.bottom - 58));
+    cdl_str(msg);
+}
+
+/* ---- copy hooks -------------------------------------------------------------
+ * Transfers run 4 KB at a time over the handshaked SCSI Manager, so a large file
+ * takes real time: these draw progress and let Esc / Cmd-. abort (docs/46). */
+static WindowPtr gFbDlg;          /* dialog the hooks draw into while copying */
+static long      gFbPct;          /* last percentage drawn (redraw only on change) */
+
+static void fb_msg(void *ctx, const char *msg)
+{
+    (void)ctx;
+    if (gFbDlg) fbl_status(gFbDlg, msg);
+}
+
+static int fb_tick(void *ctx, long done, long total)
+{
+    EventRecord evt;
+    long        pct = (total > 0) ? (done * 100L / total) : 100L;
+    (void)ctx;
+
+    SetCursor(*GetCursor(watchCursor));
+    if (pct != gFbPct && gFbDlg) {           /* only redraw when the number moves */
+        char b[32];
+        int  i = 0;
+        const char *p = "Copying...  ";
+        while (*p) b[i++] = *p++;
+        if (pct >= 100) { b[i++] = '1'; b[i++] = '0'; b[i++] = '0'; }
+        else if (pct >= 10) { b[i++] = (char)('0' + (int)(pct / 10)); b[i++] = (char)('0' + (int)(pct % 10)); }
+        else b[i++] = (char)('0' + (int)pct);
+        b[i++] = '%';
+        b[i]   = '\0';
+        gFbPct = pct;
+        fbl_status(gFbDlg, b);
+    }
+    if (next_event(&evt)) {
+        switch (evt.what) {
+            case keyDown:
+            case autoKey: {
+                char c = (char)(evt.message & charCodeMask);
+                if (((evt.modifiers & cmdKey) && c == '.') || c == kCharEscape) {
+                    InitCursor();
+                    return 0;                 /* user aborted the transfer */
+                }
+                break;
+            }
+            case updateEvt: {
+                WindowPtr w = (WindowPtr)evt.message;
+                BeginUpdate(w);
+                if (w != gFbDlg) { SetPort(w); ui_draw(&gUi); }
+                EndUpdate(w);
+                break;
+            }
+        }
+    }
+    return 1;
+}
+
+static void fbl_draw(WindowPtr dlg, int sel, int top)
+{
+    Rect           pr = dlg->portRect, row;
+    short          W  = (short)(pr.right - pr.left);
+    const TbEntry *ents;
+    int            n = 0, i;
+
+    ents = fb_entries(&n);
+
+    SetPort(dlg);
+    EraseRect(&pr);
+    TextFont(0);
+    TextSize(12);
+
+    MoveTo(16, 24);
+    if (!fb_available())       cdl_str("This device has no BlueSCSI file support.");
+    else if (fb_dir()[0])    { cdl_str("Folder:  "); cdl_str(fb_dir()); }
+    else if (n == 0)           cdl_str("Shared folder is empty.");
+    else                       cdl_str("SD card - shared folder:");
+
+    for (i = 0; i < FBL_ROWS && top + i < n; i++) {
+        int   idx = top + i;
+        short y   = (short)(40 + i * 16);
+        MoveTo(FBL_X_NAME, y);
+        cdl_str(ents[idx].name);
+        /* A trailing "/" marks a directory — unambiguous without a marker column and
+         * without leaning on a high-MacRoman glyph. Files show their size instead. */
+        if (ents[idx].isDir) cdl_str("/");
+        else                 fbl_size(ents[idx].size, y);
+    }
+    if (n > 0 && sel >= top && sel < top + FBL_ROWS) {      /* highlight the selection */
+        short y = (short)(40 + (sel - top) * 16);
+        SetRect(&row, 14, (short)(y - 13), (short)(W - 14), (short)(y + 3));
+        InvertRect(&row);
+    }
+
+    MoveTo(16, (short)(pr.bottom - 58));
+    /* Never imply the listing is complete when the firmware capped it at 100. */
+    if (fb_truncated())          cdl_str("First 100 items only - this folder holds more.");
+    else if (fb_can_navigate())  cdl_str("Return opens a folder or copies a file; Left goes up.");
+    else if (fb_available())     cdl_str("Return copies the selected file to this disk.");
+
+    MoveTo(16, (short)(pr.bottom - 42));
+    cdl_str("Up/Down to select, Esc to close.");
+    DrawControls(dlg);
+}
+
+/* Descend into the selected row if it is a directory. Resets the cursor because the
+ * listing is now a different directory entirely. */
+static void fbl_open_sel(int *sel, int *top)
+{
+    const TbEntry *ents;
+    int            n = 0;
+
+    ents = fb_entries(&n);
+    if (*sel < 0 || *sel >= n || !ents[*sel].isDir) return;
+    if (fb_enter(ents[*sel].name)) { *sel = 0; *top = 0; }
+}
+
+/* Copy the selected FILE to /MacAtrium/Incoming, reporting the outcome in the status
+ * row. Deliberately leaves the result on screen rather than redrawing over it. */
+static void fbl_copy_sel(WindowPtr dlg, int sel)
+{
+    const TbEntry *ents;
+    int            n = 0;
+    FbUI           ui;
+    FbResult       rc;
+
+    ents = fb_entries(&n);
+    if (sel < 0 || sel >= n) return;
+    if (ents[sel].isDir) { fbl_status(dlg, "That is a folder - press Return to open it."); return; }
+
+    gFbDlg = dlg;
+    gFbPct = -1;
+    ui.message = fb_msg;
+    ui.tick    = fb_tick;
+    ui.ctx     = 0;
+    rc = fb_copy_in(sel, &ui);
+    InitCursor();
+    gFbDlg = 0;
+
+    switch (rc) {
+        case FB_OK:              fbl_status(dlg, "Copied into MacAtrium/Incoming."); break;
+        case FB_ERR_CANCEL:      fbl_status(dlg, "Copy cancelled - nothing was kept."); break;
+        case FB_ERR_UNSUPPORTED: fbl_status(dlg, "This device has no BlueSCSI file support."); break;
+        case FB_ERR_READ:        fbl_status(dlg, "Couldn't read that file from the SD card."); break;
+        case FB_ERR_WRITE:       fbl_status(dlg, "Couldn't write it to this disk."); break;
+        default:                 fbl_status(dlg, "Nothing to copy."); break;
+    }
+}
+
+/* Ask how a file that HAS a resource fork should be sent. 1 = MacBinary, 0 = data
+ * fork only, -1 = cancel. Only asked when there is a fork to lose — a plain data file
+ * should reach the SD card directly usable, not needlessly wrapped. */
+static int fbl_ask_wrap(void)
+{
+    WindowPtr     dlg;
+    Rect          bounds, r, sb = qd.screenBits.bounds;
+    short         W = 400, H = 160;
+    short         L = (short)(sb.left + ((sb.right - sb.left) - W) / 2);
+    short         T = (short)(sb.top  + ((sb.bottom - sb.top) - H) / 2);
+    ControlHandle mbBtn, rawBtn;
+    int           running = 1, result = -1;
+
+    if (T < (short)(sb.top + 44)) T = (short)(sb.top + 44);
+    SetRect(&bounds, L, T, (short)(L + W), (short)(T + H));
+    dlg = NewWindow(0L, &bounds, "\pSend to SD Card", true, movableDBoxProc, (WindowPtr)-1L, false, 0L);
+    if (!dlg) return -1;
+    SetPort(dlg);
+    SetRect(&r, 20, (short)(H - 38), 180, (short)(H - 16));
+    mbBtn = NewControl(dlg, &r, "\pKeep both forks", true, 1, 0, 1, pushButProc, 0L);
+    SetRect(&r, 210, (short)(H - 38), 380, (short)(H - 16));
+    rawBtn = NewControl(dlg, &r, "\pData fork only", true, 1, 0, 1, pushButProc, 0L);
+
+    while (running) {
+        EventRecord evt;
+        if (!next_event(&evt)) continue;
+        switch (evt.what) {
+            case updateEvt: {
+                WindowPtr w = (WindowPtr)evt.message;
+                BeginUpdate(w);
+                if (w == dlg) {
+                    SetPort(dlg);
+                    EraseRect(&dlg->portRect);
+                    TextFont(0); TextSize(12);
+                    MoveTo(20, 28); cdl_str("This file has a resource fork.");
+                    MoveTo(20, 52); cdl_str("Keeping both forks wraps it as MacBinary, so it");
+                    MoveTo(20, 68); cdl_str("can come back to a Mac intact.");
+                    MoveTo(20, 92); cdl_str("Data fork only is readable on a modern machine,");
+                    MoveTo(20, 108); cdl_str("but an application sent that way will not run.");
+                    DrawControls(dlg);
+                } else { SetPort(w); ui_draw(&gUi); }
+                EndUpdate(w);
+                SetPort(dlg);
+                break;
+            }
+            case mouseDown: {
+                WindowPtr w; short part = FindWindow(evt.where, &w);
+                if (part == inDrag && w == dlg) { DragWindow(w, evt.where, &sb); SetPort(dlg); }
+                else if (part == inContent && w == dlg) {
+                    Point p = evt.where; ControlHandle ctl; short cp;
+                    SetPort(dlg); GlobalToLocal(&p);
+                    cp = FindControl(p, dlg, &ctl);
+                    if (cp && ctl && TrackControl(ctl, p, (ControlActionUPP)0)) {
+                        if (ctl == mbBtn)       { result = 1; running = 0; }
+                        else if (ctl == rawBtn) { result = 0; running = 0; }
+                    }
+                }
+                break;
+            }
+            case keyDown:
+            case autoKey: {
+                char c = (char)(evt.message & charCodeMask);
+                if (c == kCharEscape || ((evt.modifiers & cmdKey) && c == '.')) { result = -1; running = 0; }
+                else if (c == kCharReturn || c == kCharEnter)                   { result = 1;  running = 0; }
+                break;
+            }
+        }
+    }
+    DisposeWindow(dlg);
+    return result;
+}
+
+/* Pick a Mac file and send it to the SD card. */
+static void fbl_send(WindowPtr dlg, int *sel, int *top)
+{
+    SFReply     reply;
+    SFTypeList  types;
+    Point       where;
+    FSSpec      spec;
+    char        dest[TB_SEND_NAME_LEN + 1];
+    FbUI        ui;
+    FbResult    rc;
+    long        rlen;
+    int         wrap = 0, i, nl;
+
+    where.h = 80; where.v = 90;
+    SFGetFile(where, "\p", (FileFilterProcPtr)0, -1, types, (DlgHookProcPtr)0, &reply);
+    if (!reply.good) return;
+
+    /* StandardFile answers in the old working-directory model: a WD refNum plus the
+     * name. dirID 0 means "the directory that refNum stands for", which is exactly
+     * what the H-calls in macfs want — no FSMakeFSSpec needed, so this still works on
+     * System 6. */
+    spec.vRefNum = reply.vRefNum;
+    spec.parID   = 0;
+    nl = reply.fName[0];
+    for (i = 0; i <= nl; i++) spec.name[i] = reply.fName[i];
+
+    rlen = fb_rsrc_len(&spec);
+    if (rlen > 0) {
+        wrap = fbl_ask_wrap();
+        if (wrap < 0) { fbl_draw(dlg, *sel, *top); return; }     /* cancelled */
+    }
+
+    /* Destination name: the Mac name clamped to the protocol's 32, with ".bin" when
+     * wrapped so it is obvious on the card what needs unwrapping. */
+    {
+        int cap = wrap ? (TB_SEND_NAME_LEN - 4) : TB_SEND_NAME_LEN;
+        int k = 0;
+        for (i = 1; i <= nl && k < cap; i++) {
+            char c = (char)spec.name[i];
+            dest[k++] = (c == '/' || c == ':') ? '_' : c;    /* never a path separator */
+        }
+        dest[k] = '\0';
+        if (wrap) { dest[k++] = '.'; dest[k++] = 'b'; dest[k++] = 'i'; dest[k++] = 'n'; dest[k] = '\0'; }
+    }
+
+    gFbDlg = dlg;
+    gFbPct = -1;
+    ui.message = fb_msg;
+    ui.tick    = fb_tick;
+    ui.ctx     = 0;
+    rc = fb_copy_out(&spec, dest, wrap, &ui);
+    InitCursor();
+    gFbDlg = 0;
+
+    (void)fb_refresh();                 /* the card now has one more file on it */
+    fbl_draw(dlg, *sel, *top);
+    switch (rc) {
+        case FB_OK:         fbl_status(dlg, "Sent to the SD card."); break;
+        case FB_ERR_CANCEL: fbl_status(dlg, "Send cancelled."); break;
+        case FB_ERR_READ:   fbl_status(dlg, "Couldn't read that file from this disk."); break;
+        case FB_ERR_WRITE:  fbl_status(dlg, "The SD card refused the transfer."); break;
+        default:            fbl_status(dlg, "Couldn't send that file."); break;
+    }
+}
+
+/* Browse the BlueSCSI shared folder on the SD card. Reached from the Esc menu, and
+ * only offered when the target actually implements the Toolbox file ops. */
+static void run_file_browser_dialog(void)
+{
+    WindowPtr     dlg;
+    Rect          bounds, r, sb = qd.screenBits.bounds;
+    short         W = 420, H = 300;
+    short         L = (short)(sb.left + ((sb.right - sb.left) - W) / 2);
+    short         T = (short)(sb.top  + ((sb.bottom - sb.top) - H) / 2);
+    int           running = 1, sel = 0, top = 0, n = 0;
+    ControlHandle openBtn, copyBtn, sendBtn, doneBtn;
+
+    (void)fb_refresh();
+    (void)fb_entries(&n);
+
+    if (T < (short)(sb.top + 44)) T = (short)(sb.top + 44);
+    SetRect(&bounds, L, T, (short)(L + W), (short)(T + H));
+    dlg = NewWindow(0L, &bounds, "\pSD Card", true, movableDBoxProc, (WindowPtr)-1L, false, 0L);
+    if (!dlg) return;
+    SetPort(dlg);
+    SetRect(&r, 16, (short)(H - 32), 96, (short)(H - 12));
+    openBtn = NewControl(dlg, &r, "\pOpen", true, 1, 0, 1, pushButProc, 0L);
+    SetRect(&r, 108, (short)(H - 32), 188, (short)(H - 12));
+    copyBtn = NewControl(dlg, &r, "\pCopy", true, 1, 0, 1, pushButProc, 0L);
+    SetRect(&r, 200, (short)(H - 32), 280, (short)(H - 12));
+    sendBtn = NewControl(dlg, &r, "\pSend...", true, 1, 0, 1, pushButProc, 0L);
+    SetRect(&r, (short)(W - 86), (short)(H - 32), (short)(W - 16), (short)(H - 12));
+    doneBtn = NewControl(dlg, &r, "\pDone", true, 1, 0, 1, pushButProc, 0L);
+    if (!fb_can_navigate()) HiliteControl(openBtn, 255);   /* flat listing -> dim */
+    if (!fb_available()) {                                 /* no file ops -> nothing works */
+        HiliteControl(copyBtn, 255);
+        HiliteControl(sendBtn, 255);
+    }
+
+    fbl_draw(dlg, sel, top);
+    ValidRect(&dlg->portRect);
+
+    while (running) {
+        EventRecord evt;
+        if (!next_event(&evt)) continue;
+        switch (evt.what) {
+            case updateEvt: {
+                WindowPtr w = (WindowPtr)evt.message;
+                BeginUpdate(w);
+                if (w == dlg) fbl_draw(dlg, sel, top);
+                else { SetPort(w); ui_draw(&gUi); }
+                EndUpdate(w);
+                SetPort(dlg);
+                break;
+            }
+            case mouseDown: {
+                WindowPtr w; short part = FindWindow(evt.where, &w);
+                if (part == inDrag && w == dlg) { DragWindow(w, evt.where, &sb); SetPort(dlg); }
+                else if (part == inContent && w == dlg) {
+                    Point p = evt.where; ControlHandle ctl; short cp;
+                    SetPort(dlg); GlobalToLocal(&p);
+                    cp = FindControl(p, dlg, &ctl);
+                    if (cp && ctl && TrackControl(ctl, p, (ControlActionUPP)0)) {
+                        if (ctl == doneBtn) running = 0;
+                        else if (ctl == openBtn) { fbl_open_sel(&sel, &top); fbl_draw(dlg, sel, top); }
+                        else if (ctl == copyBtn) fbl_copy_sel(dlg, sel);
+                        else if (ctl == sendBtn) fbl_send(dlg, &sel, &top);
+                    } else {
+                        (void)fb_entries(&n);
+                        if (n > 0) {                          /* click a list row */
+                            int i = (p.v - 28) / 16;
+                            if (i >= 0 && top + i < n) { sel = top + i; fbl_draw(dlg, sel, top); }
+                        }
+                    }
+                } else if (w != dlg) SysBeep(1);
+                break;
+            }
+            case keyDown:
+            case autoKey: {
+                char c = (char)(evt.message & charCodeMask);
+                (void)fb_entries(&n);
+                if ((evt.modifiers & cmdKey) && c == '.') { running = 0; break; }
+                if (c == kCharEscape) { running = 0; break; }
+                if (c == CDL_UP && sel > 0) {
+                    sel--; if (sel < top) top = sel;
+                    fbl_draw(dlg, sel, top);
+                } else if (c == CDL_DOWN && sel < n - 1) {
+                    sel++; if (sel >= top + FBL_ROWS) top = sel - FBL_ROWS + 1;
+                    fbl_draw(dlg, sel, top);
+                } else if (c == kCharReturn || c == kCharEnter) {
+                    /* Return does the obvious thing for whatever is selected: open a
+                     * folder, copy a file. */
+                    const TbEntry *e = fb_entries(&n);
+                    if (sel >= 0 && sel < n && e[sel].isDir) {
+                        fbl_open_sel(&sel, &top);
+                        fbl_draw(dlg, sel, top);
+                    } else {
+                        fbl_copy_sel(dlg, sel);
+                    }
+                } else if (c == FBL_LEFT) {                   /* climb out of a folder */
+                    if (fb_parent()) { sel = 0; top = 0; }
+                    fbl_draw(dlg, sel, top);
+                }
+                break;
+            }
+        }
+    }
+    DisposeWindow(dlg);
+    SetPort(gWin);
+}
+
 static void handle_ui_command(UiCommand cmd)
 {
     switch (cmd) {
@@ -2242,6 +2671,14 @@ static void handle_ui_command(UiCommand cmd)
         }
         case UI_OPEN_CDLIST: {               /* the CD Library browser (docs/45) */
             run_cd_list_dialog();
+            gUi.mode = UI_MODE_LIST;
+            SetPort(gWin);
+            ui_reblit(&gUi);
+            ValidRect(&gWin->portRect);
+            break;
+        }
+        case UI_OPEN_SDCARD: {               /* the SD-card file browser (docs/46) */
+            run_file_browser_dialog();
             gUi.mode = UI_MODE_LIST;
             SetPort(gWin);
             ui_reblit(&gUi);
