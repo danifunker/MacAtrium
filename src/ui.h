@@ -27,7 +27,7 @@ typedef enum {
     UI_CHROME_DIRTY, /* menu-bar / title-bar visibility changed; main re-lays
                       * out the window + menu bar (rebuild_window) AND saves    */
     UI_OPEN_SETTINGS,/* open the real Settings window (main.c run_settings_dialog)  */
-    UI_OPEN_MENU,    /* open the real Quick-Launch menu window (run_quicklaunch_menu) */
+    UI_OPEN_MENU,    /* open the persistent Quick-Launch menu hub (main.c run_menu_hub) */
     UI_OPEN_CHOOSER, /* open the System Folder Chooser (main.c run_os_chooser)        */
     UI_SHOW_STATUS,  /* open the MacAtrium Status screen (main.c run_status_dialog)   */
     UI_OPEN_CDLIST,  /* open the CD Library browser (main.c run_cd_list_dialog, docs/45) */

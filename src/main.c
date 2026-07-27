@@ -71,6 +71,10 @@ static ArtCaps   gArtCaps;         /* docs/44: art tiers this machine can show/h
 static Render    gRender;
 static Ui        gUi;
 static WindowPtr gWin;
+
+/* Defined with the Quick-Launch hub (run_menu_hub): repaints whatever background
+ * window a modal child's updateEvt exposed — the live menu window, or the browse. */
+static void redraw_exposed(WindowPtr w);
 /* When a returning (concurrent) launch caps the screen depth for a game, we defer
  * putting our depth back until the game quits and we're reactivated (osEvt resume),
  * so the game keeps its capped depth the whole time it runs. 0 = nothing pending. */
@@ -770,7 +774,7 @@ static int modal_confirm(const char *l1, const char *l2, const char *l3,
             case updateEvt: {
                 WindowPtr w = (WindowPtr)evt.message;
                 if (w == dlg) { BeginUpdate(w); modal_confirm_draw(dlg, l1, l2, l3, cancel); EndUpdate(w); }
-                else { BeginUpdate(w); SetPort(w); ui_draw(&gUi); EndUpdate(w); SetPort(dlg); }
+                else { redraw_exposed(w); SetPort(dlg); }
                 break;
             }
             case mouseDown: {
@@ -1225,7 +1229,7 @@ static SettingsResult run_settings_dialog(int *chromeChanged)
             case updateEvt: {
                 WindowPtr w = (WindowPtr)evt.message;
                 if (w == dlg) { BeginUpdate(w); sd_draw_content(dlg, focus, curPage); EndUpdate(w); }
-                else { BeginUpdate(w); SetPort(w); ui_draw(&gUi); EndUpdate(w); SetPort(dlg); }
+                else { redraw_exposed(w); SetPort(dlg); }
                 break;
             }
             case mouseDown: {
@@ -1293,10 +1297,10 @@ static SettingsResult run_settings_dialog(int *chromeChanged)
 }
 
 /* ---- the Quick-Launch menu (docs/33; the ESC menu, now a real window) ---------
- * A movable modal window of standard push buttons (one per menu action) with the
- * same focus-ring keyboard model as the Settings dialog: ↑/↓ move the highlight,
- * Space/Return activate, Esc cancels, the mouse clicks a button. Returns the chosen
- * UiCommand (UI_NONE if cancelled) for main to dispatch. */
+ * A close-boxed utility window of standard push buttons (one per menu action) with
+ * the same focus-ring keyboard model as the Settings dialog: ↑/↓ move the highlight,
+ * Space/Return activate, Esc / Cmd-. / the close box dismiss. The window PERSISTS
+ * while submenus run on top of it — see run_menu_hub. */
 #define QL_CW    240
 #define QL_LM    24
 #define QL_BTNH  24
@@ -1343,17 +1347,45 @@ static void ql_set_focus(int *focus, int nf)
     ql_focus_frame(*focus, 1);
 }
 
-static UiCommand run_quicklaunch_menu(void)
-{
-    WindowPtr     dlg;
-    Rect          bounds, sb = qd.screenBits.bounds;
-    int           n = ui_menu_count(&gUi), i, focus = 0, running = 1;
-    short         CH;
-    UiCommand     result = UI_NONE;
-    ControlHandle btn[QL_MAXITEMS];
+/* ---- the persistent menu window (docs/07 hub) ---------------------------------
+ * The Quick-Launch window SURVIVES submenu trips: submenu windows open ON TOP of
+ * it, and when one closes the Window Manager exposes the menu again — the shared
+ * redraw_exposed() below repaints it from update events. So the hub loop in
+ * run_menu_hub owns the window's lifetime, not the interact fn. gQlFocus persists
+ * across trips: coming back from a submenu leaves the focus on the row you used. */
+static WindowPtr     gQlWin   = 0;
+static int           gQlFocus = 0;
+static int           gQlNBtn  = 0;
+static ControlHandle gQlBtns[QL_MAXITEMS];
 
-    if (n < 1) return UI_NONE;
+/* Repaint whatever OTHER window an updateEvt exposed while a modal child loop
+ * runs: the live menu window behind a submenu, or the browse window. BeginUpdate
+ * clips either redraw to the exposed sliver, so this never flashes the whole
+ * screen. Leaves the port on the drawn window — callers SetPort back after. */
+static void redraw_exposed(WindowPtr w)
+{
+    BeginUpdate(w);
+    if (w == gQlWin && gQlWin) {
+        ql_draw(gQlWin, gQlFocus);
+    } else {
+        SetPort(w);
+        ui_draw(&gUi);
+    }
+    EndUpdate(w);
+}
+
+/* Create the menu window + its buttons (noGrowDocProc: the title bar carries a
+ * real close box — per the era HIG a movable modal has no close box, but this
+ * menu is a persistent utility hub the mouse must be able to dismiss). 1 = open. */
+static int ql_open_window(void)
+{
+    Rect  bounds, sb = qd.screenBits.bounds;
+    int   n = ui_menu_count(&gUi), i;
+    short CH;
+
+    if (n < 1) return 0;
     if (n > QL_MAXITEMS) n = QL_MAXITEMS;
+    gQlNBtn = n;
     strcpy(gQlHeader, "MacOS Version: "); env_os_version(gEnv.sysVers, gQlHeader + 15);
     CH = (short)(QL_TOP + QL_HDR + n * QL_PITCH + 14);
     {
@@ -1362,47 +1394,60 @@ static UiCommand run_quicklaunch_menu(void)
         if (T < (short)(sb.top + 44)) T = (short)(sb.top + 44);
         SetRect(&bounds, L, T, (short)(L + QL_CW), (short)(T + CH));
     }
-    /* noGrowDocProc (not movableDBox) so the title bar carries a real close box —
-     * per the era HIG a movable modal has no close box (buttons only), but this menu
-     * is a persistent utility hub the mouse must be able to dismiss (TrackGoAway
-     * below). Esc / Cmd-. stay as the keyboard equivalents. */
-    dlg = NewWindow(0L, &bounds, "\pQuick-Launch Menu", true, noGrowDocProc, (WindowPtr)-1L, true, 0L);
-    if (!dlg) return UI_NONE;
-    SetPort(dlg);
+    gQlWin = NewWindow(0L, &bounds, "\pQuick-Launch Menu", true, noGrowDocProc, (WindowPtr)-1L, true, 0L);
+    if (!gQlWin) return 0;
+    SetPort(gQlWin);
     TextFont(0); TextSize(12);
     for (i = 0; i < n; i++) {
         Rect r; Str255 t;
         ql_btn_rect(i, &r);
         c2p255(ui_menu_label(&gUi, i), t);
-        btn[i] = NewControl(dlg, &r, t, true, 0, 0, 0, pushButProc, 0L);
+        gQlBtns[i] = NewControl(gQlWin, &r, t, true, 0, 0, 0, pushButProc, 0L);
     }
-    ql_draw(dlg, focus);
-    ValidRect(&dlg->portRect);
+    gQlFocus = 0;
+    ql_draw(gQlWin, gQlFocus);
+    ValidRect(&gQlWin->portRect);
+    return 1;
+}
 
+static void ql_close_window(void)
+{
+    if (gQlWin) { DisposeWindow(gQlWin); gQlWin = 0; }
+}
+
+/* One stretch of menu interaction in the already-open window. Returns the chosen
+ * command, or UI_NONE for a dismissal (close box / Esc / Cmd-.). Never closes
+ * the window — run_menu_hub decides whether a command is a submenu trip (window
+ * stays) or a terminal action (window closes). */
+static UiCommand ql_interact(void)
+{
+    Rect sb = qd.screenBits.bounds;
+    int  i, running = 1;
+    UiCommand result = UI_NONE;
+
+    SetPort(gQlWin);
     while (running) {
         EventRecord evt;
         if (!next_event(&evt)) continue;
         switch (evt.what) {
-            case updateEvt: {
-                WindowPtr w = (WindowPtr)evt.message;
-                if (w == dlg) { BeginUpdate(w); ql_draw(dlg, focus); EndUpdate(w); }
-                else { BeginUpdate(w); SetPort(w); ui_draw(&gUi); EndUpdate(w); SetPort(dlg); }
+            case updateEvt:
+                redraw_exposed((WindowPtr)evt.message);
+                SetPort(gQlWin);
                 break;
-            }
             case mouseDown: {
                 WindowPtr w; short part = FindWindow(evt.where, &w);
-                if (part == inDrag && w == dlg) { DragWindow(w, evt.where, &sb); SetPort(dlg); }
-                else if (part == inGoAway && w == dlg) {
-                    if (TrackGoAway(dlg, evt.where)) running = 0;   /* close box = dismiss */
+                if (part == inDrag && w == gQlWin) { DragWindow(w, evt.where, &sb); SetPort(gQlWin); }
+                else if (part == inGoAway && w == gQlWin) {
+                    if (TrackGoAway(gQlWin, evt.where)) running = 0;   /* close box = dismiss */
                 }
-                else if (part == inContent && w == dlg) {
+                else if (part == inContent && w == gQlWin) {
                     Point p = evt.where; ControlHandle ctl; short cp;
-                    SetPort(dlg); GlobalToLocal(&p);
-                    cp = FindControl(p, dlg, &ctl);
+                    SetPort(gQlWin); GlobalToLocal(&p);
+                    cp = FindControl(p, gQlWin, &ctl);
                     if (cp && ctl && TrackControl(ctl, p, (ControlActionUPP)0))
-                        for (i = 0; i < n; i++)
-                            if (ctl == btn[i]) { result = ui_menu_command(&gUi, i); running = 0; break; }
-                } else if (w != dlg) {
+                        for (i = 0; i < gQlNBtn; i++)
+                            if (ctl == gQlBtns[i]) { result = ui_menu_command(&gUi, i); running = 0; break; }
+                } else if (w != gQlWin) {
                     SysBeep(1);
                 }
                 break;
@@ -1413,18 +1458,17 @@ static UiCommand run_quicklaunch_menu(void)
                 if (evt.modifiers & cmdKey) { if (c == '.') running = 0; break; }
                 switch (c) {
                     case kCharEscape: running = 0; break;
-                    case kCharUp:     ql_set_focus(&focus, (focus - 1 + n) % n); break;
+                    case kCharUp:     ql_set_focus(&gQlFocus, (gQlFocus - 1 + gQlNBtn) % gQlNBtn); break;
                     case '\t':
-                    case kCharDown:   ql_set_focus(&focus, (focus + 1) % n); break;
+                    case kCharDown:   ql_set_focus(&gQlFocus, (gQlFocus + 1) % gQlNBtn); break;
                     case ' ':
                     case kCharReturn:
-                    case kCharEnter:  result = ui_menu_command(&gUi, focus); running = 0; break;
+                    case kCharEnter:  result = ui_menu_command(&gUi, gQlFocus); running = 0; break;
                 }
                 break;
             }
         }
     }
-    DisposeWindow(dlg);
     return result;
 }
 
@@ -1575,7 +1619,7 @@ static int osc_confirm_shutdown(const unsigned char *name)
             case updateEvt: {
                 WindowPtr w = (WindowPtr)evt.message;
                 if (w == dlg) { BeginUpdate(w); osc_sd_draw(dlg, name, sd); EndUpdate(w); }
-                else { BeginUpdate(w); SetPort(w); ui_draw(&gUi); EndUpdate(w); SetPort(dlg); }
+                else { redraw_exposed(w); SetPort(dlg); }
                 break;
             }
             case mouseDown: {
@@ -1651,7 +1695,7 @@ static int run_os_chooser(void)
             case updateEvt: {
                 WindowPtr w = (WindowPtr)evt.message;
                 if (w == dlg) { BeginUpdate(w); ql_draw(dlg, focus); osc_draw_status(dlg, focus, sys, nsys, n); EndUpdate(w); }
-                else { BeginUpdate(w); SetPort(w); ui_draw(&gUi); EndUpdate(w); SetPort(dlg); }
+                else { redraw_exposed(w); SetPort(dlg); }
                 break;
             }
             case mouseDown: {
@@ -1893,7 +1937,7 @@ static void run_status_dialog(void)
             case updateEvt: {
                 WindowPtr w = (WindowPtr)evt.message;
                 if (w == dlg) { BeginUpdate(w); st_draw(dlg); EndUpdate(w); }
-                else { BeginUpdate(w); SetPort(w); ui_draw(&gUi); EndUpdate(w); SetPort(dlg); }
+                else { redraw_exposed(w); SetPort(dlg); }
                 break;
             }
             case mouseDown: {
@@ -2094,10 +2138,8 @@ static void run_cd_list_dialog(void)
         switch (evt.what) {
             case updateEvt: {
                 WindowPtr w = (WindowPtr)evt.message;
-                BeginUpdate(w);
-                if (w == dlg) cdl_draw(dlg, cds, n, sel, top, tbFound);
-                else { SetPort(w); ui_draw(&gUi); }
-                EndUpdate(w);
+                if (w == dlg) { BeginUpdate(w); cdl_draw(dlg, cds, n, sel, top, tbFound); EndUpdate(w); }
+                else redraw_exposed(w);
                 SetPort(dlg);
                 break;
             }
@@ -2231,9 +2273,8 @@ static int fb_tick(void *ctx, long done, long total)
             }
             case updateEvt: {
                 WindowPtr w = (WindowPtr)evt.message;
-                BeginUpdate(w);
-                if (w != gFbDlg) { SetPort(w); ui_draw(&gUi); }
-                EndUpdate(w);
+                if (w == gFbDlg) { BeginUpdate(w); EndUpdate(w); }   /* the copy loop draws it */
+                else redraw_exposed(w);
                 break;
             }
         }
@@ -2361,8 +2402,8 @@ static int fbl_ask_wrap(void)
         switch (evt.what) {
             case updateEvt: {
                 WindowPtr w = (WindowPtr)evt.message;
-                BeginUpdate(w);
                 if (w == dlg) {
+                    BeginUpdate(w);
                     SetPort(dlg);
                     EraseRect(&dlg->portRect);
                     TextFont(0); TextSize(12);
@@ -2372,8 +2413,10 @@ static int fbl_ask_wrap(void)
                     MoveTo(20, 92); cdl_str("Data fork only is readable on a modern machine,");
                     MoveTo(20, 108); cdl_str("but an application sent that way will not run.");
                     DrawControls(dlg);
-                } else { SetPort(w); ui_draw(&gUi); }
-                EndUpdate(w);
+                    EndUpdate(w);
+                } else {
+                    redraw_exposed(w);
+                }
                 SetPort(dlg);
                 break;
             }
@@ -2519,10 +2562,8 @@ static void run_file_browser_dialog(void)
         switch (evt.what) {
             case updateEvt: {
                 WindowPtr w = (WindowPtr)evt.message;
-                BeginUpdate(w);
-                if (w == dlg) fbl_draw(dlg, sel, top);
-                else { SetPort(w); ui_draw(&gUi); }
-                EndUpdate(w);
+                if (w == dlg) { BeginUpdate(w); fbl_draw(dlg, sel, top); EndUpdate(w); }
+                else redraw_exposed(w);
                 SetPort(dlg);
                 break;
             }
@@ -2580,6 +2621,71 @@ static void run_file_browser_dialog(void)
     }
     DisposeWindow(dlg);
     SetPort(gWin);
+}
+
+/* The Quick-Launch hub (docs/07): open the persistent menu window and loop
+ * menu -> submenu -> menu until dismissed or a terminal action is chosen.
+ * Submenu windows open ON TOP of the LIVE menu window (never disposed between
+ * trips); when one closes, the Window Manager exposes the menu and
+ * redraw_exposed repaints it — so hopping between screens repaints nothing but
+ * the slivers where the windows differ, and coming back lands on the menu with
+ * the focus where you left it. Returns the terminal command for the caller to
+ * dispatch after the hub closed (UI_NONE = just dismissed); any needed browse
+ * repaint has already been done here. */
+static UiCommand run_menu_hub(void)
+{
+    if (!ql_open_window()) return UI_NONE;
+    for (;;) {
+        UiCommand mc = ql_interact();
+        switch (mc) {
+            case UI_SHOW_STATUS:  run_status_dialog();       continue;
+            case UI_OPEN_CDLIST:  run_cd_list_dialog();      continue;
+            case UI_OPEN_SDCARD:  run_file_browser_dialog(); continue;
+            case UI_OPEN_SETTINGS: {
+                int            chromeChanged = 0;
+                SettingsResult sr = run_settings_dialog(&chromeChanged);
+                save_prefs();
+                if (!chromeChanged && sr != SD_OPEN_CDEVS) continue;   /* back to the menu */
+                /* A bar toggle re-lays out the whole window, and Control Panels is a
+                 * full-screen mode switch — both leave the hub. */
+                ql_close_window();
+                SetPort(gWin);
+                if (chromeChanged) {
+                    rebuild_window();
+                } else {
+                    ui_reblit(&gUi);
+                    ValidRect(&gWin->portRect);
+                }
+                if (sr == SD_OPEN_CDEVS) {
+                    gUi.ncdevs = ctlpanels_list(gUi.cdevs, CTLPANEL_MAX);
+                    gUi.cdevSel = 0; gUi.cdevTop = 0;
+                    gUi.mode = UI_MODE_CTLPANELS;
+                    ui_draw(&gUi);
+                    ValidRect(&gWin->portRect);
+                }
+                return UI_NONE;
+            }
+            case UI_OPEN_CHOOSER: {
+                int r = run_os_chooser();
+                if (r == 0) continue;                 /* Cancel: back to the menu */
+                ql_close_window();
+                SetPort(gWin);
+                if (r == 1) return UI_SHUTDOWN;       /* blessed + Shut Down now */
+                ui_set_status(&gUi, "Startup System changed - applies on next boot.");
+                ui_draw(&gUi);                        /* blessed + Later: note it on the browse */
+                ValidRect(&gWin->portRect);
+                return UI_NONE;
+            }
+            default:
+                /* Dismissed (UI_NONE) or a terminal action (Show Finder / Exit /
+                 * Restart / Shut Down): close the hub, restore the browse, hand back. */
+                ql_close_window();
+                SetPort(gWin);
+                ui_reblit(&gUi);                      /* the hub never touched the buffer */
+                ValidRect(&gWin->portRect);
+                return mc;
+        }
+    }
 }
 
 static void handle_ui_command(UiCommand cmd)
@@ -2654,22 +2760,12 @@ static void handle_ui_command(UiCommand cmd)
             }
             break;
         }
-        case UI_OPEN_MENU: {                  /* the real Quick-Launch menu window */
-            UiCommand mc = run_quicklaunch_menu();
+        case UI_OPEN_MENU: {                  /* the persistent Quick-Launch hub */
+            UiCommand mc;
             gUi.mode = UI_MODE_LIST;
             SetPort(gWin);
-            if (mc == UI_OPEN_SETTINGS || mc == UI_OPEN_CHOOSER || mc == UI_SHOW_STATUS ||
-                mc == UI_OPEN_CDLIST  || mc == UI_OPEN_SDCARD) {
-                /* Going straight into another modal window: don't re-blit the whole
-                 * browse now (that full-screen flash is what the user sees as a
-                 * "redraw before the submenu appears"). The next window opens on top;
-                 * its update handler repaints just the sliver the closed menu exposed. */
-                handle_ui_command(mc);
-            } else {
-                ui_reblit(&gUi);              /* the menu window never touched the buffer */
-                ValidRect(&gWin->portRect);
-                if (mc != UI_NONE) handle_ui_command(mc);   /* dispatch the chosen action */
-            }
+            mc = run_menu_hub();              /* menu <-> submenus; browse repaint done */
+            if (mc != UI_NONE) handle_ui_command(mc);   /* a terminal action fell out */
             break;
         }
         case UI_OPEN_CHOOSER: {              /* the System Folder Chooser (bless, then offer shutdown) */
