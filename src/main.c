@@ -2073,10 +2073,6 @@ static void cdl_draw(WindowPtr dlg, const TbEntry *cds, int n, int sel, int top,
         cdl_str("In drive:  ");
         cdl_str(inDrive[0] ? inDrive : "(none)");
     }
-    if (macfs_cd_eject_log()[0]) {             /* TEMP(eject-verify): last eject OSErrs */
-        MoveTo(16, (short)(pr.bottom - 74));
-        cdl_str(macfs_cd_eject_log());
-    }
     MoveTo(16, (short)(pr.bottom - 42));
     cdl_str("Up/Down to select, Return or Insert to load, Esc to close.");
     DrawControls(dlg);

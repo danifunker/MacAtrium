@@ -272,26 +272,6 @@ OSErr macfs_unmount(short vref)
 static short gCdDrive    = 0;     /* AppleCD drive number (0 = not resolved yet) */
 static short gCdDriveRef = 0;     /* its driver refNum (for the csCode-7 path)   */
 
-/* TEMP(eject-verify): last eject outcome ("ej drv 5 pbe=0" style), surfaced in
- * the CD Library window + the launch wait line so the hardware pass can read the
- * OSErrs without a debugger. Strip after the MiSTer verification. */
-static char gCdEjectLog[48];
-
-static void ej_append_num(char *dst, long v)      /* tiny itoa — no stdio here */
-{
-    char tmp[12];
-    int  n = 0, i = (int)strlen(dst);
-    unsigned long u;
-    if (v < 0) { dst[i++] = '-'; u = (unsigned long)-v; }
-    else       { u = (unsigned long)v; }
-    if (u == 0) tmp[n++] = '0';
-    while (u)  { tmp[n++] = (char)('0' + (int)(u % 10)); u /= 10; }
-    while (n)  dst[i++] = tmp[--n];
-    dst[i] = '\0';
-}
-
-const char *macfs_cd_eject_log(void) { return gCdEjectLog; }
-
 /* Match a driver's DRVR-header name (a Pascal string at +18, i.e. ramdriver's
  * drvrName field) against `want`, case-insensitively. At runtime dCtlDriver
  * holds what real Mac OS put there — a Ptr to the DRVR image, or a Handle to it
@@ -339,12 +319,7 @@ OSErr macfs_eject_cd_drive(void)
     ParamBlockRec pb;
     OSErr         err;
 
-    strcpy(gCdEjectLog, "ej drv ");                        /* TEMP(eject-verify) */
-    if (!cd_drive_resolve()) {
-        strcat(gCdEjectLog, "?: no .AppleCD drive");
-        return nsvErr;
-    }
-    ej_append_num(gCdEjectLog, gCdDrive);
+    if (!cd_drive_resolve()) return nsvErr;
 
     /* PBEject with a DRIVE number (ioNamePtr nil): flushes + offlines a volume if
      * one happens to be there, and reaches the driver's eject either way on the
@@ -353,8 +328,6 @@ OSErr macfs_eject_cd_drive(void)
     pb.volumeParam.ioNamePtr = NULL;
     pb.volumeParam.ioVRefNum = gCdDrive;
     err = PBEject(&pb);
-    strcat(gCdEjectLog, " pbe=");                          /* TEMP(eject-verify) */
-    ej_append_num(gCdEjectLog, err);
 
     if (err != noErr) {
         /* Second chance: the disk driver's own eject verb (csCode 7 — where the
@@ -365,8 +338,6 @@ OSErr macfs_eject_cd_drive(void)
         pb.cntrlParam.ioVRefNum = gCdDrive;
         pb.cntrlParam.csCode    = 7;
         err = PBControlSync(&pb);
-        strcat(gCdEjectLog, " c7=");                       /* TEMP(eject-verify) */
-        ej_append_num(gCdEjectLog, err);
     }
     return err;
 }
@@ -384,8 +355,6 @@ OSErr macfs_eject_unmount(short vref)
     hp.volumeParam.ioNamePtr = NULL;
     hp.volumeParam.ioVRefNum = vref;
     err = PBEject((ParmBlkPtr)&hp);
-    strcpy(gCdEjectLog, "ej vol pbe=");                    /* TEMP(eject-verify) */
-    ej_append_num(gCdEjectLog, err);
     if (err != noErr) return err;
     memset(&hp, 0, sizeof hp);
     hp.volumeParam.ioNamePtr = NULL;

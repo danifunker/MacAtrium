@@ -71,10 +71,6 @@ OSErr macfs_eject_unmount(short vref);
  * truly empty drive it's a harmless no-op/error — callers treat it as advisory. */
 OSErr macfs_eject_cd_drive(void);
 
-/* TEMP(eject-verify): the last eject attempt's outcome ("ej drv 5 pbe=0" style)
- * for on-screen surfacing during the hardware pass. Strip with the logging. */
-const char *macfs_cd_eject_log(void);
-
 /* Find a mounted CD-ROM volume (hardware-locked / write-protected media). Returns
  * 1 and writes *vref on the first match, 0 if none is mounted. Lets the CD Library
  * drop the outgoing disc before a Toolbox swap so Mac OS doesn't nag (docs/45). */

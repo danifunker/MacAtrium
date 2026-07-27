@@ -107,7 +107,6 @@ CdResult cdswap_ensure(const CatItem *it, const CdSwapUI *ui, short *cdVref)
         say(ui, "Ejecting the drive...");
         (void)macfs_eject_cd_drive();
     }
-    say(ui, macfs_cd_eject_log());          /* TEMP(eject-verify) */
 
     /* 3. Find the image this title needs in the cached listing (re-scans on a miss). */
     idx = cdswap_find(it->cdImage);
