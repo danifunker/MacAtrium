@@ -89,12 +89,14 @@ CdResult cdswap_ensure(const CatItem *it, const CdSwapUI *ui, short *cdVref)
     if (!cdswap_ready(&tbId))
         return CD_UNSUPPORTED;
 
-    /* 2. Unmount the CD we last inserted, if it's still mounted and isn't the one we
-     * want — classic Mac OS otherwise nags forever once the media changes under it. */
-    if (gLastCdVol[0] && strcmp(gLastCdVol, it->cdVolume) != 0 &&
-        macfs_find_vol_by_name(gLastCdVol, &vref)) {
+    /* 2. EJECT whatever CD is in the drive — not just the one we inserted this
+     * session (a disc auto-mounted at boot counts too), and eject rather than
+     * bare-unmount: the eject arms the AppleCD driver's insertion poll, without
+     * which the SET below lands but is never noticed by Mac OS (macfs.h,
+     * 2026-07-27). Also keeps classic Mac OS from nagging for the departed disc. */
+    if (macfs_find_cd_vol(&vref)) {
         say(ui, "Ejecting the current disc...");
-        if (macfs_unmount(vref) != noErr) return CD_UNMOUNT_BUSY;
+        if (macfs_eject_unmount(vref) != noErr) return CD_UNMOUNT_BUSY;
         gLastCdVol[0] = '\0';
     }
 

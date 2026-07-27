@@ -255,6 +255,27 @@ OSErr macfs_unmount(short vref)
     return PBUnmountVol((ParmBlkPtr)&hp);
 }
 
+OSErr macfs_eject_unmount(short vref)
+{
+    /* Eject FIRST (the vRefNum must still name a live volume), then unmount the
+     * offline shell. PBEject flushes, places the volume offline, and calls the
+     * disk driver's eject — for the Toolbox CD that lands as SCSI 0xC0 at the
+     * drive, flipping it to no-media so its insertion poll arms (macfs.h). Same
+     * 6.0.8-safe sync-PB idiom as macfs_unmount above. */
+    HParamBlockRec hp;
+    OSErr          err;
+    memset(&hp, 0, sizeof hp);
+    hp.volumeParam.ioNamePtr = NULL;
+    hp.volumeParam.ioVRefNum = vref;
+    err = PBEject((ParmBlkPtr)&hp);
+    if (err != noErr) return err;
+    memset(&hp, 0, sizeof hp);
+    hp.volumeParam.ioNamePtr = NULL;
+    hp.volumeParam.ioVRefNum = vref;
+    (void)PBUnmountVol((ParmBlkPtr)&hp);
+    return noErr;
+}
+
 int macfs_find_cd_vol_named(short *vref, char *name, int cap)
 {
     short i;

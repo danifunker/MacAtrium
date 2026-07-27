@@ -53,6 +53,15 @@ int   macfs_find_vol_by_name(const char *name, short *vref);
  * files are open on it. 6.0.8-safe. Used to swap the Toolbox CD (docs/45). */
 OSErr macfs_unmount(short vref);
 
+/* Finder "Put Away" for a removable volume: EJECT the media through its driver
+ * (PBEject), then unmount the offline shell (PBUnmountVol). The eject is the
+ * load-bearing half for CD swapping: the AppleCD driver only polls for insertion
+ * while it believes the drive is EMPTY, and PBUnmountVol alone never tells the
+ * drive — so a Toolbox SET NEXT CD after a bare unmount is invisible forever
+ * (2026-07-27, MiSTer HW). Returns the PBEject OSErr (fBsyErr when files are
+ * open); the follow-up unmount is best-effort. */
+OSErr macfs_eject_unmount(short vref);
+
 /* Find a mounted CD-ROM volume (hardware-locked / write-protected media). Returns
  * 1 and writes *vref on the first match, 0 if none is mounted. Lets the CD Library
  * drop the outgoing disc before a Toolbox swap so Mac OS doesn't nag (docs/45). */

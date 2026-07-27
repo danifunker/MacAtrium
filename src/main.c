@@ -2027,13 +2027,15 @@ static void cdl_draw(WindowPtr dlg, const TbEntry *cds, int n, int sel, int top,
     DrawControls(dlg);
 }
 
-/* Insert the chosen image: drop the outgoing CD volume first so classic Mac OS
- * doesn't nag for the disc that just left the drive, then SET NEXT CD. The unmount
- * is best-effort — if a file is open on the CD (fBsyErr) the swap still proceeds. */
+/* Insert the chosen image: EJECT the outgoing CD first (Finder "Put Away", not a
+ * bare unmount), then SET NEXT CD. The eject is load-bearing: the AppleCD driver
+ * only polls for insertion while the drive reports empty, so after PBUnmountVol
+ * alone the swapped-in disc is never noticed (macfs.h, 2026-07-27). Best-effort —
+ * if a file is open on the CD (fBsyErr) the swap still proceeds. */
 static void cdl_insert(short tbId, const TbEntry *cd)
 {
     short cdv;
-    if (macfs_find_cd_vol(&cdv)) (void)macfs_unmount(cdv);
+    if (macfs_find_cd_vol(&cdv)) (void)macfs_eject_unmount(cdv);
     (void)toolbox_set_next_cd(tbId, cd->index);
     /* No session bookkeeping: the next cdl_draw reads the drive live (mounted volume
      * name, or the CD reverse index) and names whatever actually mounted (docs/45). */
