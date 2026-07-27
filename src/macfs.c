@@ -11,10 +11,16 @@
 #include "macfs.h"
 #include "mac_compat.h"
 
+#include <Devices.h>   /* GetDCtlEntry / PBControlSync (drive-level CD eject) */
 #include <Files.h>
 #include <Gestalt.h>
 #include <Memory.h>
 #include <string.h>
+
+/* DCE "driver lives in RAM (dCtlDriver is a Handle)" bit (leaner headers may omit). */
+#ifndef dRAMBasedMask
+#define dRAMBasedMask 0x0040
+#endif
 
 /* "is a directory" bit of ioFlAttrib (leaner Retro68 headers may omit it). */
 #ifndef ioDirMask
@@ -255,6 +261,116 @@ OSErr macfs_unmount(short vref)
     return PBUnmountVol((ParmBlkPtr)&hp);
 }
 
+/* ---- physical CD-drive eject (docs/45; 2026-07-27 hardware finding) -----------
+ * The drive must eject even when NO volume is mounted from it (an audio CD, or a
+ * disc HFS failed to mount): macfs_find_cd_vol sees only mounted volumes, so the
+ * swap paths need a DRIVE-level fallback — without the eject the AppleCD driver
+ * never arms its insertion poll and a Toolbox SET NEXT CD is invisible forever.
+ * The drive number + driver refNum are cached from the last mounted CD volume
+ * when there was one, else found by walking the drive queue for the ".AppleCD"
+ * driver's element (media-independent, so it works cold). */
+static short gCdDrive    = 0;     /* AppleCD drive number (0 = not resolved yet) */
+static short gCdDriveRef = 0;     /* its driver refNum (for the csCode-7 path)   */
+
+/* TEMP(eject-verify): last eject outcome ("ej drv 5 pbe=0" style), surfaced in
+ * the CD Library window + the launch wait line so the hardware pass can read the
+ * OSErrs without a debugger. Strip after the MiSTer verification. */
+static char gCdEjectLog[48];
+
+static void ej_append_num(char *dst, long v)      /* tiny itoa — no stdio here */
+{
+    char tmp[12];
+    int  n = 0, i = (int)strlen(dst);
+    unsigned long u;
+    if (v < 0) { dst[i++] = '-'; u = (unsigned long)-v; }
+    else       { u = (unsigned long)v; }
+    if (u == 0) tmp[n++] = '0';
+    while (u)  { tmp[n++] = (char)('0' + (int)(u % 10)); u /= 10; }
+    while (n)  dst[i++] = tmp[--n];
+    dst[i] = '\0';
+}
+
+const char *macfs_cd_eject_log(void) { return gCdEjectLog; }
+
+/* Match a driver's DRVR-header name (a Pascal string at +18, i.e. ramdriver's
+ * drvrName field) against `want`, case-insensitively. At runtime dCtlDriver
+ * holds what real Mac OS put there — a Ptr to the DRVR image, or a Handle to it
+ * when the DCE says dRAMBased (Multiverse types it umacdriverptr; the bits are
+ * the classic ones, so cast through Ptr/Handle exactly like classic code). */
+static int drvr_name_is(short dRefNum, const char *want)
+{
+    /* GetDCtlEntry is declared but has no glue in the Multiverse import lib, so
+     * do what its classic glue does: unit-table entry ~refNum (refNum -n is unit
+     * n-1). The refNum came from a live drive-queue element, so the entry exists. */
+    DCtlHandlePtr ut = LMGetUTableBase();
+    DCtlHandle    h;
+    Ptr           d;
+    if (dRefNum >= 0 || !ut) return 0;
+    h = ut[-1 - dRefNum];
+    if (!h || !*h) return 0;
+    d = (Ptr)(**h).dCtlDriver;
+    if ((**h).dCtlFlags & dRAMBasedMask) d = d ? *(Handle)d : 0;
+    if (!d) return 0;
+    return pstr_eq_cstr_ci((unsigned char *)&((ramdriver *)d)->drvrName, want);
+}
+
+/* Resolve (and cache) the AppleCD drive. Prefer what a mounted CD volume told us
+ * (macfs_find_cd_vol_named harvests it); else walk the drive queue — that needs
+ * no media at all, which is the whole point. Returns 1 when known. */
+static int cd_drive_resolve(void)
+{
+    QHdrPtr q;
+    DrvQEl *d;
+    if (gCdDrive) return 1;
+    q = (QHdrPtr)0x0308;                /* the DrvQHdr low-memory global (GetDrvQHdr
+                                         * has no glue in the Multiverse import lib) */
+    for (d = (DrvQEl *)q->qHead; d; d = (DrvQEl *)d->qLink) {
+        if (drvr_name_is(d->dQRefNum, ".AppleCD")) {
+            gCdDrive    = d->dQDrive;
+            gCdDriveRef = d->dQRefNum;
+            return 1;
+        }
+    }
+    return 0;
+}
+
+OSErr macfs_eject_cd_drive(void)
+{
+    ParamBlockRec pb;
+    OSErr         err;
+
+    strcpy(gCdEjectLog, "ej drv ");                        /* TEMP(eject-verify) */
+    if (!cd_drive_resolve()) {
+        strcat(gCdEjectLog, "?: no .AppleCD drive");
+        return nsvErr;
+    }
+    ej_append_num(gCdEjectLog, gCdDrive);
+
+    /* PBEject with a DRIVE number (ioNamePtr nil): flushes + offlines a volume if
+     * one happens to be there, and reaches the driver's eject either way on the
+     * volume-less drive this fallback exists for. Same sync-PB idiom as below. */
+    memset(&pb, 0, sizeof pb);
+    pb.volumeParam.ioNamePtr = NULL;
+    pb.volumeParam.ioVRefNum = gCdDrive;
+    err = PBEject(&pb);
+    strcat(gCdEjectLog, " pbe=");                          /* TEMP(eject-verify) */
+    ej_append_num(gCdEjectLog, err);
+
+    if (err != noErr) {
+        /* Second chance: the disk driver's own eject verb (csCode 7 — where the
+         * Finder's Put Away bottoms out), aimed by driver refNum + drive number,
+         * no File Manager volume involved at all. */
+        memset(&pb, 0, sizeof pb);
+        pb.cntrlParam.ioCRefNum = gCdDriveRef;
+        pb.cntrlParam.ioVRefNum = gCdDrive;
+        pb.cntrlParam.csCode    = 7;
+        err = PBControlSync(&pb);
+        strcat(gCdEjectLog, " c7=");                       /* TEMP(eject-verify) */
+        ej_append_num(gCdEjectLog, err);
+    }
+    return err;
+}
+
 OSErr macfs_eject_unmount(short vref)
 {
     /* Eject FIRST (the vRefNum must still name a live volume), then unmount the
@@ -268,6 +384,8 @@ OSErr macfs_eject_unmount(short vref)
     hp.volumeParam.ioNamePtr = NULL;
     hp.volumeParam.ioVRefNum = vref;
     err = PBEject((ParmBlkPtr)&hp);
+    strcpy(gCdEjectLog, "ej vol pbe=");                    /* TEMP(eject-verify) */
+    ej_append_num(gCdEjectLog, err);
     if (err != noErr) return err;
     memset(&hp, 0, sizeof hp);
     hp.volumeParam.ioNamePtr = NULL;
@@ -291,6 +409,8 @@ int macfs_find_cd_vol_named(short *vref, char *name, int cap)
          * Fixed HDs and the data-disk libraries are writable, so this singles out
          * the mounted Toolbox CD. */
         if (hp.volumeParam.ioVAtrb & 0x0080) {
+            gCdDrive    = hp.volumeParam.ioVDrvInfo;   /* cache the physical drive for */
+            gCdDriveRef = hp.volumeParam.ioVDRefNum;   /* volume-less ejects (above)   */
             if (vref) *vref = hp.volumeParam.ioVRefNum;
             if (name && cap > 0) {                  /* Pascal name -> C string */
                 int len = nm[0];

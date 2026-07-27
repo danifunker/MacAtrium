@@ -62,6 +62,19 @@ OSErr macfs_unmount(short vref);
  * open); the follow-up unmount is best-effort. */
 OSErr macfs_eject_unmount(short vref);
 
+/* Eject the physical CD DRIVE even when no volume is mounted from it — an audio
+ * CD, or a disc HFS never mounted, leaves macfs_find_cd_vol empty-handed but the
+ * AppleCD driver just as asleep, so a Toolbox swap over it is invisible without
+ * this (2026-07-27, MiSTer HW). PBEject by drive number (cached from the last
+ * mounted CD volume, else resolved by walking the drive queue for the ".AppleCD"
+ * driver), with the driver's eject control (csCode 7) as the second chance. On a
+ * truly empty drive it's a harmless no-op/error — callers treat it as advisory. */
+OSErr macfs_eject_cd_drive(void);
+
+/* TEMP(eject-verify): the last eject attempt's outcome ("ej drv 5 pbe=0" style)
+ * for on-screen surfacing during the hardware pass. Strip with the logging. */
+const char *macfs_cd_eject_log(void);
+
 /* Find a mounted CD-ROM volume (hardware-locked / write-protected media). Returns
  * 1 and writes *vref on the first match, 0 if none is mounted. Lets the CD Library
  * drop the outgoing disc before a Toolbox swap so Mac OS doesn't nag (docs/45). */

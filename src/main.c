@@ -2073,6 +2073,10 @@ static void cdl_draw(WindowPtr dlg, const TbEntry *cds, int n, int sel, int top,
         cdl_str("In drive:  ");
         cdl_str(inDrive[0] ? inDrive : "(none)");
     }
+    if (macfs_cd_eject_log()[0]) {             /* TEMP(eject-verify): last eject OSErrs */
+        MoveTo(16, (short)(pr.bottom - 74));
+        cdl_str(macfs_cd_eject_log());
+    }
     MoveTo(16, (short)(pr.bottom - 42));
     cdl_str("Up/Down to select, Return or Insert to load, Esc to close.");
     DrawControls(dlg);
@@ -2087,6 +2091,7 @@ static void cdl_insert(short tbId, const TbEntry *cd)
 {
     short cdv;
     if (macfs_find_cd_vol(&cdv)) (void)macfs_eject_unmount(cdv);
+    else (void)macfs_eject_cd_drive();   /* audio CD / failed mount: still eject (macfs.h) */
     (void)toolbox_set_next_cd(tbId, cd->index);
     /* No session bookkeeping: the next cdl_draw reads the drive live (mounted volume
      * name, or the CD reverse index) and names whatever actually mounted (docs/45). */

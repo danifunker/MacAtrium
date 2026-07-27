@@ -98,7 +98,16 @@ CdResult cdswap_ensure(const CatItem *it, const CdSwapUI *ui, short *cdVref)
         say(ui, "Ejecting the current disc...");
         if (macfs_eject_unmount(vref) != noErr) return CD_UNMOUNT_BUSY;
         gLastCdVol[0] = '\0';
+    } else {
+        /* No mounted CD volume does NOT mean an empty drive: an audio CD, or a
+         * disc HFS failed to mount, leaves the AppleCD driver loaded — and just
+         * as asleep. Eject the DRIVE itself so its insertion poll arms; on a
+         * truly empty drive this is a harmless no-op, so the result is advisory
+         * (macfs.h, 2026-07-27 HW). */
+        say(ui, "Ejecting the drive...");
+        (void)macfs_eject_cd_drive();
     }
+    say(ui, macfs_cd_eject_log());          /* TEMP(eject-verify) */
 
     /* 3. Find the image this title needs in the cached listing (re-scans on a miss). */
     idx = cdswap_find(it->cdImage);
