@@ -169,11 +169,6 @@ int  toolbox_list_cds(short id, TbEntry *buf, int cap, int *n);
  * its CD drive with the chosen image; the guest re-reads the TOC and mounts it. */
 int  toolbox_set_next_cd(short id, int index);
 
-/* TEST UNIT READY on `id`: 1 if a disc is loaded (including an audio / non-HFS disc
- * that mounts no Mac volume), 0 if the drive is empty. Lets the CD Library name what
- * is in the drive even when the File Manager sees no volume (docs/45). */
-int  toolbox_media_present(short id);
-
 /* ---- file transfer (docs/46) ------------------------------------------------
  * The SD-card side of the Toolbox. These are the READ half; the send half lands
  * with the copy-out path. All operate on the target's current working/shared dir. */

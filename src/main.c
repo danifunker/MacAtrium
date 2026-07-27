@@ -1973,20 +1973,22 @@ static void cdl_draw(WindowPtr dlg, const TbEntry *cds, int n, int sel, int top,
     char  volName[ITEM_CDVOL_LEN];
     char  inDrive[ITEM_CDVOL_LEN];
     const char *marker = "";           /* listed image to flag with ">", if we can map it */
-    /* Always name the disc ACTUALLY in the drive, read Mac-side so it is identical on
-     * MiSTer, real BlueSCSI, and snow (BlueSCSI exposes no "current CD" query). A
-     * mounted disc gives its real HFS volume name (a non-game disc included); a disc
-     * that answers the drive but mounts no Mac volume (audio / non-HFS) shows a generic
-     * label; an empty drive shows nothing. A game disc is additionally flagged in the
-     * list by reverse-mapping its volume to the host image via the CD index (docs/45). */
+    /* Name the disc in the drive from the mounted-volume table only — a File Manager
+     * query (PBHGetVInfo), NEVER a SCSI command to the drive. This runs on every
+     * redraw, including right after an insert while Mac OS is still mounting the
+     * swapped-in disc; issuing TEST UNIT READY here (as an earlier "Audio CD" probe
+     * did) races the OS's own media-change handling and the new disc fails to mount.
+     * So: a mounted disc shows its HFS volume name (a non-game disc included) and a
+     * game disc is flagged in the list via the CD reverse index; anything the File
+     * Manager can't see — an empty drive, or an audio/non-HFS disc — shows nothing.
+     * The drive is touched ONLY by the deliberate one-shots (LIST CDS at open, SET
+     * NEXT CD on insert), never polled (docs/45, docs/46). */
     inDrive[0] = '\0';
     if (macfs_find_cd_vol_named(&cdv, volName, sizeof volName)) {
         strncpy(inDrive, volName, sizeof inDrive - 1);
         inDrive[sizeof inDrive - 1] = '\0';
         marker = cdidx_reverse(volName);           /* game disc -> its listed image */
         if (!marker) marker = "";
-    } else if (cdswap_media_present()) {
-        strcpy(inDrive, "Audio CD");               /* present, but mounts no Mac volume */
     }
 
     SetPort(dlg);

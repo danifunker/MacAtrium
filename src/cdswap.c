@@ -43,13 +43,6 @@ int cdswap_ready(short *id)
     return 1;
 }
 
-int cdswap_media_present(void)
-{
-    cd_scan_once();
-    if (!gCdFound) return 0;
-    return toolbox_media_present(gCdId);
-}
-
 const TbEntry *cdswap_cds(int *n, int *found, short *id)
 {
     cd_scan_once();

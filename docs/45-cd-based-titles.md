@@ -192,15 +192,21 @@ Toolbox command set is LIST CDS / SET NEXT CD / COUNT CDS / METADATA; none repor
 the *loaded* image (METADATA's subcommands are only device-list / capabilities /
 working-dir), the firmware never re-derives the INQUIRY strings on a swap, and the
 MiSTer core is frozen — so there is nothing to read and nothing we could add. Instead
-`cdl_draw` names the disc on every draw, identically on MiSTer, real BlueSCSI, and
+`cdl_draw` names the disc on every draw from the **mounted-volume table only**
+(`macfs_find_cd_vol_named` → PBHGetVInfo), identically on MiSTer, real BlueSCSI, and
 snow:
 
-- a **mounted disc** gives its real HFS volume name via `macfs_find_cd_vol_named` —
-  a **non-game** disc included;
-- a disc that answers the drive but mounts **no Mac volume** (audio / non-HFS,
-  detected by a `TEST UNIT READY` probe — `toolbox_media_present`) shows a generic
-  **`Audio CD`**;
-- an **empty drive** shows `(none)`.
+- a **mounted disc** gives its real HFS volume name — a **non-game** disc included;
+- **anything the File Manager can't see** — an empty drive, or an audio / non-HFS
+  disc — shows `(none)`.
+
+**`cdl_draw` never sends SCSI to the drive.** It is called on every redraw, including
+right after an insert while Mac OS is mounting the swapped-in disc; an earlier build
+probed `TEST UNIT READY` here to label an audio disc, but that polling raced the OS's
+media-change handling (it even cleared the change's UNIT ATTENTION) and the new disc
+would fail to mount. The drive is touched only by the deliberate one-shots — LIST CDS
+at open, SET NEXT CD on insert (which first unmounts the outgoing volume) — never
+polled. Naming an audio disc is not worth breaking the swap it sits next to.
 
 The list-row `>` `(in drive)` flag is driven **only** by the **reverse index** —
 `cdidx.c` over `metadata/cdindex.jsonl` (one `{image, volume}` per CD title, emitted

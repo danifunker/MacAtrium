@@ -48,11 +48,6 @@ void cdswap_scan(void);
  * Scans on first use if cdswap_scan() hasn't run yet. */
 int  cdswap_ready(short *id);
 
-/* 1 if a disc is loaded in the CD device — including an audio / non-HFS disc that
- * mounts no Mac volume — else 0. Scans for the CD device on first use. Lets the CD
- * Library always name what is actually in the drive (docs/45). */
-int  cdswap_media_present(void);
-
 /* The cached listing for the CD Library browser: entries, with *n = count, *found =
  * a CD device answered, *id = its SCSI id. Any out-param may be NULL. Scans on first
  * use. The returned pointer is owned by cdswap (valid until the next scan). */
