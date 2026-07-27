@@ -1362,7 +1362,11 @@ static UiCommand run_quicklaunch_menu(void)
         if (T < (short)(sb.top + 44)) T = (short)(sb.top + 44);
         SetRect(&bounds, L, T, (short)(L + QL_CW), (short)(T + CH));
     }
-    dlg = NewWindow(0L, &bounds, "\pQuick-Launch Menu", true, movableDBoxProc, (WindowPtr)-1L, false, 0L);
+    /* noGrowDocProc (not movableDBox) so the title bar carries a real close box —
+     * per the era HIG a movable modal has no close box (buttons only), but this menu
+     * is a persistent utility hub the mouse must be able to dismiss (TrackGoAway
+     * below). Esc / Cmd-. stay as the keyboard equivalents. */
+    dlg = NewWindow(0L, &bounds, "\pQuick-Launch Menu", true, noGrowDocProc, (WindowPtr)-1L, true, 0L);
     if (!dlg) return UI_NONE;
     SetPort(dlg);
     TextFont(0); TextSize(12);
@@ -1388,6 +1392,9 @@ static UiCommand run_quicklaunch_menu(void)
             case mouseDown: {
                 WindowPtr w; short part = FindWindow(evt.where, &w);
                 if (part == inDrag && w == dlg) { DragWindow(w, evt.where, &sb); SetPort(dlg); }
+                else if (part == inGoAway && w == dlg) {
+                    if (TrackGoAway(dlg, evt.where)) running = 0;   /* close box = dismiss */
+                }
                 else if (part == inContent && w == dlg) {
                     Point p = evt.where; ControlHandle ctl; short cp;
                     SetPort(dlg); GlobalToLocal(&p);
@@ -2054,22 +2061,31 @@ static void run_cd_list_dialog(void)
     short         tbId = 0;
     ControlHandle insBtn, doneBtn;
 
-    /* Refresh the session cache on open (the folder may have changed), then read it. */
-    cdswap_scan();
-    cds = cdswap_cds(&n, &tbFound, &tbId);
-
+    /* Open the window BEFORE the Toolbox scan and say what the pause is — LIST CDS
+     * is a synchronous SCSI exchange that can take a moment, and it used to run
+     * with no window up at all: a silent dead stop between the menu and this
+     * screen. Watch cursor + a status line, per the era HIG. */
     if (T < (short)(sb.top + 44)) T = (short)(sb.top + 44);
     SetRect(&bounds, L, T, (short)(L + W), (short)(T + H));
     dlg = NewWindow(0L, &bounds, "\pCD Library", true, movableDBoxProc, (WindowPtr)-1L, false, 0L);
     if (!dlg) return;
     SetPort(dlg);
+    TextFont(0); TextSize(12);
+    MoveTo(16, 24); cdl_str("Getting CD info from the Toolbox...");
+    SetCursor(*GetCursor(watchCursor));
+
+    /* Refresh the session cache (the host folder may have changed), then read it. */
+    cdswap_scan();
+    cds = cdswap_cds(&n, &tbFound, &tbId);
+    InitCursor();
+
     SetRect(&r, 16, (short)(H - 32), 96, (short)(H - 12));
     insBtn = NewControl(dlg, &r, "\pInsert", true, 1, 0, 1, pushButProc, 0L);
     SetRect(&r, (short)(W - 86), (short)(H - 32), (short)(W - 16), (short)(H - 12));
     doneBtn = NewControl(dlg, &r, "\pDone", true, 1, 0, 1, pushButProc, 0L);
     if (!(tbFound && n > 0)) HiliteControl(insBtn, 255);   /* nothing to insert → dim */
 
-    cdl_draw(dlg, cds, n, sel, top, tbFound);
+    cdl_draw(dlg, cds, n, sel, top, tbFound);   /* erases the wait line with the real list */
     ValidRect(&dlg->portRect);
 
     while (running) {
@@ -2135,7 +2151,7 @@ static void run_cd_list_dialog(void)
 #define FBL_ROWS   12               /* visible rows                              */
 #define FBL_LEFT   0x1C             /* Mac left-arrow char code (climb a level)  */
 #define FBL_X_NAME 24               /* name column: fixed left edge              */
-#define FBL_X_SIZE 392              /* size column: right edge (right-aligned)   */
+#define FBL_X_SIZE 462              /* size column: right edge (right-aligned; W-28) */
 
 /* Draw a byte count compactly, right-aligned (integer math only — no FPU here). */
 static void fbl_size(unsigned long b, short y)
@@ -2459,26 +2475,33 @@ static void run_file_browser_dialog(void)
 {
     WindowPtr     dlg;
     Rect          bounds, r, sb = qd.screenBits.bounds;
-    short         W = 420, H = 300;
+    short         W = 490, H = 300;   /* wide enough for the directional button labels */
     short         L = (short)(sb.left + ((sb.right - sb.left) - W) / 2);
     short         T = (short)(sb.top  + ((sb.bottom - sb.top) - H) / 2);
     int           running = 1, sel = 0, top = 0, n = 0;
     ControlHandle openBtn, copyBtn, sendBtn, doneBtn;
 
-    (void)fb_refresh();
-    (void)fb_entries(&n);
-
+    /* Window first, then the Toolbox listing — same reasoning as the CD Library:
+     * LIST FILES is a synchronous SCSI exchange, so show what the pause is. */
     if (T < (short)(sb.top + 44)) T = (short)(sb.top + 44);
     SetRect(&bounds, L, T, (short)(L + W), (short)(T + H));
-    dlg = NewWindow(0L, &bounds, "\pSD Card", true, movableDBoxProc, (WindowPtr)-1L, false, 0L);
+    dlg = NewWindow(0L, &bounds, "\pToolbox Shared Files", true, movableDBoxProc, (WindowPtr)-1L, false, 0L);
     if (!dlg) return;
     SetPort(dlg);
-    SetRect(&r, 16, (short)(H - 32), 96, (short)(H - 12));
+    TextFont(0); TextSize(12);
+    MoveTo(16, 24); cdl_str("Reading the shared folder from the SD card...");
+    SetCursor(*GetCursor(watchCursor));
+
+    (void)fb_refresh();
+    (void)fb_entries(&n);
+    InitCursor();
+
+    SetRect(&r, 16, (short)(H - 32), 80, (short)(H - 12));
     openBtn = NewControl(dlg, &r, "\pOpen", true, 1, 0, 1, pushButProc, 0L);
-    SetRect(&r, 108, (short)(H - 32), 188, (short)(H - 12));
-    copyBtn = NewControl(dlg, &r, "\pCopy", true, 1, 0, 1, pushButProc, 0L);
-    SetRect(&r, 200, (short)(H - 32), 280, (short)(H - 12));
-    sendBtn = NewControl(dlg, &r, "\pSend...", true, 1, 0, 1, pushButProc, 0L);
+    SetRect(&r, 92, (short)(H - 32), 206, (short)(H - 12));
+    copyBtn = NewControl(dlg, &r, "\pShared to Mac", true, 1, 0, 1, pushButProc, 0L);
+    SetRect(&r, 218, (short)(H - 32), 380, (short)(H - 12));
+    sendBtn = NewControl(dlg, &r, "\pFrom Mac to Shared...", true, 1, 0, 1, pushButProc, 0L);
     SetRect(&r, (short)(W - 86), (short)(H - 32), (short)(W - 16), (short)(H - 12));
     doneBtn = NewControl(dlg, &r, "\pDone", true, 1, 0, 1, pushButProc, 0L);
     if (!fb_can_navigate()) HiliteControl(openBtn, 255);   /* flat listing -> dim */
@@ -2635,11 +2658,12 @@ static void handle_ui_command(UiCommand cmd)
             UiCommand mc = run_quicklaunch_menu();
             gUi.mode = UI_MODE_LIST;
             SetPort(gWin);
-            if (mc == UI_OPEN_SETTINGS) {
+            if (mc == UI_OPEN_SETTINGS || mc == UI_OPEN_CHOOSER || mc == UI_SHOW_STATUS ||
+                mc == UI_OPEN_CDLIST  || mc == UI_OPEN_SDCARD) {
                 /* Going straight into another modal window: don't re-blit the whole
-                 * browse now (that full-screen flash is what the user sees "redraw
-                 * before the Settings appear"). The Settings window opens on top; its
-                 * update handler repaints just the sliver the closed menu exposed. */
+                 * browse now (that full-screen flash is what the user sees as a
+                 * "redraw before the submenu appears"). The next window opens on top;
+                 * its update handler repaints just the sliver the closed menu exposed. */
                 handle_ui_command(mc);
             } else {
                 ui_reblit(&gUi);              /* the menu window never touched the buffer */
@@ -2965,9 +2989,11 @@ int main(void)
                     } else if (part == inDrag && w == gWin) {
                         /* The window is immovable, so a click on its title bar opens
                          * the menu hub instead — a way to reach the menu from the
-                         * title bar, especially when the System menu bar is hidden. */
-                        gUi.mode = UI_MODE_MENU; gUi.menuSel = 0;
-                        ui_draw(&gUi);
+                         * title bar, especially when the System menu bar is hidden.
+                         * Route through the REAL menu window: the old in-window
+                         * overlay (UI_MODE_MENU + ui_draw) is dead — it blitted a
+                         * control-less browse with no panel at all. */
+                        handle_ui_command(UI_OPEN_MENU);
                     } else if (part == inSysWindow) {
                         SystemClick(&evt, w);      /* a desk accessory's window */
                     } else {

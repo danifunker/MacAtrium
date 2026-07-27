@@ -4,8 +4,9 @@ Move ordinary files between the emulated Mac and the SD card, without rebuilding
 disk image. The CD half of the Toolbox is [docs/45](45-cd-based-titles.md); this is
 the *file* half, which the same device serves.
 
-Reached from the **Esc menu → SD Card**. The dialog lists the host's shared folder,
-copies a file **in** (`Copy` / Return), and sends a Mac file **out** (`Send…`).
+Reached from the **Esc menu → Toolbox Shared Files**. The dialog lists the host's
+shared folder, copies a file **in** (`Shared to Mac` / Return), and sends a Mac file
+**out** (`From Mac to Shared…`).
 
 ---
 

@@ -35,7 +35,7 @@ static const char *kGridStyle[GRID_N] = { "Finder", "Tiles" };
 /* Esc-menu row kinds and their labels (indexed by kind). The visible set per run
  * is built into Ui::menuRows by ui_init (Finder rows omitted on the boot shell). */
 enum { MROW_SETTINGS, MROW_SHOW_FINDER, MROW_EXIT, MROW_RESTART, MROW_SHUTDOWN, MROW_CHOOSE_OS, MROW_STATUS, MROW_CDLIST, MROW_SDCARD };
-static const char *kMenuLabel[] = { "Settings", "Show Finder", "Exit to Finder", "Restart", "Shut Down", "System Folder Chooser", "MacAtrium Status", "CD Library", "SD Card" };
+static const char *kMenuLabel[] = { "Settings", "Show Finder", "Exit to Finder", "Restart", "Shut Down", "System Folder Chooser", "MacAtrium Status", "CD Library", "Toolbox Shared Files" };
 
 /* ---- small helpers -------------------------------------------------------- */
 
