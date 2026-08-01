@@ -97,6 +97,10 @@ typedef struct {
 #define TB_MAX_PATH      64       /* MAX_FILE_PATH — full path incl. NUL               */
 #define TB_GET_BLOCK     4096L    /* GET FILE moves whole 4 KB blocks                  */
 #define TB_SEND_BLOCK    512      /* SEND FILE 10 moves whole 512-byte blocks          */
+#define TB_XFER_MAX      32768L   /* per-command ceiling with the LARGE caps: "32 KB (8
+                                   * blocks) is the working ceiling the capability flags
+                                   * were designed around" (BLUESCSI_HANDOFF §4.3); the
+                                   * SEND side moves it as 64 x 512-byte blocks        */
 #define TB_SEND_NAME_LEN 32       /* SEND FILE PREP filename bytes (33 sent, with NUL) */
 
 /* ---- pure logic (always compiled; host-tested) ----------------------------- */
@@ -190,7 +194,8 @@ int  toolbox_list_files(short id, TbEntry *buf, int cap, int *n);
  * (`cap` bytes). Returns 1 on GOOD. The handshaked SCSI Manager cannot report a SHORT
  * transfer's length, so the caller works out how much of the final block is real from
  * the file size the listing gave it, and zeroes `dst` beforehand. */
-int  toolbox_get_file_block(short id, int index, unsigned long blockOff, void *dst, long cap);
+int  toolbox_get_file_block(short id, int index, unsigned long blockOff, void *dst, long cap,
+                            int blocks);
 
 /* SEND FILE, the upload half: PREP creates/truncates `name` (<=32 chars) in the
  * current folder, DATA writes a chunk at `blockOff` (512-byte units), END flushes and

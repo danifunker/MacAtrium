@@ -449,17 +449,23 @@ int toolbox_list_files(short id, TbEntry *buf, int cap, int *n)
     return 1;
 }
 
-int toolbox_get_file_block(short id, int index, unsigned long blockOff, void *dst, long cap)
+int toolbox_get_file_block(short id, int index, unsigned long blockOff, void *dst, long cap,
+                           int blocks)
 {
     unsigned char cdb[TB_CDB_LEN];
     OSErr err;
     short stat = -1, msg = 0;
-    long  want = (cap < TB_GET_BLOCK) ? cap : TB_GET_BLOCK;
+    long  want;
 
-    /* One 4 KB block per command: the baseline every target implements (the
-     * CAP_LARGE_TRANSFERS flag only matters for asking for several at once). Offset 0
-     * is what makes the firmware (re)open the file; later offsets seek within it. */
-    toolbox_cdb_get_file(cdb, index, blockOff, 1);
+    /* `blocks` 4 KB blocks per command: 1 is the baseline every target implements;
+     * more than 1 only when GET CAPABILITIES advertised TB_CAP_LARGE_XFER (the
+     * caller gates it, and never asks past EOF — a short DataIn can't say how many
+     * bytes arrived). Offset 0 is what makes the firmware (re)open the file; later
+     * offsets seek within it. */
+    if (blocks < 1) blocks = 1;
+    want = (long)blocks * TB_GET_BLOCK;
+    if (want > cap) want = cap;
+    toolbox_cdb_get_file(cdb, index, blockOff, blocks);
     if (SCSIGet() != noErr) return 0;
     err = tb_begin(id, cdb, TB_CDB_LEN);
     /* A short DataIn at EOF makes the handshaked SCSIRead report an error even though

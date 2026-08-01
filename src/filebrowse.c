@@ -6,6 +6,7 @@
 #ifndef TOOLBOX_HOST_TEST
 #include "macbin.h"
 #include "macfs.h"
+#include <Memory.h>   /* NewPtr for the borrowed 32 KB transfer buffer */
 #endif
 
 #include <string.h>
@@ -149,8 +150,34 @@ int fb_parent(void)
 /* ---- copying (docs/46) ------------------------------------------------------ */
 
 /* One 4 KB transfer block, resident rather than on the stack — the 68k stack is small
- * and a B&W build may only have a 384 KB partition (docs/44). */
-static unsigned char gBlk[TB_GET_BLOCK];
+ * and a B&W build may only have a 384 KB partition (docs/44). When the target
+ * advertises a LARGE capability bit, a copy borrows a 32 KB heap buffer instead
+ * (TB_XFER_MAX = 8 GET blocks / 64 SEND blocks per command, the handoff spec's
+ * working ceiling) — ~8x fewer SCSI round-trips, which is where all the time goes.
+ * On a baseline target, or when the heap is too tight, the resident 4 KB block
+ * keeps working exactly as before. */
+static unsigned char  gBlk[TB_GET_BLOCK];
+static unsigned char *gXfer    = gBlk;          /* the active transfer buffer      */
+static long           gXferCap = TB_GET_BLOCK;  /* its size in bytes               */
+
+static void fb_xfer_begin(unsigned char capBit)
+{
+    Ptr p;
+    if ((gCaps & capBit) && (p = NewPtr(TB_XFER_MAX)) != 0) {
+        gXfer    = (unsigned char *)p;
+        gXferCap = TB_XFER_MAX;
+    } else {
+        gXfer    = gBlk;
+        gXferCap = TB_GET_BLOCK;
+    }
+}
+
+static void fb_xfer_end(void)
+{
+    if (gXfer != gBlk) DisposePtr((Ptr)gXfer);
+    gXfer    = gBlk;
+    gXferCap = TB_GET_BLOCK;
+}
 
 /* Build the destination spec for `name` under /MacAtrium/Incoming, creating the
  * folder on demand. HFS allows 31-character names and the protocol allows 32, so the
@@ -261,26 +288,26 @@ static FbResult fb_send_stream(const FSSpec *src, const char *destName, int wrap
         long n = total - pos;
         long off = 0;
 
-        if (n > (long)sizeof gBlk) n = (long)sizeof gBlk;
+        if (n > gXferCap) n = gXferCap;
         /* Keep every chunk 512-aligned so the offset field stays meaningful; only the
          * final short tail is unaligned, and that one rides the legacy byte count. */
         if (n >= TB_SEND_BLOCK) n -= (n % TB_SEND_BLOCK);
 
-        memset(gBlk, 0, (size_t)n);              /* pad regions are zeros by construction */
+        memset(gXfer, 0, (size_t)n);             /* pad regions are zeros by construction */
         for (off = 0; off < n; ) {
             long p = pos + off, chunk;
             if (wrap && p < MACBIN_HDR) {                       /* the header */
                 chunk = MACBIN_HDR - p;
                 if (chunk > n - off) chunk = n - off;
-                memcpy(gBlk + off, hdr + p, (size_t)chunk);
+                memcpy(gXfer + off, hdr + p, (size_t)chunk);
             } else if (p >= dataStart && p < dataEnd) {         /* data fork */
                 chunk = dataEnd - p;
                 if (chunk > n - off) chunk = n - off;
-                if (FSRead(dfRef, &chunk, (Ptr)(gBlk + off)) != noErr) { rc = FB_ERR_READ; break; }
+                if (FSRead(dfRef, &chunk, (Ptr)(gXfer + off)) != noErr) { rc = FB_ERR_READ; break; }
             } else if (rfRef && p >= rsrcStart && p < rsrcEnd) { /* resource fork */
                 chunk = rsrcEnd - p;
                 if (chunk > n - off) chunk = n - off;
-                if (FSRead(rfRef, &chunk, (Ptr)(gBlk + off)) != noErr) { rc = FB_ERR_READ; break; }
+                if (FSRead(rfRef, &chunk, (Ptr)(gXfer + off)) != noErr) { rc = FB_ERR_READ; break; }
             } else {                                            /* padding */
                 chunk = n - off;
             }
@@ -289,7 +316,7 @@ static FbResult fb_send_stream(const FSSpec *src, const char *destName, int wrap
         }
         if (rc != FB_OK) break;
 
-        if (!toolbox_send_file_data(gId, gBlk, n, absOff ? (unsigned long)(pos / TB_SEND_BLOCK) : 0UL)) {
+        if (!toolbox_send_file_data(gId, gXfer, n, absOff ? (unsigned long)(pos / TB_SEND_BLOCK) : 0UL)) {
             rc = FB_ERR_WRITE;
             break;
         }
@@ -320,6 +347,7 @@ FbResult fb_copy_out(const FSSpec *src, const char *destName, int wrap, const Fb
     total = wrap ? (MACBIN_HDR + macbin_padded(dataLen) + macbin_padded(rsrcLen)) : dataLen;
     if (ui && ui->message) ui->message(ui->ctx, "Sending to the SD card...");
 
+    fb_xfer_begin(TB_CAP_LARGE_SEND);            /* 32 KB chunks when advertised */
     rc = fb_send_stream(src, destName, wrap, dataLen, rsrcLen, total,
                         (gSeekAbs != 0), ui);
 
@@ -337,6 +365,7 @@ FbResult fb_copy_out(const FSSpec *src, const char *destName, int wrap, const Fb
             rc = fb_send_stream(src, destName, wrap, dataLen, rsrcLen, total, 0, ui);
         }
     }
+    fb_xfer_end();
     return rc;
 }
 
@@ -362,7 +391,7 @@ FbResult fb_copy_in(int index, const FbUI *ui)
     /* Block 0 decides the shape of everything that follows: a MacBinary wrapper is
      * split back into two forks, anything else is copied through verbatim. */
     memset(gBlk, 0, sizeof gBlk);
-    if (!toolbox_get_file_block(gId, index, 0, gBlk, (long)sizeof gBlk)) return FB_ERR_READ;
+    if (!toolbox_get_file_block(gId, index, 0, gBlk, (long)sizeof gBlk, 1)) return FB_ERR_READ;
     wrapped = macbin_parse(gBlk, (total < (long)sizeof gBlk) ? total : (long)sizeof gBlk, &mi);
     if (wrapped) {
         dataStart = MACBIN_HDR;
@@ -383,35 +412,40 @@ FbResult fb_copy_in(int index, const FbUI *ui)
     if (wrapped && mi.rsrcLen > 0 &&
         macfs_open_rf(&spec, fsWrPerm, &rfRef) != noErr) { FSClose(dfRef); return FB_ERR_WRITE; }
 
+    fb_xfer_begin(TB_CAP_LARGE_XFER);            /* 8-block reads when advertised */
     for (;;) {
         long remain = total - pos;
         long got;
 
         if (remain <= 0) break;
-        got = (remain < (long)sizeof gBlk) ? remain : (long)sizeof gBlk;
+        got = (remain < gXferCap) ? remain : gXferCap;
 
-        if (blockOff != 0) {           /* block 0 is already sitting in gBlk */
-            memset(gBlk, 0, sizeof gBlk);
-            if (!toolbox_get_file_block(gId, index, blockOff, gBlk, (long)sizeof gBlk)) {
+        /* On the 4 KB path the sniff above already holds block 0; the borrowed big
+         * buffer starts empty, so it re-reads from offset 0 (one extra command). */
+        if (pos != 0 || gXfer != gBlk) {
+            memset(gXfer, 0, (size_t)gXferCap);
+            if (!toolbox_get_file_block(gId, index, blockOff, gXfer, got,
+                                        (int)((got + TB_GET_BLOCK - 1) / TB_GET_BLOCK))) {
                 rc = FB_ERR_READ;
                 break;
             }
         }
 
         if (!wrapped) {
-            if (!fb_span(dfRef, gBlk, pos, got, 0, total)) { rc = FB_ERR_WRITE; break; }
+            if (!fb_span(dfRef, gXfer, pos, got, 0, total)) { rc = FB_ERR_WRITE; break; }
         } else {
-            if (!fb_span(dfRef, gBlk, pos, got, dataStart, dataEnd)) { rc = FB_ERR_WRITE; break; }
-            if (rfRef && !fb_span(rfRef, gBlk, pos, got, rsrcStart, rsrcEnd)) {
+            if (!fb_span(dfRef, gXfer, pos, got, dataStart, dataEnd)) { rc = FB_ERR_WRITE; break; }
+            if (rfRef && !fb_span(rfRef, gXfer, pos, got, rsrcStart, rsrcEnd)) {
                 rc = FB_ERR_WRITE;
                 break;
             }
         }
 
         pos += got;
-        blockOff++;
+        blockOff += (unsigned long)((got + TB_GET_BLOCK - 1) / TB_GET_BLOCK);
         if (ui && ui->tick && !ui->tick(ui->ctx, pos, total)) { rc = FB_ERR_CANCEL; break; }
     }
+    fb_xfer_end();
 
     FSClose(dfRef);
     if (rfRef) FSClose(rfRef);

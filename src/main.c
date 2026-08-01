@@ -2234,6 +2234,18 @@ static void fbl_status(WindowPtr dlg, const char *msg)
  * takes real time: these draw progress and let Esc / Cmd-. abort (docs/46). */
 static WindowPtr gFbDlg;          /* dialog the hooks draw into while copying */
 static long      gFbPct;          /* last percentage drawn (redraw only on change) */
+static long      gFbRateT0;       /* KB/s window: TickCount when it opened...      */
+static long      gFbRatePos;      /* ...and the byte position at that moment       */
+static long      gFbKBs;          /* last computed KB/s (-1 = no full window yet)  */
+
+/* Reset the progress state at the start of a copy (both directions). */
+static void fb_prog_reset(void)
+{
+    gFbPct     = -1;
+    gFbKBs     = -1;
+    gFbRateT0  = (long)TickCount();
+    gFbRatePos = 0;
+}
 
 static void fb_msg(void *ctx, const char *msg)
 {
@@ -2244,20 +2256,31 @@ static void fb_msg(void *ctx, const char *msg)
 static int fb_tick(void *ctx, long done, long total)
 {
     EventRecord evt;
-    long        pct = (total > 0) ? (done * 100L / total) : 100L;
+    long        pct  = (total > 0) ? (done * 100L / total) : 100L;
+    long        now  = (long)TickCount();
+    int         draw = 0;
     (void)ctx;
 
     SetCursor(*GetCursor(watchCursor));
-    if (pct != gFbPct && gFbDlg) {           /* only redraw when the number moves */
-        char b[32];
-        int  i = 0;
-        const char *p = "Copying...  ";
-        while (*p) b[i++] = *p++;
-        if (pct >= 100) { b[i++] = '1'; b[i++] = '0'; b[i++] = '0'; }
-        else if (pct >= 10) { b[i++] = (char)('0' + (int)(pct / 10)); b[i++] = (char)('0' + (int)(pct % 10)); }
-        else b[i++] = (char)('0' + (int)pct);
-        b[i++] = '%';
-        b[i]   = '\0';
+    /* KB/s over a rolling ~1 s window (ticks are 60ths): bytes landed in the window
+     * over its length. Integer math only — no FPU on most of these machines. */
+    if (now - gFbRateT0 >= 60) {
+        gFbKBs     = ((done - gFbRatePos) * 60L) / ((now - gFbRateT0) * 1024L);
+        gFbRateT0  = now;
+        gFbRatePos = done;
+        draw       = 1;                  /* refresh the rate even when pct held */
+    }
+    if (pct != gFbPct) draw = 1;
+    if (draw && gFbDlg) {
+        char b[48];
+        strcpy(b, "Copying...  ");
+        append_long(b, pct);
+        strcat(b, "%");
+        if (gFbKBs >= 0) {
+            strcat(b, "   ");
+            append_long(b, gFbKBs);
+            strcat(b, " KB/s");
+        }
         gFbPct = pct;
         fbl_status(gFbDlg, b);
     }
@@ -2356,7 +2379,7 @@ static void fbl_copy_sel(WindowPtr dlg, int sel)
     if (ents[sel].isDir) { fbl_status(dlg, "That is a folder - press Return to open it."); return; }
 
     gFbDlg = dlg;
-    gFbPct = -1;
+    fb_prog_reset();
     ui.message = fb_msg;
     ui.tick    = fb_tick;
     ui.ctx     = 0;
@@ -2494,7 +2517,7 @@ static void fbl_send(WindowPtr dlg, int *sel, int *top)
     }
 
     gFbDlg = dlg;
-    gFbPct = -1;
+    fb_prog_reset();
     ui.message = fb_msg;
     ui.tick    = fb_tick;
     ui.ctx     = 0;

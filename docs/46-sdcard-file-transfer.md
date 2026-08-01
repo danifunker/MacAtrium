@@ -33,6 +33,12 @@ one. So the browser reads and copies — it does not manage.
 (`MAX_MAC_PATH`), 64-char paths (`MAX_FILE_PATH`). The UI says so when a listing is
 capped rather than implying it saw everything.
 
+**Chunk sizes / speed:** when GET CAPABILITIES advertises the LARGE bits, a copy
+borrows a 32 KB heap buffer and moves `TB_XFER_MAX` per SCSI command (8 GET blocks /
+64 SEND blocks — the handoff spec's working ceiling), ~8× fewer round-trips than the
+4 KB baseline block, which stays the fallback on v0 targets or a tight heap. The
+progress line shows a live `KB/s` computed over a rolling one-second window.
+
 **Browsing cannot disturb CD switching.** File ops resolve through `getEffectiveDir()`
 (the working-dir override); CD ops use a separate per-target `CD_IMG_DIR`.
 
