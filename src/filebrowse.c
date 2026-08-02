@@ -412,7 +412,10 @@ FbResult fb_copy_in(int index, const FbUI *ui)
     if (wrapped && mi.rsrcLen > 0 &&
         macfs_open_rf(&spec, fsWrPerm, &rfRef) != noErr) { FSClose(dfRef); return FB_ERR_WRITE; }
 
-    fb_xfer_begin(TB_CAP_LARGE_XFER);            /* 8-block reads when advertised */
+    fb_xfer_begin(TB_CAP_LARGE_XFER | TB_CAP_MISTER_XFER);   /* 8-block reads when either
+                                                  * bit is advertised: 0x01 = BlueSCSI /
+                                                  * snow, 0x80 = the MiSTer vendor bit
+                                                  * (its core can't set bit 0; toolbox.h) */
     for (;;) {
         long remain = total - pos;
         long got;

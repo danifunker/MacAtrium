@@ -45,6 +45,13 @@
 #define TB_CAP_LARGE_XFER  0x01   /* DataIn transfers larger than 512 bytes           */
 #define TB_CAP_LARGE_SEND  0x02   /* 32 KB send chunks                                */
 #define TB_CAP_WORKDIR     0x04   /* SET / GET WORKING DIR supported                  */
+#define TB_CAP_MISTER_XFER 0x80   /* MiSTer core: multi-block GET is safe. VENDOR bit:
+                                     the official BlueSCSI SD Transfer app bombs the
+                                     guest when a target sets bit 0, so the MacLC core
+                                     cannot use TB_CAP_LARGE_XFER to say the same thing
+                                     (MacLC docs/resume_macatrium_fast_downloads,
+                                     2026-08-02). Read paths pass LARGE_XFER|MISTER_XFER
+                                     so real BlueSCSI (0x01) stays fast too.           */
 
 /* Toolbox device detection: MODE SENSE(6) vendor page 0x31 returns a magic string
  * (BlueSCSI Toolbox Developer Docs). This is the canonical, safe way to find the
