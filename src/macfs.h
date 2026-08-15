@@ -113,6 +113,17 @@ OSErr macfs_create(const FSSpec *spec, OSType creator, OSType type);
  * Finder; `macfs_mkdir` creates a /MacAtrium-relative folder (already-exists is
  * success). All System 6-safe. */
 OSErr macfs_open_rf(const FSSpec *spec, char perm, short *refNum);
+
+/* Open a file's resource fork through the RESOURCE MANAGER (a real resource map,
+ * so Get1Resource works on it) by vRefNum + dirID + name. Returns the resource
+ * file refNum, or -1.
+ *
+ * Use this rather than HOpenResFile or FSpOpenResFile directly: BOTH of those are
+ * System 7 traps and bomb with "unimplemented trap" on 6.0.8 (the H- prefix is
+ * misleading — the Resource Manager's H-calls are not the File Manager's HFS-era
+ * ones). This picks the System 7 call when the trap exists and falls back to
+ * OpenRFPerm against a borrowed default directory when it doesn't. */
+short macfs_open_resfile(short vref, long dirID, ConstStr255Param name, SignedByte perm);
 OSErr macfs_set_finfo(const FSSpec *spec, const FInfo *info);
 OSErr macfs_mkdir(const char *relToRoot);
 

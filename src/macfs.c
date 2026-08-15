@@ -15,6 +15,8 @@
 #include <Files.h>
 #include <Gestalt.h>
 #include <Memory.h>
+#include <OSUtils.h>   /* NGetTrapAddress / TrapType — the trap-availability probe */
+#include <Resources.h> /* HOpenResFile (System 7) / OpenRFPerm (System 6)          */
 #include <string.h>
 
 /* DCE "driver lives in RAM (dCtlDriver is a Handle)" bit (leaner headers may omit). */
@@ -416,6 +418,73 @@ OSErr macfs_open_rf(const FSSpec *spec, char perm, short *refNum)
      * MacBinary wrapper, not manipulating resources, so this is HOpenRF rather than
      * FSpOpenResFile — no resource map is read, and it works on System 6 (docs/46). */
     return HOpenRF(spec->vRefNum, spec->parID, (ConstStr255Param)spec->name, perm, refNum);
+}
+
+/* ---- Resource Manager opens -------------------------------------------------
+ *
+ * `HOpenResFile` looks like the HFS sibling of `HOpen`, but it is not: the File
+ * Manager's H-calls arrived with HFS (System 3/4), while the *Resource Manager's*
+ * H-calls (`_HOpenResFile` 0xA81A, `_HCreateResFile` 0xA81B) arrived with System 7
+ * alongside the FSSpec ones. On 6.0.8 that trap is not in the table, so calling it
+ * bombs with "unimplemented trap" — which is what the System Folder Chooser did on
+ * 6.0.8, since reading each System file's 'vers' resource was the one thing on that
+ * path that opened a resource map.
+ *
+ * So: use the H-call where it exists, and on System 6 point the default directory
+ * at the folder and use `OpenRFPerm` (0xA9C4, original ROM). Callers pass
+ * vRefNum + dirID + name either way.
+ */
+
+/* Apple TN OV16's TrapAvailable. Asking the trap table is the only sound test —
+ * a system-version check is a proxy, and gets it wrong on patched or transitional
+ * systems (the reason this bug shipped: "6.0.8 has HFS calls" was true but about
+ * the wrong manager). */
+static Boolean trap_available(short trapWord)
+{
+    Boolean  isTool = (trapWord & 0x0800) != 0;
+    TrapType tt     = isTool ? kToolboxTrapType : kOSTrapType;
+    short    num    = (short)(trapWord & (isTool ? 0x07FF : 0x00FF));
+    short    unimp  = (short)(_Unimplemented & 0x07FF);
+
+    if (isTool) {
+        /* A 64K-ROM machine has a 0x200-entry Toolbox table; later ROMs 0x400. When
+         * the table is short, a high trap number wraps onto a low one and would look
+         * "available", so clamp it to _Unimplemented first. */
+        short ntraps = (NGetTrapAddress(0x06E, kToolboxTrapType)          /* _InitGraf */
+                        == NGetTrapAddress(0x26E, kToolboxTrapType))      /* wraps?    */
+                       ? 0x200 : 0x400;
+        if (num >= ntraps) num = unimp;
+    }
+    return NGetTrapAddress((uint16_t)num, tt)
+           != NGetTrapAddress((uint16_t)unimp, kToolboxTrapType);
+}
+
+short macfs_open_resfile(short vref, long dirID, ConstStr255Param name, SignedByte perm)
+{
+    static int gHKnown = 0, gHaveH = 0;
+    short      ref;
+    WDPBRec    saved, set;
+
+    if (!gHKnown) { gHaveH = trap_available((short)_HOpenResFile); gHKnown = 1; }
+    if (gHaveH) return HOpenResFile(vref, dirID, name, perm);
+
+    /* System 6: OpenRFPerm resolves `name` against the default volume+directory, so
+     * borrow it for the duration of the open and put it back afterwards. The refNum
+     * stays valid once open — the default directory only matters while resolving. */
+    memset(&saved, 0, sizeof saved);
+    if (PBHGetVolSync(&saved) != noErr) return -1;
+    memset(&set, 0, sizeof set);
+    set.ioVRefNum = vref;
+    set.ioWDDirID = dirID;
+    if (PBHSetVolSync(&set) != noErr) return -1;
+
+    ref = OpenRFPerm((ConstStringPtr)name, 0, (Byte)perm);   /* 0 = default vol + dir */
+
+    memset(&set, 0, sizeof set);
+    set.ioVRefNum = saved.ioWDVRefNum;
+    set.ioWDDirID = saved.ioWDDirID;
+    (void)PBHSetVolSync(&set);
+    return ref;
 }
 
 OSErr macfs_set_finfo(const FSSpec *spec, const FInfo *info)

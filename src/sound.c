@@ -72,9 +72,11 @@ void sound_play_file(const char *relToRoot, int async)
     if (!gAvail) return;                            /* no Sound Manager */
     if (macfs_make_spec(relToRoot, &spec) != noErr) return;
 
-    /* HOpenResFile (by vRefNum/dirID/name) instead of FSpOpenResFile — the FSSpec
-     * Resource Manager call is System-7 and faults on 6.0.8. */
-    refNum = HOpenResFile(spec.vRefNum, spec.parID, spec.name, fsRdPerm);
+    /* By vRefNum/dirID/name, through the compatibility opener: FSpOpenResFile AND
+     * HOpenResFile are both System-7 Resource Manager traps that fault on 6.0.8.
+     * Only reached when a build ships a startup/shutdown sound, which is why this
+     * one never bombed in testing. */
+    refNum = macfs_open_resfile(spec.vRefNum, spec.parID, spec.name, fsRdPerm);
     if (refNum == -1) return;                       /* no such sound file */
 
     h = Get1Resource('snd ', 128);

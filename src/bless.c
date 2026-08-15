@@ -51,12 +51,15 @@ static long blessed_dir(short vref)
 }
 
 /* The version of a System Folder's `System` file, from its 'vers' (id 1) resource
- * (numeric version, BCD: [major][minor<<4 | bug]). 0 if unreadable. HOpenResFile
- * (dirID-based) works on 6.0.8 and 7.x alike. */
+ * (numeric version, BCD: [major][minor<<4 | bug]). 0 if unreadable.
+ *
+ * Opened via macfs_open_resfile: calling HOpenResFile directly bombed the whole
+ * System Folder Chooser on 6.0.8 with "unimplemented trap" — that trap (0xA81A) is
+ * a System 7 Resource Manager call, not an HFS-era File Manager one. */
 static long system_version_of(short vref, long dirID)
 {
     short  saved  = CurResFile();
-    short  refNum = HOpenResFile(vref, dirID, "\pSystem", fsRdPerm);
+    short  refNum = macfs_open_resfile(vref, dirID, "\pSystem", fsRdPerm);
     long   v = 0;
     if (refNum != -1) {
         Handle h = Get1Resource('vers', 1);

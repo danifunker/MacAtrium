@@ -140,7 +140,9 @@ Art *art_load_rsrc(short vref, const char *relToRoot, short depth, short maxAffD
 
     if (macfs_make_spec_on(vref, relToRoot, &spec) != noErr) return 0;
     saved  = CurResFile();
-    refNum = FSpOpenResFile(&spec, fsRdPerm);
+    /* Not FSpOpenResFile: that trap is System 7 only, so baked art forks bombed a
+     * 6.0.8 boot the moment a cover was drawn. */
+    refNum = macfs_open_resfile(spec.vRefNum, spec.parID, spec.name, fsRdPerm);
     if (refNum == -1) return 0;
     UseResFile(refNum);
 
