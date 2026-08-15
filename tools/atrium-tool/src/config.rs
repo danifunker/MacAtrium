@@ -52,7 +52,6 @@ pub fn d_artdepth() -> String { "8".into() }
 /// Default depth variants: all three art modes (1/8/24-bit, docs/44), so a build
 /// bakes B&W + 8-bit colour + 24-bit truecolour unless a config/Target overrides.
 pub fn d_art_depths() -> Vec<String> { vec!["1".into(), "8".into(), "24".into()] }
-pub fn d_curl() -> String { "curl".into() }
 
 /// Default art bound (px) when neither `max_art_size` nor `art_max` is set.
 /// The art is never shown truly full-screen: the largest pane is the ~694px-tall
@@ -265,8 +264,6 @@ pub struct BuildConfig {
     /// Auto-detect color/B&W from LaunchBox screenshots during enrich.
     #[serde(default)]
     pub detect_color: bool,
-    #[serde(default = "d_curl")]
-    pub curl: String,
     /// Apps to harvest from donor images into the output (low-level/manual path).
     #[serde(default)]
     pub harvest: Vec<HarvestSrc>,
@@ -575,14 +572,36 @@ impl BuildConfig {
         self.app_mem_kb.map(|[p, m]| (p, m.min(p)))
     }
 
-    /// The path the launcher MacBinary is read from: [`Self::launcher`] if set, else
-    /// `$MACATRIUM_LAUNCHER`, else `build/MacAtrium.bin` (relative to the working dir —
-    /// the same convention as `data/templates.json`). It is NOT embedded in this tool.
+    /// The path the launcher MacBinary is read from. It is NOT embedded in this
+    /// tool, so it must be found on disk:
+    ///
+    /// 1. [`Self::launcher`] if set, then `$MACATRIUM_LAUNCHER`;
+    /// 2. **next to the running executable** (`MacAtrium.bin`, or a `build/`
+    ///    subfolder) — how an installed app finds the copy shipped alongside it;
+    /// 3. `build/MacAtrium.bin` relative to the working dir — the repo-checkout
+    ///    convention, and the last resort.
+    ///
+    /// Step 2 exists because the relative default only ever resolves from a repo
+    /// checkout: an installed GUI runs with its install folder as the working
+    /// directory, so without it every build failed with "reading launcher
+    /// build/MacAtrium.bin".
     pub fn launcher_path(&self) -> PathBuf {
-        self.launcher
-            .clone()
-            .or_else(|| std::env::var_os("MACATRIUM_LAUNCHER").map(PathBuf::from))
-            .unwrap_or_else(|| PathBuf::from("build/MacAtrium.bin"))
+        if let Some(p) = self.launcher.clone() {
+            return p;
+        }
+        if let Some(p) = std::env::var_os("MACATRIUM_LAUNCHER") {
+            return PathBuf::from(p);
+        }
+        if let Some(dir) =
+            std::env::current_exe().ok().and_then(|e| e.parent().map(PathBuf::from))
+        {
+            for cand in [dir.join("MacAtrium.bin"), dir.join("build").join("MacAtrium.bin")] {
+                if cand.is_file() {
+                    return cand;
+                }
+            }
+        }
+        PathBuf::from("build/MacAtrium.bin")
     }
 
     /// The launcher MacBinary bytes to install, read from [`Self::launcher_path`].
@@ -808,7 +827,6 @@ impl Default for BuildConfig {
             mg_archive: None,
             platform: d_platform(),
             detect_color: false,
-            curl: d_curl(),
             harvest: Vec::new(),
             art_dir: None,
             art_depth: d_artdepth(),

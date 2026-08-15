@@ -28,6 +28,10 @@ struct Row {
     max_os: Option<String>,
     /// (donor key, app path on that donor), when harvestable.
     source: Option<(String, String)>,
+    /// `local_src`: a host staging folder holding an imported capture's forks
+    /// ([`crate::import`]). Needs no donor image — the forks are injected into
+    /// the output disk directly. Takes precedence over `source`.
+    local: Option<String>,
 }
 
 fn rows(dataset: &Path) -> Result<Vec<Row>> {
@@ -61,6 +65,7 @@ fn rows(dataset: &Path) -> Result<Vec<Row>> {
             min_os: v.get("minOS").and_then(Value::as_str).map(str::to_string),
             max_os: v.get("maxOS").and_then(Value::as_str).map(str::to_string),
             source,
+            local: v.get("local_src").and_then(Value::as_str).map(str::to_string),
         });
     }
     Ok(out)
@@ -193,19 +198,21 @@ pub fn harvest_plan(
     base_os: Option<&str>,
     donors: &Donors,
     macpack_dir: Option<&Path>,
-) -> Result<(
-    Vec<(PathBuf, Vec<String>)>,
-    Vec<(PathBuf, Vec<String>)>,
-    Vec<String>,
-    HashMap<String, String>,
-)> {
+) -> Result<Plan> {
     let rows = rows(dataset)?;
     let (chosen, _missing) = select_rows(&rows, sel, base_os);
     let mut harvest: BTreeMap<PathBuf, Vec<String>> = BTreeMap::new();
     let mut reservoir: BTreeMap<PathBuf, Vec<String>> = BTreeMap::new();
+    let mut local: Vec<(String, PathBuf)> = Vec::new();
     let mut unresolved = Vec::new();
     let mut path_id: HashMap<String, String> = HashMap::new();
     for r in chosen {
+        // An imported capture is staged on the host and needs no donor image, so
+        // it's checked before `source` — and never counts as unresolved.
+        if let Some(dir) = &r.local {
+            local.push((r.id.clone(), PathBuf::from(dir)));
+            continue;
+        }
         match &r.source {
             Some((donor, path)) => match resolve_donor(donor, donors, macpack_dir) {
                 Some((img, true)) => {
@@ -220,12 +227,28 @@ pub fn harvest_plan(
             None => unresolved.push(r.id.clone()),
         }
     }
-    Ok((
-        harvest.into_iter().collect(),
-        reservoir.into_iter().collect(),
+    Ok(Plan {
+        harvest: harvest.into_iter().collect(),
+        reservoir: reservoir.into_iter().collect(),
+        local,
         unresolved,
         path_id,
-    ))
+    })
+}
+
+/// What a selection resolves to, by source kind — see [`harvest_plan`].
+pub struct Plan {
+    /// MacPack donor image → app folders to harvest (re-pick + rename).
+    pub harvest: Vec<(PathBuf, Vec<String>)>,
+    /// Reservoir donor image → installed folders to copy verbatim.
+    pub reservoir: Vec<(PathBuf, Vec<String>)>,
+    /// `(id, host staging dir)` for imported captures — injected from the host,
+    /// no donor image involved.
+    pub local: Vec<(String, PathBuf)>,
+    /// Selected ids with no usable source, for the caller to warn about.
+    pub unresolved: Vec<String>,
+    /// Harvest app-path → the selected record's id.
+    pub path_id: HashMap<String, String>,
 }
 
 #[cfg(test)]

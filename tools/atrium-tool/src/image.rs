@@ -1181,7 +1181,7 @@ pub fn run(cfg: &BuildConfig) -> Result<()> {
         let mut n_items: u64 = 0;
         if let Some(sel) = &effective_sel {
             let donors = crate::donors::Registry::load_default();
-            if let Ok((plan, reservoir, _unresolved, _curated)) = crate::selection::harvest_plan(
+            if let Ok(crate::selection::Plan { harvest: plan, reservoir, .. }) = crate::selection::harvest_plan(
                 &work,
                 sel,
                 cfg.base_os.as_deref(),
@@ -1246,7 +1246,13 @@ pub fn run(cfg: &BuildConfig) -> Result<()> {
     // registry) and the low-level explicit `harvest` list (manual override).
     if let Some(sel) = &effective_sel {
         let donors = crate::donors::Registry::load_default();
-        let (plan, reservoir, unresolved, curated) = crate::selection::harvest_plan(
+        let crate::selection::Plan {
+            harvest: plan,
+            reservoir,
+            local,
+            unresolved,
+            path_id: curated,
+        } = crate::selection::harvest_plan(
             &work,
             sel,
             cfg.base_os.as_deref(),
@@ -1272,6 +1278,18 @@ pub fn run(cfg: &BuildConfig) -> Result<()> {
                 for folder in folders {
                     rb.cp(image, folder, &cfg.out, &into)
                         .with_context(|| format!("reservoir cp {folder}"))?;
+                }
+            }
+        }
+        // Imported captures (`local_src`): the forks are already expanded on the
+        // host, so they go straight into the output disk — no donor image, and no
+        // harvest re-pick that would override the recorded `app` path.
+        if !local.is_empty() {
+            eprintln!("[2/7] imported     inject {} capture(s) from the host", local.len());
+            for (id, dir) in &local {
+                match crate::import::inject_staged(&rb, &cfg.out, dir, &cfg.apps_root) {
+                    Ok(n) => eprintln!("[2/7]   {id}: {n} file(s)"),
+                    Err(e) => eprintln!("[2/7] WARNING: {id}: import inject failed: {e:#}"),
                 }
             }
         }
@@ -1336,7 +1354,7 @@ pub fn run(cfg: &BuildConfig) -> Result<()> {
         };
         enrich::run(
             &work, md, &work, &cfg.platform, false,
-            art_manifest.as_deref(), cfg.detect_color, &cfg.curl,
+            art_manifest.as_deref(), cfg.detect_color,
         )?;
     }
 
@@ -1565,7 +1583,9 @@ pub fn add_to_disk(cfg: &BuildConfig) -> Result<()> {
     // Harvest the selected titles' apps into the disk + append harvested stubs to
     // the delta (selection plan + any explicit harvest sources).
     let donors = crate::donors::Registry::load_default();
-    let (plan, reservoir, unresolved, curated) = crate::selection::harvest_plan(
+    let crate::selection::Plan {
+        harvest: plan, reservoir, local, unresolved, path_id: curated,
+    } = crate::selection::harvest_plan(
         &lib, sel, cfg.base_os.as_deref(), &donors, settings.macpack_dir.as_deref(),
     )?;
     if !unresolved.is_empty() {
@@ -1579,6 +1599,17 @@ pub fn add_to_disk(cfg: &BuildConfig) -> Result<()> {
         for (image, folders) in &reservoir {
             for folder in folders {
                 rb.cp(image, folder, &cfg.out, &into).with_context(|| format!("reservoir cp {folder}"))?;
+            }
+        }
+    }
+    // Imported captures: injected from their host staging folder (see the same
+    // step in `run`) — an added title sources identically to a built-in one.
+    if !local.is_empty() {
+        eprintln!("[add] inject {} imported capture(s)", local.len());
+        for (id, dir) in &local {
+            match crate::import::inject_staged(&rb, &cfg.out, dir, &cfg.apps_root) {
+                Ok(n) => eprintln!("[add]   {id}: {n} file(s)"),
+                Err(e) => eprintln!("[add] WARNING: {id}: import inject failed: {e:#}"),
             }
         }
     }
@@ -1596,7 +1627,7 @@ pub fn add_to_disk(cfg: &BuildConfig) -> Result<()> {
     }
     if let Some(md) = &cfg.metadata {
         let art_manifest = cfg.download_art.then(|| stage.join("art-manifest.jsonl"));
-        enrich::run(&work, md, &work, &cfg.platform, false, art_manifest.as_deref(), cfg.detect_color, &cfg.curl)?;
+        enrich::run(&work, md, &work, &cfg.platform, false, art_manifest.as_deref(), cfg.detect_color)?;
     }
     {
         let compat = stage.join("compatibility.jsonl");

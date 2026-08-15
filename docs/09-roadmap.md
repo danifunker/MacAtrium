@@ -173,10 +173,15 @@ Per-feature detail lives in the cited docs.
   `.sitx` (9.2.2-era) handling deferred.
 
 **Build / tooling**
-- **`curl` is dead code** in the atrium tool (downloads use Rust `ureq`/rustls) — rip out the `curl` field /
-  `--curl` flag / `_curl` params.
-- **`templates.json` / `donors.json`** are read from `data/` at runtime — a release running outside the repo
-  needs them embedded.
+- ~~**`curl` is dead code** in the atrium tool (downloads use Rust `ureq`/rustls) — rip out the `curl` field /
+  `--curl` flag / `_curl` params.~~ **Done** — every download already went through `ureq`/rustls; the
+  `BuildConfig.curl` field, both `--curl` flags, the `_curl` params and the GUI's curl box are gone.
+- ~~**`templates.json` / `donors.json`** are read from `data/` at runtime — a release running outside the repo
+  needs them embedded.~~ **Done**, but *not* by embedding: they hold **machine-local** paths, so embedding
+  would bake one machine's layout into the binary. Instead they layer a `~/.macatrium.json` entry over the
+  file (`Settings::templates` / `::donors` / `::collections_dir`), edited from the Settings tab. The same
+  applies to the launcher: `MacAtrium.bin` is not embedded, so `launcher_path()` probes next to the running
+  executable and the Manager packages ship it there.
 
 **Data**
 - **`oxyd-3-6`** is flagged `color:true` in `data/compatibility.jsonl` but the donor only has the mono app

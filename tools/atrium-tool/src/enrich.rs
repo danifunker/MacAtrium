@@ -412,7 +412,6 @@ pub fn run(
     overwrite: bool,
     art_manifest: Option<&Path>,
     detect_color: bool,
-    _curl_bin: &str, // vestigial: downloads now use ureq (removed in the UI pass)
 ) -> Result<()> {
     let games = parse_games(metadata, platform)?;
     eprintln!("LaunchBox: {} games on platform \"{platform}\"", games.len());

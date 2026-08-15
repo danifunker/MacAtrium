@@ -291,7 +291,6 @@ pub fn run(
     apps_root: &str,
     append_to: Option<&Path>,
     rb_cli: &str,
-    _curl: &str, // vestigial: downloads now use ureq (removed in the UI pass)
     stage: Option<&Path>,
 ) -> Result<()> {
     let dl_root = downloads

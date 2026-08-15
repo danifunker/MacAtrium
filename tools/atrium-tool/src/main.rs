@@ -90,9 +90,6 @@ enum Cmd {
         /// Auto-detect color/B&W from a gameplay screenshot (downloads images).
         #[arg(long)]
         detect_color: bool,
-        /// curl binary used to download screenshots for --detect-color.
-        #[arg(long, default_value = "curl")]
-        curl: String,
     },
 
     /// Fill the curated dataset from the local Macintosh Garden archive
@@ -152,11 +149,43 @@ enum Cmd {
         append_to: Option<PathBuf>,
         #[arg(long, default_value = "rb-cli")]
         rb_cli: String,
-        #[arg(long, default_value = "curl")]
-        curl: String,
         /// Extraction staging dir (default: a temp dir).
         #[arg(long)]
         stage: Option<PathBuf>,
+    },
+
+    /// Import hand-made captures of **already-installed** apps (`.mar`, `.sit`,
+    /// `.cpt`, `.hqx`) into the library: expand each one, work out its launch
+    /// `APPL`, and record it so a build can install it.
+    ///
+    /// Needs **no donor disk image** — the expanded forks stay in a host staging
+    /// folder (`local_src`) and are injected into the output disk at build time.
+    /// Pass `--donor` to put them on a reservoir image instead, which preserves
+    /// Mac filenames the host filesystem can't store (e.g. one containing `/`).
+    /// Re-importing a capture updates its record in place.
+    Import {
+        /// Capture(s) to import (repeatable).
+        #[arg(long = "archive", required = true)]
+        archives: Vec<PathBuf>,
+        /// Where captures are expanded (default: `<sources>/Captures/_staged`).
+        #[arg(long)]
+        stage: Option<PathBuf>,
+        /// Dataset the records are written to (default: the user library,
+        /// `<Documents>/MacAtrium/library.jsonl`).
+        #[arg(long)]
+        dataset: Option<PathBuf>,
+        /// Put the files on this **reservoir** donor instead of staging on the
+        /// host. A harvest donor is refused: it would re-pick the launch app and
+        /// rename the folder, overriding the `app` path this records.
+        #[arg(long)]
+        donor: Option<String>,
+        /// Also add the imported ids to this collection (created if new).
+        #[arg(long)]
+        collection: Option<String>,
+        #[arg(long, default_value = "/MacAtrium/Apps")]
+        apps_root: String,
+        #[arg(long, default_value = "rb-cli")]
+        rb_cli: String,
     },
 
     /// Capture manual data into the overrides overlay (the CLI "checkbox" for the
@@ -653,20 +682,100 @@ fn main() -> Result<()> {
                 Err(e) => return Err(e),
             }
         }
-        Cmd::Enrich { src, metadata, out, platform, overwrite, art_manifest, detect_color, curl } => {
-            enrich::run(&src, &metadata, &out, &platform, overwrite, art_manifest.as_deref(), detect_color, &curl)?;
+        Cmd::Enrich { src, metadata, out, platform, overwrite, art_manifest, detect_color } => {
+            enrich::run(&src, &metadata, &out, &platform, overwrite, art_manifest.as_deref(), detect_color)?;
         }
         Cmd::Mg { src, archive, out, overwrite, art_dir } => {
             let archive = mg::resolve_archive(archive);
             eprintln!("mg: data store {}", archive.display());
             mg::run(&src, &archive, &out, overwrite, art_dir.as_deref())?;
         }
-        Cmd::Fetch { archive, nids, file, src, downloads, into, apps_root, append_to, rb_cli, curl, stage } => {
+        Cmd::Import { archives, stage, dataset, donor, collection, apps_root, rb_cli } => {
+            let settings = atrium::settings::Settings::load_default();
+            let rb_bin = atrium::rbcli::resolve_bin(&rb_cli, settings.rb_cli.as_deref());
+            atrium::rbcli::log_version(&rb_bin);
+            let rb = atrium::rbcli::RbCli::new(&rb_bin);
+
+            let stage = stage.unwrap_or_else(|| settings.import_stage_dir());
+            let dataset = dataset.unwrap_or_else(|| settings.user_library());
+
+            // A donor is optional; when given it MUST be a reservoir.
+            let donor_pair = match &donor {
+                Some(key) => {
+                    let reg = atrium::donors::Registry::load_default();
+                    let d = reg.get(key).ok_or_else(|| {
+                        anyhow::anyhow!(
+                            "unknown donor {key:?} (have: {})",
+                            reg.keys().join(", ")
+                        )
+                    })?;
+                    anyhow::ensure!(
+                        d.reservoir(),
+                        "donor {key:?} is a harvest donor — it would re-pick the launch app and \
+                         rename the imported folder. Use a reservoir donor, or omit --donor to \
+                         stage on the host."
+                    );
+                    Some((key.clone(), d.path().to_path_buf()))
+                }
+                None => None,
+            };
+
+            eprintln!(
+                "import: {} capture(s) -> {} (stage {})",
+                archives.len(),
+                dataset.display(),
+                stage.display()
+            );
+            let report = atrium::import::run(
+                &rb,
+                &archives,
+                &stage,
+                &dataset,
+                donor_pair.as_ref().map(|(k, p)| (k.as_str(), p.as_path())),
+                &apps_root,
+            )?;
+
+            for (id, name, n) in &report.imported {
+                eprintln!("  ✓ {name} ({id}) — {n} file(s)");
+            }
+            for (f, e) in &report.failed {
+                eprintln!("  ✗ {}: {e}", f.display());
+            }
+            // Host filesystems can't store '/' in a filename; HFS can. Report it
+            // rather than let a title quietly fail to find its data later.
+            for (id, mac, host) in &report.renamed {
+                eprintln!("  ⚠ {id}: {mac:?} stored as {host:?} — use --donor <reservoir> to keep the exact name");
+            }
+
+            if let Some(name) = collection {
+                let ids: Vec<String> = report.imported.iter().map(|(i, _, _)| i.clone()).collect();
+                if !ids.is_empty() {
+                    let mut c = atrium::collections::find(&name).unwrap_or_default();
+                    c.name = name.clone();
+                    for id in &ids {
+                        if !c.ids.contains(id) {
+                            c.ids.push(id.clone());
+                        }
+                    }
+                    let p = atrium::collections::save_user(&c)?;
+                    eprintln!("  added {} id(s) to \"{name}\" -> {}", ids.len(), p.display());
+                }
+            }
+            eprintln!(
+                "import: {} imported, {} failed",
+                report.imported.len(),
+                report.failed.len()
+            );
+            if !report.failed.is_empty() {
+                std::process::exit(1);
+            }
+        }
+        Cmd::Fetch { archive, nids, file, src, downloads, into, apps_root, append_to, rb_cli, stage } => {
             let archive = mg::resolve_archive(archive);
             eprintln!("fetch: data store {}", archive.display());
             fetch::run(
                 &archive, &nids, file.as_deref(), src.as_deref(), downloads.as_deref(), into.as_deref(),
-                &apps_root, append_to.as_deref(), &rb_cli, &curl, stage.as_deref(),
+                &apps_root, append_to.as_deref(), &rb_cli, stage.as_deref(),
             )?;
         }
 

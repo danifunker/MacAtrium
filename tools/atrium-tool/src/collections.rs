@@ -73,24 +73,109 @@ impl Collection {
     }
 }
 
-/// Bundled collections dir: `$MACATRIUM_COLLECTIONS`, else `data/collections`.
+/// The primary bundled dir — kept for callers that need a single path. Prefer
+/// [`bundled_dirs`], which also finds the copy shipped next to the executable.
 pub fn bundled_dir() -> PathBuf {
-    std::env::var_os("MACATRIUM_COLLECTIONS")
-        .map(PathBuf::from)
-        .unwrap_or_else(|| PathBuf::from("data/collections"))
+    bundled_dirs().into_iter().next().unwrap_or_else(|| PathBuf::from("data/collections"))
 }
 
-/// User collections dir: `<home>/.macatrium/collections` (a sibling of the
-/// `~/.macatrium.json` settings file). `None` if no home is set.
+/// Every directory searched for **bundled** collections — the curated lists that
+/// ship with the app — in priority order:
+///
+/// 1. `$MACATRIUM_COLLECTIONS`, if set (explicit override, wins outright);
+/// 2. `collections/` **next to the running executable** — how an installed app
+///    finds the lists packaged alongside it;
+/// 3. `data/collections` relative to the working dir — the repo-checkout case.
+///
+/// Only existing dirs are returned. Both 2 and 3 are listed because a developer
+/// runs from a checkout while a user runs from an install; neither layout should
+/// need configuration.
+pub fn bundled_dirs() -> Vec<PathBuf> {
+    if let Some(p) = std::env::var_os("MACATRIUM_COLLECTIONS") {
+        return vec![PathBuf::from(p)];
+    }
+    let mut dirs: Vec<PathBuf> = Vec::new();
+    if let Some(dir) = std::env::current_exe().ok().and_then(|e| e.parent().map(PathBuf::from)) {
+        dirs.push(dir.join("collections"));
+    }
+    dirs.push(PathBuf::from("data/collections"));
+    dirs.retain(|d| d.is_dir());
+    dirs
+}
+
+/// Where the user's **own** collections are saved:
+/// [`Settings::collections_dir`](crate::settings::Settings) if set, else
+/// `<Documents>/MacAtrium/Collections` (see
+/// [`settings::user_root`](crate::settings::user_root)).
+///
+/// Documents rather than a dotfolder because these are the user's own work —
+/// discoverable, backed up, and easy to hand to someone else. They're small JSON
+/// id lists, so cloud sync is a feature here, unlike for built disk images.
 pub fn user_dir() -> Option<PathBuf> {
-    std::env::var_os("HOME")
-        .or_else(|| std::env::var_os("USERPROFILE"))
-        .map(|h| PathBuf::from(h).join(".macatrium").join("collections"))
+    if let Some(d) = crate::settings::Settings::load_default().collections_dir {
+        return Some(d);
+    }
+    Some(crate::settings::user_root().join("Collections"))
 }
 
-/// The dirs searched for a collection, **user first** (so a user file wins).
+/// The pre-Documents user dir (`<home>/.macatrium/collections`). Still searched
+/// for reads so collections saved by an earlier build don't vanish; nothing is
+/// ever written here any more.
+fn legacy_user_dir() -> Option<PathBuf> {
+    crate::settings::home().map(|h| h.join(".macatrium").join("collections"))
+}
+
+/// The user collections dir, created if missing — where a newly saved collection
+/// goes. Errors only if there's no home at all or the dir can't be created.
+pub fn ensure_user_dir() -> Result<PathBuf> {
+    let dir = user_dir().context("no user collections dir (no HOME / USERPROFILE set)")?;
+    std::fs::create_dir_all(&dir)
+        .with_context(|| format!("creating collections dir {}", dir.display()))?;
+    Ok(dir)
+}
+
+/// Save `c` into the user collections dir as `<name>.json`, creating the dir if
+/// needed, and return the path written. This is the write side the GUI uses: a
+/// saved collection always lands somewhere the app can find again, regardless of
+/// the working directory.
+pub fn save_user(c: &Collection) -> Result<PathBuf> {
+    anyhow::ensure!(!c.name.trim().is_empty(), "a collection needs a name");
+    let path = ensure_user_dir()?.join(format!("{}.json", c.name.trim()));
+    c.save(&path)?;
+    Ok(path)
+}
+
+/// Delete a saved collection by name, returning the path removed. Only the user
+/// dir is touched — a bundled (repo) collection is never deleted out from under a
+/// checkout.
+pub fn delete_user(name: &str) -> Result<PathBuf> {
+    // Both user locations, so a collection saved by an earlier build (which used
+    // ~/.macatrium/collections) is still removable rather than undeletable.
+    let cands: Vec<PathBuf> = user_dir()
+        .into_iter()
+        .chain(legacy_user_dir())
+        .map(|d| d.join(format!("{name}.json")))
+        .collect();
+    let path = cands.iter().find(|p| p.exists()).ok_or_else(|| {
+        anyhow::anyhow!(
+            "no user collection {name:?} (looked in {})",
+            cands.iter().map(|p| p.display().to_string()).collect::<Vec<_>>().join(", ")
+        )
+    })?;
+    std::fs::remove_file(path)
+        .with_context(|| format!("removing collection {}", path.display()))?;
+    Ok(path.clone())
+}
+
+/// The dirs searched for a collection, **user first** (so a user file wins over
+/// a shipped one of the same name), then the legacy user dir, then every bundled
+/// location.
 fn search_dirs() -> Vec<PathBuf> {
-    user_dir().into_iter().chain(std::iter::once(bundled_dir())).collect()
+    user_dir()
+        .into_iter()
+        .chain(legacy_user_dir())
+        .chain(bundled_dirs())
+        .collect()
 }
 
 /// Load a collection by name (`<dir>/<name>.json`), the user dir winning over the
@@ -130,10 +215,18 @@ pub struct Listed {
 pub fn list() -> Vec<Listed> {
     let mut by_name: BTreeMap<String, Listed> = BTreeMap::new();
     // Bundled first, then user overwrites by name (so a user collection wins).
-    for (dir, origin) in [
-        (bundled_dir(), "bundled"),
-        (user_dir().unwrap_or_default(), "user"),
-    ] {
+    // Legacy sits between the two: it outranks a shipped list but yields to a
+    // collection saved in the current user dir.
+    // `.rev()`: bundled_dirs is priority-ordered (highest first), but this loop
+    // lets later inserts win — so walk it backwards to keep that priority.
+    let dirs: Vec<(PathBuf, &'static str)> = bundled_dirs()
+        .into_iter()
+        .rev()
+        .map(|d| (d, "bundled"))
+        .chain(legacy_user_dir().map(|d| (d, "user")))
+        .chain(user_dir().map(|d| (d, "user")))
+        .collect();
+    for (dir, origin) in dirs {
         let Ok(entries) = std::fs::read_dir(&dir) else { continue };
         for e in entries.flatten() {
             let p = e.path();
@@ -176,5 +269,46 @@ mod tests {
         let c: Collection = serde_json::from_str(r#"{"ids":["x"]}"#).unwrap();
         assert_eq!(c.ids, vec!["x"]);
         assert!(c.overrides_jsonl().is_empty());
+    }
+
+    /// The separation the whole layout rests on: what the user saves must never
+    /// land in a directory the app ships lists from. If these ever coincided,
+    /// "Save as…" would overwrite a curated list and an app update would silently
+    /// revert the user's work.
+    #[test]
+    fn the_user_dir_is_never_a_shipped_dir() {
+        let Some(user) = user_dir() else { return };
+        for b in bundled_dirs() {
+            assert_ne!(
+                b.canonicalize().unwrap_or(b.clone()),
+                user.canonicalize().unwrap_or(user.clone()),
+                "user collections would be written into a shipped dir: {}",
+                b.display()
+            );
+        }
+    }
+
+    /// `bundled_dirs` only reports directories that exist, so callers can iterate
+    /// without probing — and an app with no shipped lists yields an empty list
+    /// rather than a phantom path.
+    #[test]
+    fn bundled_dirs_are_real_directories() {
+        for d in bundled_dirs() {
+            assert!(d.is_dir(), "bundled_dirs returned a non-directory: {}", d.display());
+        }
+    }
+
+    /// A user collection shadows a shipped one of the same name — the fork rule
+    /// that lets someone tweak a curated list without losing the original.
+    #[test]
+    fn search_order_puts_user_before_shipped() {
+        let dirs = search_dirs();
+        if let (Some(user), Some(first_bundled)) = (user_dir(), bundled_dirs().into_iter().next()) {
+            let ui = dirs.iter().position(|d| *d == user);
+            let bi = dirs.iter().position(|d| *d == first_bundled);
+            if let (Some(ui), Some(bi)) = (ui, bi) {
+                assert!(ui < bi, "a shipped dir outranks the user dir in the search order");
+            }
+        }
     }
 }

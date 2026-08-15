@@ -16,7 +16,7 @@ use std::path::{Path, PathBuf};
 /// whereas it *harvests* a MacPack donor (re-picking the launch `APPL` and
 /// renaming the folder to it). Serde is `untagged`, so the legacy bare-string
 /// form (`"key": "path"`) still parses as a harvest donor.
-#[derive(Deserialize, Serialize, Clone)]
+#[derive(Deserialize, Serialize, Clone, Debug, PartialEq)]
 #[serde(untagged)]
 pub enum Donor {
     /// A bare path string — a MacPack-style harvest donor (the original format).
@@ -54,9 +54,20 @@ impl Registry {
         serde_json::from_str(&txt)
             .with_context(|| format!("parsing donor registry {}", path.display()))
     }
-    /// Load the default registry; empty if the file is absent.
-    pub fn load_default() -> Registry {
+    /// The file registry alone (`$MACATRIUM_DONORS`, else `data/donors.json`);
+    /// empty if absent — the normal case for an **installed** app, since that path
+    /// is relative and only resolves from a repo checkout.
+    pub fn bundled() -> Registry {
         Registry::load(&default_registry_path()).unwrap_or_default()
+    }
+
+    /// The file registry overlaid with the user's donors from `~/.macatrium.json`
+    /// ([`Settings::donors`](crate::settings::Settings::donors)) — a user entry wins
+    /// on a key collision, mirroring templates and targets.
+    pub fn load_default() -> Registry {
+        let mut reg = Registry::bundled();
+        reg.0.extend(crate::settings::Settings::load_default().donors);
+        reg
     }
     pub fn get(&self, key: &str) -> Option<&Donor> {
         self.0.get(key)
@@ -72,4 +83,34 @@ pub fn default_registry_path() -> PathBuf {
         return PathBuf::from(p);
     }
     PathBuf::from("data/donors.json")
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// Both entry forms parse, and the untagged bare string stays a *harvest*
+    /// donor — a reservoir must be opted into explicitly, since the two are
+    /// copied very differently (verbatim `cp` vs harvest + rename).
+    #[test]
+    fn both_entry_forms_parse_and_only_full_can_be_a_reservoir() {
+        let reg: Registry = serde_json::from_str(
+            r#"{"pack":"/m/boot.vhd","res":{"path":"/m/donor.hfv","reservoir":true}}"#,
+        )
+        .unwrap();
+        assert_eq!(reg.get("pack").unwrap().path(), Path::new("/m/boot.vhd"));
+        assert!(!reg.get("pack").unwrap().reservoir(), "a bare path is a harvest donor");
+        assert!(reg.get("res").unwrap().reservoir());
+    }
+
+    /// A user donor from `~/.macatrium.json` wins over a file entry of the same
+    /// key — the merge `load_default` performs.
+    #[test]
+    fn user_donors_override_file_by_key() {
+        let mut reg: Registry =
+            serde_json::from_str(r#"{"macgarden":"/mnt/c/Temp/donor.hfv"}"#).unwrap();
+        let mine = Donor::Full { path: r"C:\Temp\donor.hfv".into(), reservoir: true };
+        reg.0.extend([("macgarden".to_string(), mine.clone())]);
+        assert_eq!(reg.get("macgarden"), Some(&mine));
+    }
 }
