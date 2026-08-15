@@ -66,8 +66,21 @@ Name: "desktopicon"; Description: "Create a &desktop shortcut"; GroupDescription
 
 [Files]
 Source: "{#SourceDir}\{#MyAppExeName}"; DestDir: "{app}"; Flags: ignoreversion
-; The atrium CLI, shipped in the same package — skip cleanly for GUI-only builds.
+; The atrium CLI, shipped in the same package. More than a convenience: the
+; Manager runs it as a child process for every job that writes a disk, so its
+; progress and warnings can be shown in the Build log (a windowed app has no
+; stderr of its own). Without it the Manager falls back to doing the work
+; in-process, which is correct but silent. Skips cleanly for GUI-only builds.
 Source: "{#CliSourceDir}\{#CliExeName}"; DestDir: "{app}"; Flags: ignoreversion skipifsourcedoesntexist
+; The 68k launcher MacBinary. atrium installs this into every disk it builds and
+; does NOT embed it, so it has to sit beside the executables — `launcher_path()`
+; probes the running exe's directory. Without it a build fails at the last step
+; with "reading launcher build/MacAtrium.bin".
+Source: "{#SourceDir}\MacAtrium.bin"; DestDir: "{app}"; Flags: ignoreversion skipifsourcedoesntexist
+; Curated game lists shipped with the app. These are read-only reference copies —
+; `collections::bundled_dirs()` finds them next to the exe, while the user's own
+; lists are saved to <Documents>\MacAtrium\Collections and shadow these by name.
+Source: "{#SourceDir}\collections\*.json"; DestDir: "{app}\collections"; Flags: ignoreversion skipifsourcedoesntexist
 ; Icon is optional — skip cleanly if assets aren't present in this build.
 Source: "{#AssetsDir}\macatrium.ico"; DestDir: "{app}"; Flags: ignoreversion skipifsourcedoesntexist
 

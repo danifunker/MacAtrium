@@ -146,6 +146,11 @@ jobs:
           # not shipped. build/MacAtrium.bin (MacBinary) stays for atrium/rb-cli.
           binhex build/MacAtrium.bin > out/MacAtrium.hqx
           cp build/MacAtrium.dsk out/
+          # The MacBinary itself: atrium reads THIS to install the launcher into a
+          # built disk, so the Manager packages ship it beside their binaries.
+          # Without it an installed Manager can't build at all — `launcher_path()`
+          # falls back to a repo-relative `build/MacAtrium.bin` that isn't there.
+          cp build/MacAtrium.bin out/
           ls -l out/
       - uses: actions/upload-artifact@v7
         with:
@@ -161,7 +166,8 @@ jobs:
 
   build-mgmt-ui-windows:
     name: Manager GUI (windows-${{ matrix.arch }})
-    needs: generate-version
+    # build-launcher too: the package ships MacAtrium.bin next to the binaries.
+    needs: [generate-version, build-launcher]
     runs-on: ${{ matrix.runs-on }}
     env:
       RELEASE_VERSION: ${{ needs.generate-version.outputs.version }}
@@ -192,13 +198,28 @@ jobs:
       - name: Build atrium CLI
         working-directory: tools/atrium-tool
         run: cargo build --release --target ${{ matrix.target }}
-      # Stage both binaries side by side so the zip and the installer ship them together.
-      - name: Stage binaries (GUI + CLI)
+      # The 68k launcher MacBinary, built in the Retro68 job — atrium installs it
+      # into every disk it builds, so it must travel with the app.
+      - name: Fetch launcher (MacAtrium.bin)
+        uses: actions/download-artifact@v8
+        with:
+          name: MacAtrium-launcher-${{ needs.generate-version.outputs.version }}
+          path: launcher
+      # Stage the binaries side by side so the zip and the installer ship them
+      # together; `launcher_path()` finds MacAtrium.bin next to the executable.
+      - name: Stage binaries (GUI + CLI + launcher)
         shell: bash
         run: |
           mkdir -p stage
           cp "tools/macatrium-mgmt-ui/target/${{ matrix.target }}/release/macatrium-mgmt-ui.exe" stage/
           cp "tools/atrium-tool/target/${{ matrix.target }}/release/atrium.exe" stage/
+          cp launcher/MacAtrium.bin stage/
+          # Curated game lists that ship with the app. `collections::bundled_dirs()`
+          # looks for a `collections/` folder next to the executable; the user's own
+          # lists are written elsewhere (Documents) and are never mixed in here.
+          mkdir -p stage/collections
+          cp data/collections/*.json stage/collections/
+          ls -lR stage/
       - name: Package (zip)
         shell: bash
         run: |
@@ -229,7 +250,8 @@ jobs:
 
   build-mgmt-ui-macos:
     name: Manager GUI (macos-${{ matrix.arch }})
-    needs: generate-version
+    # build-launcher too: the bundle ships MacAtrium.bin in Contents/MacOS.
+    needs: [generate-version, build-launcher]
     runs-on: ${{ matrix.runs-on }}
     env:
       HAS_SIGNING_CERT: ${{ secrets.MACOS_CERTIFICATE != '' }}
@@ -280,6 +302,11 @@ jobs:
           security set-key-partition-list -S apple-tool:,apple: -k "$KEYCHAIN_PWD" "$KEYCHAIN_PATH"
           security list-keychains -d user -s "$KEYCHAIN_PATH" login.keychain-db
 
+      - name: Fetch launcher (MacAtrium.bin)
+        uses: actions/download-artifact@v8
+        with:
+          name: MacAtrium-launcher-${{ needs.generate-version.outputs.version }}
+          path: launcher
       - name: Create app bundle + DMG (signed if cert present)
         env:
           MACOS_CERTIFICATE: ${{ secrets.MACOS_CERTIFICATE }}
@@ -294,6 +321,13 @@ jobs:
           # Ship the atrium CLI inside the same bundle (reachable at Contents/MacOS/atrium).
           cp "tools/atrium-tool/target/${{ matrix.target }}/release/atrium" "${BUNDLE}/Contents/MacOS/"
           chmod +x "${BUNDLE}/Contents/MacOS/atrium"
+          # …and the 68k launcher next to them: atrium reads MacAtrium.bin to install
+          # the launcher into a built disk and never embeds it, so `launcher_path()`
+          # probes the running executable's directory (Contents/MacOS here).
+          cp launcher/MacAtrium.bin "${BUNDLE}/Contents/MacOS/"
+          # Curated game lists that ship with the app, found by bundled_dirs().
+          mkdir -p "${BUNDLE}/Contents/MacOS/collections"
+          cp data/collections/*.json "${BUNDLE}/Contents/MacOS/collections/"
 
           # Build an .icns from the PNG (best-effort; default icon if it fails).
           if [ -f assets/icons/macatrium-256.png ]; then
