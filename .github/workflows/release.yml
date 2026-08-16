@@ -405,7 +405,8 @@ jobs:
 
   build-mgmt-ui-linux:
     name: Manager GUI (linux-${{ matrix.arch }} AppImage)
-    needs: generate-version
+    # build-launcher too: the AppImage carries MacAtrium.bin like the other packages.
+    needs: [generate-version, build-launcher]
     runs-on: ${{ matrix.runs-on }}
     container: ghcr.io/pkgforge-dev/archlinux:latest
     strategy:
@@ -467,6 +468,11 @@ jobs:
           StartupNotify=true
           X-AppImage-Version=${VERSION}
           EOF
+      - name: Fetch launcher (MacAtrium.bin)
+        uses: actions/download-artifact@v8
+        with:
+          name: MacAtrium-launcher-${{ needs.generate-version.outputs.version }}
+          path: launcher
       - name: Bundle with quick-sharun
         run: |
           VERSION="${{ needs.generate-version.outputs.version }}"
@@ -484,6 +490,19 @@ jobs:
           # Bundle both the GUI and the atrium CLI; sharun dispatches on argv0, so
           # the CLI is reachable by symlinking the AppImage to `atrium`.
           ./quick-sharun /usr/bin/macatrium-mgmt-ui /usr/bin/atrium
+          # The AppDir exists now (quick-sharun defaults to ./AppDir) and is squashed
+          # by the next call, so this is the window to add the non-code files.
+          #
+          # AppDir/bin is the right home for them, not AppDir/shared/bin where the
+          # real ELFs sit: sharun puts its dispatch links in AppDir/bin and launches
+          # through them, so a running binary's current_exe() lands there - which is
+          # what launcher_path() and bundled_dirs() probe. Verified by planting
+          # markers in every candidate dir of a built AppImage and asking the bundled
+          # atrium which it found.
+          cp launcher/MacAtrium.bin AppDir/bin/
+          mkdir -p AppDir/bin/collections
+          cp data/collections/*.json AppDir/bin/collections/
+          ls -l AppDir/bin/
           ./quick-sharun --make-appimage
           ls -lh "$OUTPATH"
       - uses: actions/upload-artifact@v7

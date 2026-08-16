@@ -96,14 +96,15 @@ pub fn bundled_dirs() -> Vec<PathBuf> {
         return vec![PathBuf::from(p)];
     }
     let exe_dir = std::env::current_exe().ok().and_then(|e| e.parent().map(PathBuf::from));
-    let mut dirs = bundled_candidates(exe_dir.as_deref());
+    let appdir = std::env::var_os("APPDIR").map(PathBuf::from);
+    let mut dirs = bundled_candidates(exe_dir.as_deref(), appdir.as_deref());
     dirs.retain(|d| d.is_dir());
     dirs
 }
 
 /// The search list [`bundled_dirs`] filters — split out so the packaging layout
 /// can be tested without a real installed app to run from.
-fn bundled_candidates(exe_dir: Option<&Path>) -> Vec<PathBuf> {
+fn bundled_candidates(exe_dir: Option<&Path>, appdir: Option<&Path>) -> Vec<PathBuf> {
     let mut dirs: Vec<PathBuf> = Vec::new();
     if let Some(dir) = exe_dir {
         dirs.push(dir.join("collections"));
@@ -113,6 +114,14 @@ fn bundled_candidates(exe_dir: Option<&Path>) -> Vec<PathBuf> {
         // signed at all". The executable sits in Contents/MacOS, which makes
         // Resources its sibling one level up.
         dirs.push(dir.join("..").join("Resources").join("collections"));
+    }
+    // An AppImage exports APPDIR, and sharun launches through its dispatch links in
+    // $APPDIR/bin — so the exe-directory probe above already lands there today
+    // (measured against a built AppImage). This is the same place named through the
+    // contract rather than through sharun's current dispatch, so a change in how it
+    // launches can't quietly take the shipped lists away again.
+    if let Some(a) = appdir {
+        dirs.push(a.join("bin").join("collections"));
     }
     dirs.push(PathBuf::from("data/collections"));
     dirs
@@ -273,7 +282,7 @@ mod tests {
     #[test]
     fn a_mac_app_bundle_finds_its_lists_in_resources() {
         let exe_dir = PathBuf::from("/Apps/MacAtrium Manager.app/Contents/MacOS");
-        let cands = bundled_candidates(Some(&exe_dir));
+        let cands = bundled_candidates(Some(&exe_dir), None);
 
         let has = |suffix: &str| {
             cands.iter().any(|p| {
@@ -297,7 +306,21 @@ mod tests {
     /// the lookup must never come back empty-handed for a developer.
     #[test]
     fn without_an_exe_dir_the_checkout_path_remains() {
-        assert_eq!(bundled_candidates(None), vec![PathBuf::from("data/collections")]);
+        assert_eq!(bundled_candidates(None, None), vec![PathBuf::from("data/collections")]);
+    }
+
+    /// Inside an AppImage the lists ride in $APPDIR/bin/collections, beside the
+    /// dispatch links sharun launches through — keep this in step with the AppDir
+    /// staging in release.yml.
+    #[test]
+    fn an_appimage_finds_its_lists_under_appdir() {
+        let appdir = PathBuf::from("/tmp/.mount_abc123");
+        let exe_dir = appdir.join("bin");
+        let cands = bundled_candidates(Some(&exe_dir), Some(&appdir));
+        assert!(
+            cands.contains(&appdir.join("bin").join("collections")),
+            "the AppImage location is missing: {cands:?}"
+        );
     }
 
     #[test]

@@ -607,6 +607,15 @@ impl BuildConfig {
                 }
             }
         }
+        // An AppImage names its root through APPDIR. sharun's dispatch links live in
+        // $APPDIR/bin, so the probe above already finds it; this states the location
+        // as a contract instead of a consequence of how sharun happens to launch.
+        if let Some(a) = std::env::var_os("APPDIR") {
+            let cand = PathBuf::from(a).join("bin").join("MacAtrium.bin");
+            if cand.is_file() {
+                return cand;
+            }
+        }
         PathBuf::from("build/MacAtrium.bin")
     }
 
