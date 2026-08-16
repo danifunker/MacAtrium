@@ -85,21 +85,36 @@ pub fn bundled_dir() -> PathBuf {
 /// 1. `$MACATRIUM_COLLECTIONS`, if set (explicit override, wins outright);
 /// 2. `collections/` **next to the running executable** — how an installed app
 ///    finds the lists packaged alongside it;
-/// 3. `data/collections` relative to the working dir — the repo-checkout case.
+/// 3. `../Resources/collections` — the same thing inside a macOS `.app`;
+/// 4. `data/collections` relative to the working dir — the repo-checkout case.
 ///
-/// Only existing dirs are returned. Both 2 and 3 are listed because a developer
+/// Only existing dirs are returned. All of 2-4 are listed because a developer
 /// runs from a checkout while a user runs from an install; neither layout should
 /// need configuration.
 pub fn bundled_dirs() -> Vec<PathBuf> {
     if let Some(p) = std::env::var_os("MACATRIUM_COLLECTIONS") {
         return vec![PathBuf::from(p)];
     }
+    let exe_dir = std::env::current_exe().ok().and_then(|e| e.parent().map(PathBuf::from));
+    let mut dirs = bundled_candidates(exe_dir.as_deref());
+    dirs.retain(|d| d.is_dir());
+    dirs
+}
+
+/// The search list [`bundled_dirs`] filters — split out so the packaging layout
+/// can be tested without a real installed app to run from.
+fn bundled_candidates(exe_dir: Option<&Path>) -> Vec<PathBuf> {
     let mut dirs: Vec<PathBuf> = Vec::new();
-    if let Some(dir) = std::env::current_exe().ok().and_then(|e| e.parent().map(PathBuf::from)) {
+    if let Some(dir) = exe_dir {
         dirs.push(dir.join("collections"));
+        // A macOS .app keeps non-code in Contents/Resources: codesign treats
+        // everything beside the executable in Contents/MacOS as a code object, so
+        // a plain .json there fails the whole bundle with "code object is not
+        // signed at all". The executable sits in Contents/MacOS, which makes
+        // Resources its sibling one level up.
+        dirs.push(dir.join("..").join("Resources").join("collections"));
     }
     dirs.push(PathBuf::from("data/collections"));
-    dirs.retain(|d| d.is_dir());
     dirs
 }
 
@@ -249,6 +264,41 @@ pub fn list() -> Vec<Listed> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// A macOS `.app` cannot carry data files beside its executable: codesign
+    /// treats everything in `Contents/MacOS` as a code object and fails the whole
+    /// bundle with "code object is not signed at all" over a stray `.json`. So the
+    /// packaged lists live in `Contents/Resources/collections`, and the search has
+    /// to look there — keep this in step with the bundle layout in release.yml.
+    #[test]
+    fn a_mac_app_bundle_finds_its_lists_in_resources() {
+        let exe_dir = PathBuf::from("/Apps/MacAtrium Manager.app/Contents/MacOS");
+        let cands = bundled_candidates(Some(&exe_dir));
+
+        let has = |suffix: &str| {
+            cands.iter().any(|p| {
+                p.components().count() > 0
+                    && p.to_string_lossy().replace('\\', "/").ends_with(suffix)
+            })
+        };
+        assert!(has("Contents/MacOS/collections"), "beside the exe: {cands:?}");
+        assert!(
+            has("Contents/MacOS/../Resources/collections"),
+            "the bundle's Resources dir is missing from the search: {cands:?}"
+        );
+        assert_eq!(
+            cands.last().map(|p| p.to_string_lossy().replace('\\', "/")),
+            Some("data/collections".to_string()),
+            "the repo-checkout path stays last, so an install never loses to it"
+        );
+    }
+
+    /// With no executable path at all, the checkout layout is still searched —
+    /// the lookup must never come back empty-handed for a developer.
+    #[test]
+    fn without_an_exe_dir_the_checkout_path_remains() {
+        assert_eq!(bundled_candidates(None), vec![PathBuf::from("data/collections")]);
+    }
 
     #[test]
     fn parses_and_emits_overrides_overlay() {

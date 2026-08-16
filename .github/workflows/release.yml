@@ -321,13 +321,14 @@ jobs:
           # Ship the atrium CLI inside the same bundle (reachable at Contents/MacOS/atrium).
           cp "tools/atrium-tool/target/${{ matrix.target }}/release/atrium" "${BUNDLE}/Contents/MacOS/"
           chmod +x "${BUNDLE}/Contents/MacOS/atrium"
-          # …and the 68k launcher next to them: atrium reads MacAtrium.bin to install
-          # the launcher into a built disk and never embeds it, so `launcher_path()`
-          # probes the running executable's directory (Contents/MacOS here).
-          cp launcher/MacAtrium.bin "${BUNDLE}/Contents/MacOS/"
-          # Curated game lists that ship with the app, found by bundled_dirs().
-          mkdir -p "${BUNDLE}/Contents/MacOS/collections"
-          cp data/collections/*.json "${BUNDLE}/Contents/MacOS/collections/"
+          # The 68k launcher + the curated game lists go in Resources, NOT next to
+          # the executables: codesign treats everything under Contents/MacOS as a
+          # code object, so a plain data file there fails the whole bundle with
+          # "code object is not signed at all". Resources is where non-code belongs,
+          # and launcher_path() / bundled_dirs() probe ../Resources for exactly this.
+          cp launcher/MacAtrium.bin "${BUNDLE}/Contents/Resources/"
+          mkdir -p "${BUNDLE}/Contents/Resources/collections"
+          cp data/collections/*.json "${BUNDLE}/Contents/Resources/collections/"
 
           # Build an .icns from the PNG (best-effort; default icon if it fails).
           if [ -f assets/icons/macatrium-256.png ]; then

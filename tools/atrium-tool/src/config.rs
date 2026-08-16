@@ -595,7 +595,13 @@ impl BuildConfig {
         if let Some(dir) =
             std::env::current_exe().ok().and_then(|e| e.parent().map(PathBuf::from))
         {
-            for cand in [dir.join("MacAtrium.bin"), dir.join("build").join("MacAtrium.bin")] {
+            // ../Resources is the macOS .app case: the launcher MacBinary is data,
+            // and codesign rejects a bundle with non-code beside the executable.
+            for cand in [
+                dir.join("MacAtrium.bin"),
+                dir.join("../Resources/MacAtrium.bin"),
+                dir.join("build").join("MacAtrium.bin"),
+            ] {
                 if cand.is_file() {
                     return cand;
                 }
